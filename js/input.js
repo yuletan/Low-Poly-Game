@@ -1,5 +1,6 @@
 // input.js — Mouse selection (click + box drag) and command issuing.
 import * as THREE from 'three';
+import { Sound } from './sound.js';
 
 export function initInput(game, camera, renderer) {
   const raycaster = new THREE.Raycaster();
@@ -71,6 +72,7 @@ export function initInput(game, camera, renderer) {
     if (!game.selectedUnits.includes(u)) {
       u.setSelected(true);
       game.selectedUnits.push(u);
+      Sound.play('select');
     }
     updateSelectionUI();
   }
@@ -139,6 +141,7 @@ export function initInput(game, camera, renderer) {
       remaining.splice(bestU, 1);
       slots.splice(bestS, 1);
     }
+    Sound.play('move');
   }
 
   // ===== EVENT LISTENERS =====

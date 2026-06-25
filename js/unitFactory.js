@@ -151,3 +151,13 @@ export function createProjectileMesh() {
   const m    = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
   return new THREE.Mesh(geom, m);
 }
+
+/** Marks newly-launched carrier fighters visually with a small green dot. */
+export function tagAsLaunchedFighter(group) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.4, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0x44ff44 })
+  );
+  marker.position.y = 3;
+  group.add(marker);
+}

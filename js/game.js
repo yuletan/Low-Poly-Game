@@ -1,28 +1,45 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN } from './config.js';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT } from './config.js';
 import { createUnitMesh, createBaseMesh } from './unitFactory.js';
 import { buildTerrain } from './terrain.js';
 import { Projectile, updateExplosions, applyTerrainBonus } from './combat.js';
+import { Pathfinder } from './pathfinder.js';
+import { FogOfWar } from './fogOfWar.js';
+import { Minimap } from './minimap.js';
+import { UpgradeManager } from './upgrades.js';
+import { Sound } from './sound.js';
 
+// ============================================================
+//  UNIT CLASS — pathfinding, upgrades, carrier ability
+// ============================================================
 export class Unit {
   constructor(game, type, faction, position) {
     this.game     = game;
     this.type     = type;
     this.faction  = faction;
-    this.stats    = { ...UNIT_TYPES[type] };
-    this.domain   = this.stats.domain;
+    // Apply upgrades for player units
+    const baseStats = UNIT_TYPES[type];
+    this.stats    = faction === 'player'
+                     ? game.upgrades.applyTo(baseStats)
+                     : { ...baseStats };
+    this.domain   = baseStats.domain;
     this.maxHp    = this.stats.hp;
     this.hp       = this.maxHp;
     this.state    = 'idle';
     this.target   = null;
+    this.path     = [];          // ← NEW: list of waypoints from A*
     this.moveTarget = null;
     this.cooldown = 0;
     this.alive    = true;
     this.selected = false;
 
-    this.mesh = createUnitMesh(type, this.stats.color, faction);
-    const y = this.domain === 'air' ? this.stats.altitude : 0;
+    // Carrier ability
+    this.canLaunch = !!baseStats.canLaunchFighters;
+    this.launchCooldown = 0;
+
+    this.mesh = createUnitMesh(type, baseStats.color, faction);
+    const y = this.domain === 'air' ? baseStats.altitude : 0;
     this.mesh.position.set(position.x, y, position.z);
 
     const ringGeom = new THREE.RingGeometry(3, 3.5, 16);
@@ -43,8 +60,17 @@ export class Unit {
     this.ring.material.opacity = sel ? 0.9 : 0;
   }
 
+  /** Use A* pathfinder. */
   moveTo(pos) {
-    this.moveTarget = pos.clone();
+    const path = this.game.pathfinder.findPath(this.mesh.position, pos, this.domain);
+    if (path && path.length > 0) {
+      this.path = path;
+      this.moveTarget = this.path.shift();
+    } else {
+      // Fallback: try direct
+      this.moveTarget = pos.clone();
+      this.path = [];
+    }
     this.state = 'moving';
     this.target = null;
   }
@@ -63,6 +89,7 @@ export class Unit {
     if (!this.alive) return;
     this.alive = false;
     this.state = 'dead';
+    Sound.play('explosion');
     if (this.faction === 'enemy') this.game.money += 25;
     this.game.queueDeath(this);
   }
@@ -70,16 +97,16 @@ export class Unit {
   update(dt) {
     if (!this.alive) { this.updateDeath(dt); return; }
     this.cooldown -= dt;
+    if (this.canLaunch) this.launchCooldown -= dt;
 
     if (this.domain === 'sea') {
-      this.mesh.userData.bobPhase += dt*2;
-      this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase)*0.15 + 0.3;
+      this.mesh.userData.bobPhase += dt * 2;
+      this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase) * 0.15 + 0.3;
     }
 
     if (this.state === 'idle' || (this.state === 'moving' && !this.moveTarget)) {
       this.findTarget();
     }
-
     switch (this.state) {
       case 'moving':    this.updateMove(dt); break;
       case 'attacking': this.updateAttack(dt); break;
@@ -87,40 +114,26 @@ export class Unit {
   }
 
   updateMove(dt) {
-    if (!this.moveTarget) { this.state='idle'; return; }
+    if (!this.moveTarget) {
+      // Pull next waypoint
+      if (this.path.length > 0) this.moveTarget = this.path.shift();
+      else { this.state = 'idle'; return; }
+    }
     const pos = this.mesh.position;
     const dx = this.moveTarget.x - pos.x;
     const dz = this.moveTarget.z - pos.z;
-    const dist = Math.hypot(dx,dz);
-    if (dist < 1) {
-      this.moveTarget = null;
-      this.state = 'idle';
+    const dist = Math.hypot(dx, dz);
+    if (dist < 2) {
+      this.moveTarget = this.path.length > 0 ? this.path.shift() : null;
+      if (!this.moveTarget) this.state = 'idle';
       return;
     }
-    const nextX = pos.x + (dx/dist) * this.stats.speed * dt;
-    const nextZ = pos.z + (dz/dist) * this.stats.speed * dt;
-    const terrain = this.game.terrain.getTerrainAt(nextX, nextZ);
-    if (!this.canEnter(terrain)) {
-      this.moveTarget = null;
-      this.state = 'idle';
-      return;
-    }
-    let blocked = false;
-    for (const mt of this.game.terrain.mountains) {
-      if (this.domain === 'air') break;
-      const ddx = nextX - mt.x, ddz = nextZ - mt.z;
-      if (ddx*ddx+ddz*ddz < (mt.r+2)*(mt.r+2)) { blocked = true; break; }
-    }
-    if (blocked) {
-      pos.x += (-dz/dist) * this.stats.speed * dt;
-      pos.z += ( dx/dist) * this.stats.speed * dt;
-    } else {
-      pos.x = nextX; pos.z = nextZ;
-    }
+    const step = this.stats.speed * dt;
+    pos.x += (dx/dist) * step;
+    pos.z += (dz/dist) * step;
 
     const targetAngle = Math.atan2(dx, dz);
     this.smoothRotate(targetAngle, dt);
-
     if (this.domain === 'air') {
       const delta = ((targetAngle - this.mesh.rotation.y + Math.PI*3) % (Math.PI*2)) - Math.PI;
       this.mesh.rotation.z = THREE.MathUtils.clamp(-delta, -0.5, 0.5);
@@ -159,29 +172,23 @@ export class Unit {
     }
     const dist = this.mesh.position.distanceTo(this.target.mesh.position);
     if (dist > this.stats.range) {
-      this.moveTarget = this.target.mesh.position.clone();
-      this.state = 'moving';
+      this.moveTo(this.target.mesh.position);
       return;
     }
-
     const dx = this.target.mesh.position.x - this.mesh.position.x;
     const dz = this.target.mesh.position.z - this.mesh.position.z;
     const aimAngle = Math.atan2(dx, dz);
     if (this.mesh.userData.turret) {
-      const local = aimAngle - this.mesh.rotation.y;
-      this.mesh.userData.turret.rotation.y = local;
+      this.mesh.userData.turret.rotation.y = aimAngle - this.mesh.rotation.y;
     } else {
       this.smoothRotate(aimAngle, dt);
     }
-
     if (this.cooldown <= 0) this.fire();
   }
 
   fire() {
     this.cooldown = this.stats.fireRate;
-    const terrain = this.game.terrain.getTerrainAt(
-      this.mesh.position.x, this.mesh.position.z
-    );
+    const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
     const { dmg } = applyTerrainBonus(this.domain, terrain, this.stats.damage, this.maxHp);
     const dist = this.mesh.position.distanceTo(this.target.mesh.position);
     const falloff = THREE.MathUtils.clamp(1 - (dist/this.stats.range)*0.4, 0.6, 1);
@@ -189,10 +196,26 @@ export class Unit {
     const muzzlePos = this.mesh.position.clone();
     muzzlePos.y += 2;
     this.game.spawnMuzzleFlash(muzzlePos);
-    const p = new Projectile(
-      this.game.scene, muzzlePos, this.target, finalDmg, this.stats.hitChance
-    );
+    Sound.play('fire');
+    const p = new Projectile(this.game.scene, muzzlePos, this.target, finalDmg, this.stats.hitChance);
     this.game.projectiles.push(p);
+  }
+
+  /** Carrier special ability — launch fighters. */
+  launchFighters() {
+    if (!this.canLaunch || this.launchCooldown > 0) return false;
+    this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+    Sound.play('launch');
+    for (let i = 0; i < CARRIER_FIGHTER_COUNT; i++) {
+      const angle = (i / CARRIER_FIGHTER_COUNT) * Math.PI * 2;
+      const pos = {
+        x: this.mesh.position.x + Math.cos(angle) * 10,
+        z: this.mesh.position.z + Math.sin(angle) * 10,
+      };
+      const f = this.game.spawn('fighter', this.faction, pos);
+      f.mesh.position.y = UNIT_TYPES.fighter.altitude;
+    }
+    return true;
   }
 
   updateDeath(dt) {
@@ -216,6 +239,9 @@ export class Unit {
   }
 }
 
+// ============================================================
+//  BASE CLASS
+// ============================================================
 export class Base {
   constructor(game, faction, position, size = 1, name = 'Base') {
     this.game = game;
@@ -229,6 +255,7 @@ export class Base {
     this.mesh.position.set(position.x, 0, position.z);
     game.scene.add(this.mesh);
 
+    // Defensive turret
     this.turretCooldown = 0;
     this.turretRange = 60 * size;
     this.turretDamage = 20 * size;
@@ -250,13 +277,17 @@ export class Base {
         c.material.color.setHex(flagColor);
       }
     });
-    if (newOwner === 'player') this.game.money += 200;
+    if (newOwner === 'player') {
+      this.game.money += 200;
+      Sound.play('capture');
+    }
     this.game.checkWinCondition();
   }
   update(dt) {
     if (!this.alive) return;
     this.turretCooldown -= dt;
     if (this.turretCooldown > 0) return;
+    // Find target in range
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     let best = null, bestD = this.turretRange;
     for (const e of enemies) {
@@ -275,10 +306,14 @@ export class Base {
   }
 }
 
+// ============================================================
+//  GAME CLASS — orchestration
+// ============================================================
 export class Game {
-  constructor(scene, camera, difficulty) {
+  constructor(scene, camera, difficulty, cameraTarget) {
     this.scene = scene;
     this.camera = camera;
+    this.cameraTarget = cameraTarget;     // shared with main.js
     this.difficulty = difficulty;
     this.diffConfig = DIFFICULTY[difficulty];
 
@@ -294,31 +329,42 @@ export class Game {
 
     this.aiTimer = 0;
     this.ended = false;
+    this.fogUpdateTimer = 0;
   }
 
   init() {
-    this.terrain = buildTerrain(this.scene);
+    this.terrain    = buildTerrain(this.scene);
+    this.pathfinder = new Pathfinder(this.terrain);
+    this.upgrades   = new UpgradeManager(this);
+    this.fog        = new FogOfWar(this.scene);
+    this.minimap    = new Minimap(this, this.camera);
+    Sound.init();
+
     this.createBases();
     this.spawnStartingArmy();
+
     document.getElementById('difficulty').textContent = `Difficulty: ${this.difficulty.toUpperCase()}`;
     document.getElementById('basesTotal').textContent = this.bases.length;
   }
 
   createBases() {
-    this.bases.push(new Base(this, 'player', { x:-200, z:-180 }, 1.5, 'Player HQ'));
-    this.bases.push(new Base(this, 'enemy',  { x:-100, z:  80 }, 1.0, 'Outpost Alpha'));
-    this.bases.push(new Base(this, 'enemy',  { x:-180, z: 180 }, 1.0, 'Outpost Bravo'));
-    this.bases.push(new Base(this, 'enemy',  { x: 180, z: 100 }, 1.2, 'Island Fort'));
-    this.bases.push(new Base(this, 'enemy',  { x:  80, z:-150 }, 1.0, 'Naval Yard'));
-    this.bases.push(new Base(this, 'enemy',  { x: 220, z: -80 }, 2.0, 'Main Base'));
+    // Player HQ — far west, on coast of west continent
+    this.bases.push(new Base(this, 'player', { x:-500, z: 200 }, 1.8, 'Player HQ'));
+    // Enemy bases spread across the bigger world
+    this.bases.push(new Base(this, 'enemy', { x:-300, z:-200 }, 1.0, 'Outpost Alpha'));
+    this.bases.push(new Base(this, 'enemy', { x:-200, z: 350 }, 1.0, 'Outpost Bravo'));
+    this.bases.push(new Base(this, 'enemy', { x:  50, z:-400 }, 1.2, 'Northern Fort'));
+    this.bases.push(new Base(this, 'enemy', { x: 250, z: 100 }, 1.3, 'Coastal Garrison'));
+    this.bases.push(new Base(this, 'enemy', { x: 200, z: 400 }, 1.0, 'Island Watch'));
+    this.bases.push(new Base(this, 'enemy', { x: 450, z:-100 }, 2.2, 'Main Base'));
   }
 
   spawnStartingArmy() {
     const phq = this.bases[0].mesh.position;
-    this.spawn('tank',     'player', { x:phq.x+15, z:phq.z+10 });
-    this.spawn('tank',     'player', { x:phq.x+22, z:phq.z+10 });
-    this.spawn('infantry', 'player', { x:phq.x+15, z:phq.z+18 });
-    this.spawn('infantry', 'player', { x:phq.x+22, z:phq.z+18 });
+    this.spawn('tank',     'player', { x:phq.x+20, z:phq.z+10 });
+    this.spawn('tank',     'player', { x:phq.x+30, z:phq.z+10 });
+    this.spawn('infantry', 'player', { x:phq.x+20, z:phq.z+25 });
+    this.spawn('infantry', 'player', { x:phq.x+30, z:phq.z+25 });
     for (const b of this.bases) {
       if (b.faction !== 'enemy') continue;
       const p = b.mesh.position;
@@ -334,19 +380,73 @@ export class Game {
   }
 
   purchaseUnit(type) {
-    const cost = UNIT_TYPES[type].cost;
-    if (this.money < cost) return false;
+    const stats = UNIT_TYPES[type];
+    const cost = stats.cost;
+    if (this.money < cost) {
+      this.flashMessage(`Not enough $ for ${type} ($${cost})`);
+      return false;
+    }
     const hq = this.bases.find(b => b.faction === 'player');
     if (!hq) return false;
+    const spawnPos = this.findValidSpawn(hq.mesh.position, stats.domain);
+    if (!spawnPos) {
+      this.flashMessage(`No valid spawn location for ${type}!`);
+      return false;
+    }
     this.money -= cost;
-    const p = hq.mesh.position;
-    const dom = UNIT_TYPES[type].domain;
-    let pos;
-    if (dom === 'sea')      pos = { x:p.x+20,  z:p.z+30 };
-    else if (dom === 'air') pos = { x:p.x+10,  z:p.z+10 };
-    else                    pos = { x:p.x+5+Math.random()*15, z:p.z+5+Math.random()*15 };
-    this.spawn(type, 'player', pos);
+    const u = this.spawn(type, 'player', spawnPos);
+    this.spawnMuzzleFlash(u.mesh.position.clone().add(new THREE.Vector3(0, 3, 0)));
+    Sound.play('build');
     return true;
+  }
+
+  findValidSpawn(origin, domain) {
+    if (domain === 'air') {
+      const angle = Math.random() * Math.PI * 2;
+      return new THREE.Vector3(
+        origin.x + Math.cos(angle) * 25,
+        UNIT_TYPES.fighter.altitude,
+        origin.z + Math.sin(angle) * 25
+      );
+    }
+    const validTerrains = domain === 'sea'
+      ? [TERRAIN.SEA, TERRAIN.COAST]
+      : [TERRAIN.LAND, TERRAIN.COAST];
+    for (let radius = 15; radius <= 200; radius += 8) {
+      for (let i = 0; i < 16; i++) {
+        const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.2;
+        const x = origin.x + Math.cos(angle) * radius;
+        const z = origin.z + Math.sin(angle) * radius;
+        const t = this.terrain.getTerrainAt(x, z);
+        if (validTerrains.includes(t)) {
+          let blocked = false;
+          for (const mt of this.terrain.mountains) {
+            if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
+          }
+          if (!blocked) return new THREE.Vector3(x, 0, z);
+        }
+      }
+    }
+    return null;
+  }
+
+  flashMessage(text) {
+    let el = document.getElementById('flashMsg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'flashMsg';
+      el.style.cssText = `
+        position:fixed; top:60px; left:50%; transform:translateX(-50%);
+        background:rgba(170,40,40,0.9); color:#fff; padding:8px 16px;
+        border-radius:6px; font-family:monospace; z-index:100;
+        pointer-events:none; transition:opacity 0.3s;
+      `;
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.style.opacity = '1';
+    clearTimeout(this._flashT);
+    this._flashT = setTimeout(() => { el.style.opacity = '0'; }, 1800);
   }
 
   queueDeath(u) { this.deadUnits.push(u); }
@@ -371,7 +471,6 @@ export class Game {
 
     for (const u of this.playerUnits) u.update(dt);
     for (const u of this.enemyUnits)  u.update(dt);
-
     for (const b of this.bases) b.update(dt);
 
     for (let i = this.projectiles.length-1; i>=0; i--) {
@@ -397,6 +496,14 @@ export class Game {
     this.aiTimer += dt;
     if (this.onAITick) this.onAITick(dt);
 
+    // Fog of war — update 4× per second (cheap enough)
+    this.fogUpdateTimer += dt;
+    if (this.fogUpdateTimer > 0.25 && this.fog) {
+      this.fog.update(this.playerUnits, this.bases.filter(b => b.faction === 'player'));
+      this.fogUpdateTimer = 0;
+    }
+
+    if (this.minimap) this.minimap.draw();
     this.updateHUD();
   }
 

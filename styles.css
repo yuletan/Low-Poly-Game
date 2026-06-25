@@ -70,3 +70,21 @@ select {
   width:100%; padding:6px; background:#234; color:#eee;
   border:1px solid #4af; border-radius:4px; font-family:inherit;
 }
+
+/* Top-bar action buttons */
+.topBtn {
+  background:#234; color:#eee; border:1px solid #4af; border-radius:4px;
+  padding:4px 10px; margin-left:6px; cursor:pointer;
+  font-family:inherit; font-size:13px;
+}
+.topBtn:hover { background:#345; }
+
+/* Upgrade buttons (gold accent) */
+.upgradeBtn {
+  background:#3a2a10 !important;
+  border-color:#cc9933 !important;
+}
+.upgradeBtn:hover:not(:disabled) { background:#4a3a18 !important; }
+
+/* Make build panel scrollable since we added upgrades */
+#buildPanel { max-height: 60vh; overflow-y: auto; }
