@@ -1,0 +1,72 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Courier New', monospace;
+  background:#000; color:#eee; overflow:hidden;
+  user-select:none;
+}
+#gameCanvas { position:fixed; inset:0; }
+canvas { display:block; }
+
+/* Overlays */
+.overlay { position:fixed; inset:0; z-index:10; pointer-events:none; }
+.overlay.center { display:flex; align-items:center; justify-content:center;
+                  background:rgba(0,0,0,0.7); pointer-events:auto; }
+.hidden { display:none !important; }
+
+.panel {
+  background:rgba(20,25,35,0.85);
+  border:2px solid #4af;
+  border-radius:8px;
+  padding:16px;
+  pointer-events:auto;
+  box-shadow:0 0 20px rgba(70,170,255,0.3);
+}
+.panel.small { position:absolute; min-width:200px; }
+.panel h1 { color:#4af; margin-bottom:12px; text-align:center; }
+.panel h3 { color:#4af; margin-bottom:8px; font-size:14px; }
+
+#selectionPanel { left:10px; bottom:10px; }
+#formationPanel { left:50%; bottom:10px; transform:translateX(-50%); }
+#buildPanel    { right:10px; bottom:10px; min-width:240px; }
+
+/* Top bar */
+.bar {
+  position:absolute; top:0; left:0; right:0;
+  background:rgba(20,25,35,0.85);
+  padding:10px 20px; display:flex; gap:24px;
+  border-bottom:2px solid #4af; pointer-events:auto;
+  font-size:14px;
+}
+
+/* Buttons */
+.btn {
+  padding:10px 20px; margin:4px; cursor:pointer;
+  border:none; border-radius:4px; color:#fff; font-weight:bold;
+  font-family:inherit;
+}
+.btn-green { background:#2a8; } .btn-green:hover { background:#3b9; }
+.btn-amber { background:#a82; } .btn-amber:hover { background:#b93; }
+.btn-red   { background:#a33; } .btn-red:hover   { background:#b44; }
+
+.row { display:flex; justify-content:center; }
+
+/* Build menu unit buttons */
+.unitBtn {
+  display:flex; justify-content:space-between; align-items:center;
+  width:100%; padding:6px 10px; margin:3px 0;
+  background:#234; color:#eee; border:1px solid #4af; border-radius:4px;
+  cursor:pointer; font-family:inherit; font-size:12px;
+}
+.unitBtn:hover:not(:disabled) { background:#345; }
+.unitBtn:disabled { opacity:0.4; cursor:not-allowed; }
+
+/* Drag selection rectangle */
+#selectionBox {
+  position:absolute; border:1px solid #4f9;
+  background:rgba(80,255,150,0.15); display:none; pointer-events:none;
+}
+
+select {
+  width:100%; padding:6px; background:#234; color:#eee;
+  border:1px solid #4af; border-radius:4px; font-family:inherit;
+}
