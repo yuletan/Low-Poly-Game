@@ -1,5 +1,6 @@
 // input.js — Mouse selection (click + box drag) and command issuing.
 import * as THREE from 'three';
+import { LAND_HEIGHT } from './terrain.js';
 import { Sound } from './sound.js';
 
 export function initInput(game, camera, renderer) {
@@ -7,8 +8,8 @@ export function initInput(game, camera, renderer) {
   const mouse     = new THREE.Vector2();
   const canvas    = renderer.domElement;
 
-  // Invisible ground plane for raycasting world clicks
-  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  // Invisible ground plane for raycasting world clicks at land height
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -LAND_HEIGHT);
 
   // Drag state
   let isDragging = false;

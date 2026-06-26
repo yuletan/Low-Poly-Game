@@ -2,14 +2,16 @@
 import * as THREE from 'three';
 import { TERRAIN, MAP_SIZE } from './config.js';
 
+export const LAND_HEIGHT = 8; // Exported so game.js knows where the ground is!
+
 export function buildTerrain(scene) {
   // === SEA ===
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE),
-    new THREE.MeshLambertMaterial({ color: 0x2a5d8f })
+    new THREE.MeshLambertMaterial({ color: 0x2a5d8f, transparent: true, opacity: 0.85 })
   );
   sea.rotation.x = -Math.PI / 2;
-  sea.position.y = -0.2;
+  sea.position.y = 0; // Water level
   sea.receiveShadow = true;
   scene.add(sea);
 
@@ -23,11 +25,13 @@ export function buildTerrain(scene) {
   ];
 
   for (const lm of landmasses) {
+    const depth = 20; // Thick land so it doesn't look like a floating sheet
     const m = new THREE.Mesh(
-      new THREE.BoxGeometry(lm.w, 1, lm.d),
+      new THREE.BoxGeometry(lm.w, depth, lm.d),
       new THREE.MeshLambertMaterial({ color: lm.color })
     );
-    m.position.set(lm.x, 0, lm.z);
+    // Position land so its TOP surface is exactly at LAND_HEIGHT
+    m.position.set(lm.x, LAND_HEIGHT - depth / 2, lm.z);
     m.receiveShadow = true;
     scene.add(m);
   }
@@ -48,9 +52,11 @@ export function buildTerrain(scene) {
     const r = 10 + Math.random() * 6;
     const m = new THREE.Mesh(
       new THREE.ConeGeometry(r, h, 5),
-      new THREE.MeshLambertMaterial({ color: 0x6b5b3a })
+      // flatShading: true gives crisp low-poly edges!
+      new THREE.MeshStandardMaterial({ color: 0x6b5b3a, flatShading: true })
     );
-    m.position.set(x, h / 2, z);
+    // Sit mountain directly on top of the land
+    m.position.set(x, LAND_HEIGHT + h / 2, z);
     m.castShadow = true;
     scene.add(m);
     mountains.push({ x, z, r });
@@ -61,16 +67,22 @@ export function buildTerrain(scene) {
     const lm = landmasses[Math.floor(Math.random() * landmasses.length)];
     const x = lm.x + (Math.random() - 0.5) * lm.w * 0.9;
     const z = lm.z + (Math.random() - 0.5) * lm.d * 0.9;
+    
+    const trunkHeight = 2;
+    const leavesHeight = 4;
+    
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.4, 0.4, 2, 5),
-      new THREE.MeshLambertMaterial({ color: 0x5c3a1e })
+      new THREE.CylinderGeometry(0.4, 0.4, trunkHeight, 5),
+      new THREE.MeshStandardMaterial({ color: 0x5c3a1e, flatShading: true })
     );
-    trunk.position.set(x, 1, z);
+    trunk.position.set(x, LAND_HEIGHT + trunkHeight / 2, z);
+    
     const leaves = new THREE.Mesh(
-      new THREE.ConeGeometry(2, 4, 6),
-      new THREE.MeshLambertMaterial({ color: 0x2d5a1f })
+      new THREE.ConeGeometry(2, leavesHeight, 6),
+      new THREE.MeshStandardMaterial({ color: 0x2d5a1f, flatShading: true })
     );
-    leaves.position.set(x, 4, z);
+    leaves.position.set(x, LAND_HEIGHT + trunkHeight + leavesHeight / 2, z);
+    
     scene.add(trunk, leaves);
   }
 

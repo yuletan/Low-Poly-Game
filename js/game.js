@@ -1,6 +1,7 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
 import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
 import { createUnitMesh, createBaseMesh } from './unitFactory.js';
 import { buildTerrain } from './terrain.js';
 import { Projectile, updateExplosions, applyTerrainBonus } from './combat.js';
@@ -39,7 +40,7 @@ export class Unit {
     this.launchCooldown = 0;
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
-    const y = this.domain === 'air' ? baseStats.altitude : (position.y ?? (this.domain === 'sea' ? 0 : 0.5));
+    const y = this.domain === 'air' ? baseStats.altitude : (position.y ?? (this.domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5));
     this.mesh.position.set(position.x, y, position.z);
 
     const ringGeom = new THREE.RingGeometry(3, 3.5, 16);
@@ -252,7 +253,7 @@ export class Base {
     this.maxHp = this.hp;
     this.alive = true;
     this.mesh = createBaseMesh(size, faction === 'player');
-    this.mesh.position.set(position.x, 0, position.z);
+    this.mesh.position.set(position.x, LAND_HEIGHT, position.z);
     game.scene.add(this.mesh);
 
     // Defensive turret
@@ -424,7 +425,7 @@ export class Game {
             if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
           }
           if (!blocked) {
-            const spawnY = domain === 'sea' ? 0 : 0.5;
+            const spawnY = domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5;
             return new THREE.Vector3(x, spawnY, z);
           }
         }
