@@ -39,7 +39,7 @@ export class Unit {
     this.launchCooldown = 0;
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
-    const y = this.domain === 'air' ? baseStats.altitude : 0;
+    const y = this.domain === 'air' ? baseStats.altitude : (position.y ?? (this.domain === 'sea' ? 0 : 0.5));
     this.mesh.position.set(position.x, y, position.z);
 
     const ringGeom = new THREE.RingGeometry(3, 3.5, 16);
@@ -423,7 +423,10 @@ export class Game {
           for (const mt of this.terrain.mountains) {
             if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
           }
-          if (!blocked) return new THREE.Vector3(x, 0, z);
+          if (!blocked) {
+            const spawnY = domain === 'sea' ? 0 : 0.5;
+            return new THREE.Vector3(x, spawnY, z);
+          }
         }
       }
     }

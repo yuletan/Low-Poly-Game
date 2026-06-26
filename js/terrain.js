@@ -93,7 +93,7 @@ export function buildTerrain(scene) {
             Math.abs(z - (lm.z - lm.d/2)),
             Math.abs(z - (lm.z + lm.d/2))
           );
-          return edgeDist < 6 ? TERRAIN.COAST : TERRAIN.LAND;
+          return edgeDist < 15 ? TERRAIN.COAST : TERRAIN.LAND;
         }
       }
       for (const lm of landmasses) {
