@@ -22,7 +22,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('gameCanvas').appendChild(renderer.domElement);
 
-const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffffff, 0.9);
 sun.position.set(300, 400, 200);
@@ -158,6 +158,68 @@ function applySave(game, save) {
 }
 
 const clock = new THREE.Clock();
+
+// ==========================================
+// VISUAL DEBUG MODE
+// ==========================================
+import { LAND_HEIGHT } from './terrain.js';
+
+// Green grid at land height
+const landGrid = new THREE.GridHelper(MAP_SIZE, 50, 0x00ff00, 0x00ff00);
+landGrid.position.y = LAND_HEIGHT; 
+scene.add(landGrid);
+
+// Right-Click Debug Marker
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const clickMarkerGeom = new THREE.SphereGeometry(3, 8, 8);
+const clickMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const clickMarker = new THREE.Mesh(clickMarkerGeom, clickMarkerMat);
+clickMarker.visible = false;
+scene.add(clickMarker);
+
+// Create an invisible floor for the raycaster to hit reliably
+const invisibleFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE),
+  new THREE.MeshBasicMaterial({ visible: false })
+);
+invisibleFloor.rotation.x = -Math.PI / 2;
+invisibleFloor.position.y = LAND_HEIGHT; // Put it at land level
+scene.add(invisibleFloor);
+
+window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+window.addEventListener('mousedown', (e) => {
+  if (e.button === 2) { // Right click
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    
+    // Test against the invisible floor
+    const intersects = raycaster.intersectObject(invisibleFloor);
+    
+    if (intersects.length > 0) {
+      const point = intersects[0].point;
+      
+      // Move the red marker to where we clicked!
+      clickMarker.position.copy(point);
+      clickMarker.visible = true;
+      
+      console.log("🎯 RIGHT CLICK HIT! World Coordinates:", point);
+      console.log("   Is Y equal to LAND_HEIGHT (" + LAND_HEIGHT + ")?", point.y.toFixed(2));
+      
+      // If a game exists, try to move selected units to this point
+      if (game && game.selectedUnits && game.selectedUnits.length > 0) {
+        game.selectedUnits.forEach(u => {
+          if (u.moveTo) u.moveTo(point);
+        });
+      }
+    } else {
+      console.log("❌ RIGHT CLICK MISSED! Raycaster didn't hit the invisible floor.");
+    }
+  }
+});
 
 function animate() {
   requestAnimationFrame(animate);

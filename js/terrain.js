@@ -53,7 +53,7 @@ export function buildTerrain(scene) {
     const m = new THREE.Mesh(
       new THREE.ConeGeometry(r, h, 5),
       // flatShading: true gives crisp low-poly edges!
-      new THREE.MeshStandardMaterial({ color: 0x6b5b3a, flatShading: true })
+      new THREE.MeshLambertMaterial({ color: 0x6b5b3a, flatShading: true })
     );
     // Sit mountain directly on top of the land
     m.position.set(x, LAND_HEIGHT + h / 2, z);
@@ -73,13 +73,13 @@ export function buildTerrain(scene) {
     
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.4, 0.4, trunkHeight, 5),
-      new THREE.MeshStandardMaterial({ color: 0x5c3a1e, flatShading: true })
+      new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true })
     );
     trunk.position.set(x, LAND_HEIGHT + trunkHeight / 2, z);
     
     const leaves = new THREE.Mesh(
       new THREE.ConeGeometry(2, leavesHeight, 6),
-      new THREE.MeshStandardMaterial({ color: 0x2d5a1f, flatShading: true })
+      new THREE.MeshLambertMaterial({ color: 0x2d5a1f, flatShading: true })
     );
     leaves.position.set(x, LAND_HEIGHT + trunkHeight + leavesHeight / 2, z);
     
