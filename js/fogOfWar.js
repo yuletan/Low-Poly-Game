@@ -9,15 +9,22 @@ export class FogOfWar {
     this.cell = MAP_SIZE / this.size;
     this.grid = new Uint8Array(this.size * this.size);
 
-    this.geometry = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, this.size - 1, this.size - 1);
-    this.geometry.rotateX(-Math.PI / 2);
-    const colors = new Float32Array(this.geometry.attributes.position.count * 3);
-    this.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    // Use DataTexture for per-pixel alpha control
+    this.fogTexture = new THREE.DataTexture(
+      new Uint8Array(this.size * this.size * 4),
+      this.size, this.size,
+      THREE.RGBAFormat
+    );
+    this.fogTexture.magFilter = THREE.LinearFilter;
 
-    this.material = new THREE.MeshBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false,
+    const fogGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE);
+    fogGeo.rotateX(-Math.PI / 2);
+    const fogMat = new THREE.MeshBasicMaterial({
+      map: this.fogTexture,
+      transparent: true,
+      depthWrite: false,
     });
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh = new THREE.Mesh(fogGeo, fogMat);
     this.mesh.position.y = 30;
     this.mesh.renderOrder = 999;
     scene.add(this.mesh);
@@ -61,21 +68,17 @@ export class FogOfWar {
   }
 
   updateMesh() {
-    const colors = this.geometry.attributes.color.array;
-    const verts = this.geometry.attributes.position.count;
-    for (let i = 0; i < verts; i++) {
-      const gx = i % this.size;
-      const gy = Math.floor(i / this.size);
-      const v = this.grid[gy * this.size + gx];
-      let shade;
-      if (v === 0) shade = 0.0;
-      else if (v === 1) shade = 0.4;
-      else shade = 1.0;
-      colors[i*3]   = shade;
-      colors[i*3+1] = shade;
-      colors[i*3+2] = shade;
+    const data = this.fogTexture.image.data;
+    for (let i = 0; i < this.size * this.size; i++) {
+      const v = this.grid[i];
+      // unexplored = nearly opaque black, explored = semi-transparent dark, visible = fully transparent
+      const alpha = v === 0 ? 220 : v === 1 ? 120 : 0;
+      data[i*4]   = 0;    // R
+      data[i*4+1] = 0;    // G
+      data[i*4+2] = 0;    // B
+      data[i*4+3] = alpha; // A
     }
-    this.geometry.attributes.color.needsUpdate = true;
+    this.fogTexture.needsUpdate = true;
   }
 
   serialize() { return Array.from(this.grid); }
