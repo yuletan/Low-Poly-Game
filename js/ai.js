@@ -71,10 +71,10 @@ export function initAI(game) {
   let lastKnownEnemyCount = 0;
   let buildUpWarningShown = false;
 
-  /** Gather available attacking units (exclude transports). */
+  /** Gather available attacking units (exclude ships and transports). */
   function gatherAttackers() {
     return game.enemyUnits.filter(u =>
-      u.alive && !u.isTransport
+      u.alive && u.domain !== 'sea' && !u.isTransport
     );
   }
 
@@ -96,7 +96,7 @@ export function initAI(game) {
     if (playerBases.length === 0) return;
 
     const available = gatherAttackers();
-    const totalEnemy = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
+    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport).length;
 
     // Scale attack group based on total available forces
     let attackSize;
@@ -237,7 +237,7 @@ export function initAI(game) {
       aiMoney += income;
 
       // Decision: attack probability = alive combat units / maxAttackGroup
-      const totalCombat = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
+      const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport).length;
       const attackChance = Math.min(1, totalCombat / cfg.maxAttackGroup);
 
       if (Math.random() < attackChance) {
