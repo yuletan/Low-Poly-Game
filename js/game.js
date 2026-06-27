@@ -363,7 +363,6 @@ export class Unit {
       transparent: true, opacity: 0.4, depthTest: false
     });
     this._rangeRing = new THREE.LineLoop(geom, mat);
-    this._rangeRing.rotation.x = -Math.PI / 2;
     this._rangeRing.position.y = 0.3;
     this._rangeRing.renderOrder = 895;
     this._rangeRing.visible = false;
@@ -468,7 +467,7 @@ export class Unit {
     }
     if (best) {
       this.target = best;
-      if (!this.canFireWhileMoving) this.state = 'attacking';
+      this.state = 'attacking';
     }
   }
 
@@ -489,7 +488,7 @@ export class Unit {
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     const dist = this._dist2d(targetPos);
     if (dist > this.stats.range) {
-      this.moveTo(targetPos);
+      this.moveTo(targetPos, this.attackMove);
       return;
     }
     const dx = targetPos.x - this.mesh.position.x;
