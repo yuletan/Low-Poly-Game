@@ -486,7 +486,7 @@ export class Unit {
   }
 
   findTarget() {
-    let best = null, bestD = this.stats.range;
+    let best = null, bestD = Infinity;
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     for (const e of enemies) {
       if (!e.alive) continue;
@@ -519,7 +519,17 @@ export class Unit {
   }
 
   updateAttack(dt) {
-    if (!this.target || (this.target.alive === false && !this.target.takeDamage)) {
+    if (!this.target || !this.target.alive) {
+      this.target = null;
+      if (this.attackMove && this.attackMoveDest) {
+        this.moveTo(this.attackMoveDest, true);
+      } else {
+        this.state = 'idle';
+      }
+      return;
+    }
+    // Base captured (faction changed) — release target
+    if (this.target.faction && this.target.faction === this.faction) {
       this.target = null;
       if (this.attackMove && this.attackMoveDest) {
         this.moveTo(this.attackMoveDest, true);
@@ -548,6 +558,11 @@ export class Unit {
   /** Attack logic for units that can fire while moving (ships, planes). */
   updateAttackWhileMoving(dt) {
     if (!this.target || !this.target.alive) {
+      this.target = null;
+      return;
+    }
+    // Base captured (faction changed) — release target
+    if (this.target.faction && this.target.faction === this.faction) {
       this.target = null;
       return;
     }
