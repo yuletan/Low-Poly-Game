@@ -333,19 +333,9 @@ export class Unit {
     if (this.state === 'moving' && this.canFireWhileMoving && this.target) {
       this.updateAttackWhileMoving(dt);
     }
-    switch (this.state) {
-      case 'moving':    this.updateMove(dt); break;
-      case 'attacking': this.updateAttack(dt); break;
-    }
-
-    // Transport: sync carried units; skip combat
-    if (this.isTransport) {
-      this._updateTransport(dt);
-      // Transport can't attack — clear any target
-      this.target = null;
-    }
 
     // Amphibious auto-conversion: land unit in water → boat, boat on land → land
+    // MUST run before updateMove so the domain check in updateMove uses the correct domain
     if (this.domain !== 'air' && this.state !== 'dead') {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
@@ -360,6 +350,18 @@ export class Unit {
         this.mesh.position.y = 0.5;
         if (this._rangeRing) this._rangeRing.material.color.setHex(this.faction === 'player' ? 0x4488ff : 0xff4444);
       }
+    }
+
+    switch (this.state) {
+      case 'moving':    this.updateMove(dt); break;
+      case 'attacking': this.updateAttack(dt); break;
+    }
+
+    // Transport: sync carried units; skip combat
+    if (this.isTransport) {
+      this._updateTransport(dt);
+      // Transport can't attack — clear any target
+      this.target = null;
     }
 
     // Terrain enforcement: push to valid terrain (skip amphibious boats)
