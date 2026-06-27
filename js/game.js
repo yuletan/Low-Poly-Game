@@ -481,10 +481,31 @@ export class Unit {
 
   _updateTransport(dt) {
     if (!this.alive) return;
+    // Auto-unload when idle on coast/land with cargo
+    if (this.state === 'idle' && this.carriedUnits.length > 0 && this.canUnload()) {
+      this.unloadAll();
+      // After unloading, retreat to nearest friendly base for more troops
+      this._retreatToFriendlyBase();
+      return;
+    }
     // Sync carried unit meshes
     for (const u of this.carriedUnits) {
       u.mesh.position.copy(this.mesh.position);
       u.mesh.position.y += 0.5;
+    }
+  }
+
+  _retreatToFriendlyBase() {
+    const bases = this.game.bases.filter(b => b.faction === this.faction);
+    if (!bases.length) return;
+    const nearest = bases.reduce((a, b) =>
+      this.mesh.position.distanceTo(a.mesh.position) < this.mesh.position.distanceTo(b.mesh.position) ? a : b
+    );
+    const g = this.game.pathfinder.worldToGrid(nearest.mesh.position.x, nearest.mesh.position.z);
+    const seaCell = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+    if (seaCell) {
+      const w = this.game.pathfinder.gridToWorld(seaCell.gx, seaCell.gy);
+      this.moveTo(new THREE.Vector3(w.x, 0, w.z));
     }
   }
 

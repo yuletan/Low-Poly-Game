@@ -84,8 +84,17 @@ export function initAI(game) {
       // Target the WEAKEST player base (lowest HP)
       return playerBases.reduce((a, b) => (a.hp < b.hp ? a : b));
     }
-    // Easy/Normal — random player base
-    return playerBases[Math.floor(Math.random() * playerBases.length)];
+    // Easy/Normal — weighted random: lower HP = higher chance
+    // This ensures wounded bases get finished off
+    const totalHp = playerBases.reduce((s, b) => s + b.hp, 0);
+    const weights = playerBases.map(b => Math.max(1, totalHp - b.hp + 1));
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * totalWeight;
+    for (let i = 0; i < playerBases.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return playerBases[i];
+    }
+    return playerBases[0];
   }
 
   let lastKnownEnemyCount = 0;
@@ -217,14 +226,20 @@ export function initAI(game) {
     }
   }
 
-  /** Find idle land units near a transport and load them */
+  /** Find idle land units near a transport and load them (extended range) */
   function loadTransport(tp) {
     const idle = game.enemyUnits.filter(u =>
       u.alive && u.domain === 'land' && !u.carried && u.state === 'idle'
     );
     for (const u of idle) {
       if (tp.carriedUnits.length >= tp.transportCapacity) break;
-      if (tp.canLoadUnit(u)) tp.loadUnit(u);
+      if (tp.mesh.position.distanceTo(u.mesh.position) <= 30) {
+        // Force-load units in extended range (bypass canLoadUnit's 12-range limit)
+        tp.carriedUnits.push(u);
+        u.mesh.visible = false;
+        u.carried = true;
+        u.state = 'idle';
+      }
     }
   }
 
@@ -232,7 +247,7 @@ export function initAI(game) {
   function launchAmphibiousAttack() {
     const playerBases = game.bases.filter(b => b.faction === 'player');
     if (!playerBases.length) return;
-    const target = playerBases[Math.floor(Math.random() * playerBases.length)];
+    const target = pickPlayerTarget();
 
     // Find idle transports with cargo or ready to load
     const transports = game.enemyUnits.filter(u =>
@@ -245,15 +260,21 @@ export function initAI(game) {
       if (tp.carriedUnits.length < tp.transportCapacity) {
         loadTransport(tp);
       }
-      // If we have some cargo, head toward target via coast
-      if (tp.carriedUnits.length > 0) {
-        // Find a coast position near the target
+      // Count how many idle land units are nearby (within 30) that could still be loaded
+      const nearbyIdleLand = game.enemyUnits.filter(u =>
+        u.alive && u.domain === 'land' && !u.carried && u.state === 'idle' &&
+        tp.mesh.position.distanceTo(u.mesh.position) < 30
+      );
+      const isFull = tp.carriedUnits.length >= tp.transportCapacity;
+      const noMoreNearby = nearbyIdleLand.length === 0;
+      // Only sail if full OR no more troops nearby to pick up
+      if ((isFull || noMoreNearby) && tp.carriedUnits.length > 0) {
         const g = game.pathfinder.worldToGrid(target.mesh.position.x, target.mesh.position.z);
         const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
         if (nearest) {
           const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
           tp.moveTo(new THREE.Vector3(w.x, 0, w.z));
-          console.log(`[DEBUG AI] Transport moving ${tp.carriedUnits.length} units toward ${target.name}`);
+          console.log(`[DEBUG AI] Transport moving ${tp.carriedUnits.length}/${tp.transportCapacity} units toward ${target.name}`);
         }
       }
     }
@@ -292,8 +313,8 @@ export function initAI(game) {
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
 
-    // --- Amphibious transport logic ---
-    if (needsTransport() && Math.random() < 0.02) {
+    // --- Amphibious transport logic (8% chance per tick, ~every 1-2s) ---
+    if (needsTransport() && Math.random() < 0.08) {
       launchAmphibiousAttack();
     }
 
