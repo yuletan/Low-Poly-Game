@@ -50,6 +50,7 @@ export class Unit {
     this.mesh = createUnitMesh(type, baseStats.color, faction);
     const y = this.domain === 'air' ? baseStats.altitude : (position.y ?? (this.domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5));
     this.mesh.position.set(position.x, y, position.z);
+    this._labelHeight = this.domain === 'air' ? 4 : (this.domain === 'sea' ? 4 : 3.5);
 
     // Selection ring (brighter with fill)
     const ringGeom = new THREE.RingGeometry(3, 4, 16);
@@ -235,7 +236,30 @@ export class Unit {
       this.game.money += bounty;
       this.game.flashMessage(`+${bounty}$ bounty`);
     }
+    // Create "OUT OF COMMISSION" label
+    this._createDeathLabel();
     this.game.queueDeath(this);
+  }
+
+  _createDeathLabel() {
+    const label = document.createElement('div');
+    label.className = 'death-label';
+    label.textContent = 'OUT OF COMMISSION';
+    document.body.appendChild(label);
+    this._deathLabel = label;
+  }
+
+  _updateDeathLabel() {
+    if (!this._deathLabel) return;
+    const vec = new THREE.Vector3();
+    vec.copy(this.mesh.position);
+    vec.y += this._labelHeight || 3;
+    vec.project(this.game.camera);
+    const x = (vec.x * 0.5 + 0.5) * this.game.renderer.domElement.clientWidth;
+    const y = (-vec.y * 0.5 + 0.5) * this.game.renderer.domElement.clientHeight;
+    this._deathLabel.style.left = `${x}px`;
+    this._deathLabel.style.top = `${y}px`;
+    this._deathLabel.style.display = vec.z < 1 ? 'block' : 'none';
   }
 
   update(dt) {
@@ -700,6 +724,7 @@ export class Unit {
 
   updateDeath(dt) {
     this.deathTime = (this.deathTime || 0) + dt;
+    this._updateDeathLabel();
     if (this.domain === 'air') {
       this.mesh.rotation.x += dt*2;
       this.mesh.position.y -= 30 * dt;
@@ -716,6 +741,10 @@ export class Unit {
     if (this._cleaned) return;
     this._cleaned = true;
     this.game.scene.remove(this.mesh);
+    if (this._deathLabel) {
+      this._deathLabel.remove();
+      this._deathLabel = null;
+    }
   }
 }
 
@@ -1417,6 +1446,8 @@ export class Game {
     document.getElementById('income').textContent = `+${PASSIVE_INCOME * owned}/s`;
     document.getElementById('unitCount').textContent = this.playerUnits.length;
     document.getElementById('basesOwned').textContent = owned;
+    // Live refresh of selection HP/status
+    this.updateSelectionUI?.();
   }
 
   checkWinCondition() {

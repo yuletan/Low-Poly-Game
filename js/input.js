@@ -476,5 +476,9 @@ export function initInput(game, camera, renderer) {
     }
   });
 
+  // Expose selection UI updater and renderer so the game can refresh / project
+  game.updateSelectionUI = updateSelectionUI;
+  game.renderer = renderer;
+
   console.log('✅ Input system online — LMB select/drag, RMB move/attack.');
 }
