@@ -863,7 +863,7 @@ export class Base {
       this.territoryRing.material.color.setHex(flagColor);
     }
     if (newOwner === 'player') {
-      this.game.money += 200;
+      this.game.money += 400;
     }
     this.game.checkWinCondition();
   }
