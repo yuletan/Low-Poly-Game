@@ -1,7 +1,7 @@
 // combat.js — Handles projectile flight, damage rolls, and FX.
 import * as THREE from 'three';
 import { createProjectileMesh } from './unitFactory.js?v=3';
-import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS } from './config.js?v=3';
+import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS } from './config.js?v=4';
 
 export class Projectile {
   constructor(scene, from, target, damage, hitChance, type = 'land', pattern = 'default', splashRadius = 0, splashFalloff = 1) {

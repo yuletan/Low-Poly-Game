@@ -1,5 +1,5 @@
 // ui.js — Binds HTML overlay controls to the game.
-import { UNIT_TYPES, UPGRADES } from './config.js?v=3';
+import { UNIT_TYPES, UPGRADES } from './config.js?v=4';
 import { Sound } from './sound.js';
 import { saveGame, loadSaveData, deleteSave, hasSave } from './saveLoad.js';
 

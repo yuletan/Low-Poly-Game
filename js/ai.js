@@ -1,14 +1,12 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js?v=4';
 
 export function initAI(game) {
   const cfg = DIFFICULTY[game.difficulty];
 
   let economyTimer = 0;
-  let attackTimer  = cfg.aiInterval * 0.5; // first attack comes sooner
   let aiMoney      = 200;
-  let buildUpTimer = 0;
 
   /** Check if water exists between two positions */
   function isWaterBetween(pos1, pos2) {
@@ -70,7 +68,12 @@ export function initAI(game) {
       console.warn(`[DEBUG AI] Failed to find spawn for ${type} near ${base.name}`);
       return false;
     }
-    game.spawn(type, 'enemy', pos);
+    const u = game.spawn(type, 'enemy', pos);
+    if (cfg.hpMultiplier > 1) {
+      u.maxHp = Math.round(u.maxHp * cfg.hpMultiplier);
+      u.hp = u.maxHp;
+      u._displayHp = u.hp;
+    }
     console.log(`[DEBUG AI] Spawned ${type} near ${base.name} at (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})`);
     return true;
   }
@@ -140,6 +143,7 @@ export function initAI(game) {
       attackSize = Math.ceil(totalEnemy * (0.4 + Math.random() * 0.2)); // Send 40-60% (keep reserves)
     }
 
+    attackSize = Math.min(attackSize, cfg.maxAttackGroup);
     if (attackSize < 1) return;
 
     // 70% single target, 30% multi-target
@@ -348,50 +352,43 @@ export function initAI(game) {
   game.onAITick = function (dt) {
     if (game.ended) return;
 
-    // --- AI economy: passive income based on bases & difficulty multiplier ---
-    economyTimer += dt;
-    if (economyTimer >= 1) {
-      const ownedBases = game.bases.filter(b => b.faction === 'enemy').length;
-      const income = 12 * ownedBases * cfg.aiIncome;
-      aiMoney += income;
-      console.log(`[DEBUG AI] Economy tick: +$${income.toFixed(0)} (bases: ${ownedBases}, money: $${aiMoney.toFixed(0)})`);
-      economyTimer = 0;
-    }
-
-    // --- AI builds units when it can afford them ---
-    const desiredType = chooseUnitToBuild();
-    const cost = UNIT_TYPES[desiredType].cost;
-    if (aiMoney >= cost) {
-      if (spawnEnemyUnit(desiredType)) {
-        aiMoney -= cost;
-      }
-    }
-
-    // --- Check for enemy build-up (every 2s) ---
-    buildUpTimer += dt;
-    if (buildUpTimer >= 2) {
-      buildUpTimer = 0;
-      checkBuildUp();
-    }
-
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
 
-    // --- Amphibious transport logic (8% chance per tick, ~every 1-2s) ---
+    // --- Amphibious transport logic (8% chance per tick) ---
     if (needsTransport() && Math.random() < 0.08) {
       launchAmphibiousAttack();
     }
 
-    // --- Attack waves on a timer ---
-    attackTimer -= dt;
-    if (attackTimer <= 0) {
-      // Always attack if we have enough units, otherwise use aggression gate
-      const totalUnits = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
-      const shouldAttack = totalUnits >= 6 || Math.random() < cfg.aiAggression;
-      if (shouldAttack) {
+    // --- Unified 1-second tick: income + spawn-vs-attack ---
+    economyTimer += dt;
+    if (economyTimer >= 1) {
+      economyTimer = 0;
+
+      // Economy: passive income from bases
+      const ownedBases = game.bases.filter(b => b.faction === 'enemy').length;
+      const income = 12 * ownedBases * cfg.aiIncome;
+      aiMoney += income;
+
+      // Decision: attack probability = alive combat units / maxAttackGroup
+      const totalCombat = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
+      const attackChance = Math.min(1, totalCombat / cfg.maxAttackGroup);
+
+      if (Math.random() < attackChance) {
         launchAttack();
+      } else {
+        // Spawn one unit
+        const desiredType = chooseUnitToBuild();
+        const cost = UNIT_TYPES[desiredType].cost;
+        if (aiMoney >= cost) {
+          if (spawnEnemyUnit(desiredType)) {
+            aiMoney -= cost;
+          }
+        }
       }
-      attackTimer = cfg.aiInterval * (0.75 + Math.random() * 0.5);
+
+      // Build-up warning check
+      checkBuildUp();
     }
   };
 

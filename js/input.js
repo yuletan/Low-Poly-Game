@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 import { Sound } from './sound.js';
-import { UNIT_TYPES, TERRAIN } from './config.js?v=3';
+import { UNIT_TYPES, TERRAIN } from './config.js?v=4';
 
 // Canvas roundRect helper for icon generation
 function roundRect(ctx, x, y, w, h, r) {

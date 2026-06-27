@@ -64,9 +64,9 @@ export const PASSIVE_INCOME = 20;
 
 // ===== DIFFICULTY =====
 export const DIFFICULTY = {
-  easy:   { aiIncome:0.6, aiAggression:0.3, aiInterval:25 },
-  normal: { aiIncome:1.0, aiAggression:0.6, aiInterval:18 },
-  hard:   { aiIncome:1.5, aiAggression:1.0, aiInterval:12 },
+  easy:   { aiIncome:0.6, maxAttackGroup:10, hpMultiplier:1.0 },
+  normal: { aiIncome:1.0, maxAttackGroup:20, hpMultiplier:1.0 },
+  hard:   { aiIncome:1.5, maxAttackGroup:50, hpMultiplier:2.0 },
 };
 
 // ===== UPGRADES =====
