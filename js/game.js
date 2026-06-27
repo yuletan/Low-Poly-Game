@@ -622,7 +622,7 @@ export class Unit {
   }
 
   findTarget() {
-    let best = null, bestD = Infinity;
+    let best = null, bestD = this.stats.range;
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     for (const e of enemies) {
       if (!e.alive) continue;
@@ -630,19 +630,6 @@ export class Unit {
       if (this.domain === 'land' && e.domain === 'air') continue;
       const d = this._dist2d(e.mesh.position);
       if (d < bestD) { best = e; bestD = d; }
-    }
-    // Also scan enemy bases
-    const enemyBases = this.faction === 'player'
-      ? this.game.bases.filter(b => b.faction === 'enemy' && b.alive)
-      : this.game.bases.filter(b => b.faction === 'player' && b.alive);
-    for (const b of enemyBases) {
-      const d = this._dist2d(b.mesh.position);
-      if (d < bestD) {
-        best = { mesh: b.mesh, faction: b.faction,
-                 get alive() { return b.alive; }, get hp() { return b.hp; },
-                 takeDamage: dmg => b.takeDamage(dmg), type: b.name, domain:'land' };
-        bestD = d;
-      }
     }
     if (best) {
       this.target = best;

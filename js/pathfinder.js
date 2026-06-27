@@ -111,17 +111,17 @@ export class Pathfinder {
     }
     path.reverse();
     if (path.length > 0) path[path.length - 1] = endWorld.clone();
-    return this.smoothPath(path);
+    return this.smoothPath(path, domain);
   }
 
-  smoothPath(path) {
+  smoothPath(path, domain) {
     if (path.length < 3) return path;
     const out = [path[0]];
     let i = 0;
     while (i < path.length - 1) {
       let j = path.length - 1;
       while (j > i + 1) {
-        if (this.hasLineOfSight(path[i], path[j])) break;
+        if (this.hasLineOfSight(path[i], path[j], domain)) break;
         j--;
       }
       out.push(path[j]);
@@ -130,12 +130,18 @@ export class Pathfinder {
     return out;
   }
 
-  hasLineOfSight(a, b) {
+  hasLineOfSight(a, b, domain) {
+    if (domain === 'air') return true;
     const steps = Math.ceil(a.distanceTo(b) / (this.cell / 2));
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
       const x = a.x + (b.x - a.x) * t;
       const z = a.z + (b.z - a.z) * t;
+      // Check terrain walkability for this domain
+      const terrain = this.terrain.getTerrainAt(x, z);
+      if (domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) return false;
+      if (domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) return false;
+      // Check mountains for all ground domains
       for (const mt of this.terrain.mountains) {
         if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 2) return false;
       }
