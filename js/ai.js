@@ -175,22 +175,28 @@ export function initAI(game) {
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
-    const needsAmphibious = targets.some(t =>
+    // Decide attack method: amphibious only if transports exist or can be spawned
+    let useAmphibious = false;
+    const waterBetween = targets.some(t =>
       groundAttackers.some(u => isWaterBetween(u.mesh.position, t.mesh.position))
     );
+    if (waterBetween) {
+      const existingTransports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
+      const neededTransports = Math.ceil(groundAttackers.length / (UNIT_TYPES.transport.transportCapacity || 4));
+      const canAffordMore = aiMoney >= UNIT_TYPES.transport.cost * Math.max(0, neededTransports - existingTransports.length);
+      useAmphibious = existingTransports.length > 0 || canAffordMore;
+    }
 
-    if (needsAmphibious) {
+    if (useAmphibious) {
       // --- Amphibious assault: load ground troops onto transports ---
-      const capacity = UNIT_TYPES.transport.transportCapacity || 4;
       let transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
       let availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
 
       // Spawn extra transports if needed (up to what AI can afford)
-      const neededTransports = Math.ceil(groundAttackers.length / capacity);
-      while (transports.length < neededTransports && aiMoney >= UNIT_TYPES.transport.cost) {
+      const needCount = Math.ceil(groundAttackers.length / (UNIT_TYPES.transport.transportCapacity || 4));
+      while (transports.length < needCount && aiMoney >= UNIT_TYPES.transport.cost) {
         if (spawnEnemyUnit('transport')) {
           aiMoney -= UNIT_TYPES.transport.cost;
-          // Re-fetch idle transports
           transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
           availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
         } else break;
@@ -200,7 +206,6 @@ export function initAI(game) {
       let loaded = 0;
       for (const u of groundAttackers) {
         if (availSlots <= 0) break;
-        // Find a transport with room
         const tp = transports.find(t => t.carriedUnits.length < t.transportCapacity);
         if (!tp) break;
         tp.carriedUnits.push(u);
@@ -212,7 +217,7 @@ export function initAI(game) {
       }
 
       // Move transport fleet to coast near primary target
-      if (loaded > 0 && transports.length > 0) {
+      if (loaded > 0) {
         const primary = targets[0];
         const g = game.pathfinder.worldToGrid(primary.mesh.position.x, primary.mesh.position.z);
         const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
@@ -227,8 +232,13 @@ export function initAI(game) {
           console.log(`[DEBUG AI] AMPHIBIOUS ASSAULT: ${loaded} troops on ${loadedTransports.length} transports → ${primary.name}`);
         }
       }
-    } else {
-      // --- Normal ground movement (no water crossing needed) ---
+      // Any ground attackers that couldn't be loaded still get no move order (they stay as defense)
+    }
+
+    // Normal ground movement for:
+    //   - targets that DON'T need water crossing
+    //   - OR when no transports are available (fallback sends everything anyway)
+    if (!useAmphibious) {
       if (multiTarget) {
         const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
         let idx = 0;
