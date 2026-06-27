@@ -293,31 +293,32 @@ export function initInput(game, camera, renderer) {
     const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
     if (hasTransport) {
       const transport = game.selectedUnits.find(u => u.isTransport);
-      const canLoad = game.selectedUnits.some(u => !u.isTransport && transport && transport.canLoadUnit(u));
-      const canUnload = transport && transport.canUnload();
+      // Check for nearby friendly land units (not just selected)
+      const nearbyLand = game.playerUnits.filter(u =>
+        u.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit(u)
+      );
+      const canLoad = nearbyLand.length > 0;
+      const canUnload = transport.carriedUnits.length > 0;
       html += `<div class="transport-actions" style="display:flex;gap:8px;margin-top:8px;justify-content:center;">`;
-      if (canLoad) {
-        html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;">📦 Load</button>`;
-      }
-      if (canUnload) {
-        html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;">📤 Unload</button>`;
-      }
+      html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canLoad ? '' : ' disabled'}>📦 Load${canLoad ? '' : ' (no units nearby)'}</button>`;
+      html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canUnload ? '' : ' disabled'}>📤 Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (no cargo)'}</button>`;
       html += `</div>`;
     }
 
     info.innerHTML = html;
 
-    // Bind transport buttons
+    // Bind transport buttons (fresh each frame)
     const loadBtn = document.getElementById('loadBtn');
     if (loadBtn) {
       loadBtn.addEventListener('click', () => {
         const t = game.selectedUnits.find(u => u.isTransport);
-        if (t) {
-          const toLoad = game.selectedUnits.filter(u => !u.isTransport && t.canLoadUnit(u));
-          for (const u of toLoad) t.loadUnit(u);
-          game.updateSelectionUI();
-        }
-      }, { once: true });
+        if (!t) return;
+        const toLoad = game.playerUnits.filter(u =>
+          u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
+        );
+        for (const u of toLoad) t.loadUnit(u);
+        game.updateSelectionUI();
+      });
     }
     const unloadBtn = document.getElementById('unloadBtn');
     if (unloadBtn) {
@@ -325,7 +326,7 @@ export function initInput(game, camera, renderer) {
         const t = game.selectedUnits.find(u => u.isTransport);
         if (t) t.unloadAll();
         game.updateSelectionUI();
-      }, { once: true });
+      });
     }
   }
 

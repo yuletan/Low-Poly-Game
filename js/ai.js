@@ -8,6 +8,7 @@ export function initAI(game) {
   let economyTimer = 0;
   let attackTimer  = cfg.aiInterval * 0.5; // first attack comes sooner
   let aiMoney      = 200;
+  let buildUpTimer = 0;
 
   /** Check if water exists between two positions */
   function isWaterBetween(pos1, pos2) {
@@ -87,79 +88,107 @@ export function initAI(game) {
     return playerBases[Math.floor(Math.random() * playerBases.length)];
   }
 
-  /** Order a group of idle enemy units to attack. */
+  let lastKnownEnemyCount = 0;
+  let buildUpWarningShown = false;
+
+  /** Gather available attacking units (exclude air, transports, and defenders near bases). */
+  function gatherAttackers() {
+    // Count ALL alive enemy units (not just idle)
+    return game.enemyUnits.filter(u =>
+      u.alive && u.domain !== 'air' && !u.isTransport
+    );
+  }
+
+  /** Show a warning when the AI is massing a large force. */
+  function checkBuildUp() {
+    const total = game.enemyUnits.filter(u => u.alive).length;
+    // Flash warning when we gain 5+ units in one tick (rapid build-up)
+    if (total >= 12 && total - lastKnownEnemyCount >= 3 && !buildUpWarningShown) {
+      game.flashMessage(`⚠️ Enemy battalion detected! (~${total} units massing)`);
+      buildUpWarningShown = true;
+    }
+    if (total < 8) buildUpWarningShown = false;
+    lastKnownEnemyCount = total;
+  }
+
+  /** Order a group of enemy units to attack. Uses ALL available forces proportionally. */
   function launchAttack() {
     const playerBases = game.bases.filter(b => b.faction === 'player');
     if (playerBases.length === 0) return;
 
-    // 70% single target, 30% multi-target (attack all bases)
+    const available = gatherAttackers();
+    const totalEnemy = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
+
+    // Scale attack group based on total available forces
+    let attackSize;
+    if (totalEnemy < 4) {
+      attackSize = totalEnemy; // Send everything
+    } else if (totalEnemy < 8) {
+      attackSize = Math.ceil(totalEnemy * 0.7); // Send 70%
+    } else if (totalEnemy < 15) {
+      attackSize = Math.ceil(totalEnemy * 0.6); // Send 60%
+    } else {
+      attackSize = Math.ceil(totalEnemy * (0.4 + Math.random() * 0.2)); // Send 40-60% (keep reserves)
+    }
+
+    if (attackSize < 1) return;
+
+    // 70% single target, 30% multi-target
     const multiTarget = Math.random() < 0.3;
     const targets = multiTarget ? playerBases : [pickPlayerTarget()];
     if (!targets.length) return;
 
-    // Group size: 5% chance of "huge" battalion (12-20), normal 2-8
-    const isHuge = Math.random() < 0.05;
-    const maxGroup = isHuge ? 20 : 8;
-    const minGroup = isHuge ? 12 : 2;
-
-    const idle = game.enemyUnits.filter(u =>
-      u.alive && (u.state === 'idle' || (u.state === 'attacking' && !u.target))
-    );
-    if (idle.length < minGroup) return;
-
-    const totalGroup = Math.min(minGroup + Math.floor(Math.random() * (maxGroup - minGroup + 1)), idle.length);
-    if (totalGroup < 1) return;
-
-    // Sort idle by distance to their nearest target for fairness
-    const sorted = [...idle].sort((a, b) => {
+    // Sort available by distance to nearest target
+    const sorted = [...available].sort((a, b) => {
       const aD = targets.reduce((m, t) => Math.min(m, a.mesh.position.distanceTo(t.mesh.position)), Infinity);
       const bD = targets.reduce((m, t) => Math.min(m, b.mesh.position.distanceTo(t.mesh.position)), Infinity);
       return aD - bD;
     });
-    const attackers = sorted.slice(0, totalGroup);
+    const attackers = sorted.slice(0, Math.min(attackSize, sorted.length));
+    if (attackers.length < 1) return;
 
-    if (multiTarget) {
-      // Round-robin split attackers across all player bases
-      const perGroup = Math.max(1, Math.floor(attackers.length / targets.length));
-      let idx = 0;
-      for (const t of targets) {
-        const slice = attackers.slice(idx, idx + perGroup);
-        idx += perGroup;
-        const formationType = isHuge ? 'wedge' : 'line';
-        const positions = game.computeFormation(t.mesh.position, slice.length, formationType);
-        slice.forEach((u, i) => {
-          if (u.domain === 'air') {
-            u.attack({ mesh: t.mesh, faction: t.faction, get alive() { return true; }, get hp() { return t.hp; }, takeDamage: d => t.takeDamage(d), type: t.name, domain: 'land' });
-          } else {
-            u.moveTo(positions[i] || t.mesh.position.clone());
-          }
-        });
-      }
-      // Leftover units attack the primary target
-      const leftover = attackers.slice(idx);
-      const primary = targets[0];
-      const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
-      leftover.forEach((u, i) => {
-        if (u.domain === 'air') {
-          u.attack({ mesh: primary.mesh, faction: primary.faction, get alive() { return true; }, get hp() { return primary.hp; }, takeDamage: d => primary.takeDamage(d), type: primary.name, domain: 'land' });
-        } else {
-          u.moveTo(lPos[i] || primary.mesh.position.clone());
-        }
-      });
-    } else {
-      // Single target: send all attackers
-      const formationType = isHuge ? 'wedge' : 'line';
-      const positions = game.computeFormation(targets[0].mesh.position, attackers.length, formationType);
-      attackers.forEach((u, i) => {
-        if (u.domain === 'air') {
-          u.attack({ mesh: targets[0].mesh, faction: targets[0].faction, get alive() { return true; }, get hp() { return targets[0].hp; }, takeDamage: d => targets[0].takeDamage(d), type: targets[0].name, domain: 'land' });
-        } else {
-          u.moveTo(positions[i] || targets[0].mesh.position.clone());
-        }
-      });
+    // Flash warning for large attacks
+    if (attackers.length >= 8) {
+      game.flashMessage(`⚠️ Enemy attack inbound! ${attackers.length} units detected`);
     }
 
-    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
+    const isHuge = attackers.length >= 10;
+
+    // Attack air units directly (they fly over everything)
+    const airAttackers = attackers.filter(u => u.domain === 'air');
+    for (const target of targets) {
+      for (const u of airAttackers) {
+        u.attack({ mesh: target.mesh, faction: target.faction, get alive() { return true; }, get hp() { return target.hp; }, takeDamage: d => target.takeDamage(d), type: target.name, domain: 'land' });
+      }
+    }
+
+    // Ground units move in formation
+    const groundAttackers = attackers.filter(u => u.domain !== 'air');
+    if (!groundAttackers.length) return;
+
+    if (multiTarget) {
+      const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
+      let idx = 0;
+      for (const t of targets) {
+        const slice = groundAttackers.slice(idx, idx + perGroup);
+        idx += perGroup;
+        const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
+        slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
+      }
+      // Leftover units attack the primary target
+      const leftover = groundAttackers.slice(idx);
+      if (leftover.length > 0) {
+        const primary = targets[0];
+        const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
+        leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
+      }
+    } else {
+      const primary = targets[0];
+      const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
+      groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
+    }
+
+    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
   }
 
   /** Defensive: any idle defender near a base that has hostile units near it should engage. */
@@ -253,6 +282,13 @@ export function initAI(game) {
       }
     }
 
+    // --- Check for enemy build-up (every 2s) ---
+    buildUpTimer += dt;
+    if (buildUpTimer >= 2) {
+      buildUpTimer = 0;
+      checkBuildUp();
+    }
+
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
 
@@ -264,8 +300,10 @@ export function initAI(game) {
     // --- Attack waves on a timer ---
     attackTimer -= dt;
     if (attackTimer <= 0) {
-      // Aggression chance gate
-      if (Math.random() < cfg.aiAggression) {
+      // Always attack if we have enough units, otherwise use aggression gate
+      const totalUnits = game.enemyUnits.filter(u => u.alive && !u.isTransport).length;
+      const shouldAttack = totalUnits >= 6 || Math.random() < cfg.aiAggression;
+      if (shouldAttack) {
         launchAttack();
       }
       attackTimer = cfg.aiInterval * (0.75 + Math.random() * 0.5);

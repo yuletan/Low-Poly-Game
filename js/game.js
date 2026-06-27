@@ -1629,6 +1629,9 @@ export class Game {
     document.getElementById('income').textContent = `+${PASSIVE_INCOME * owned}/s`;
     document.getElementById('unitCount').textContent = this.playerUnits.length;
     document.getElementById('basesOwned').textContent = owned;
+    // Enemy intel
+    const enemyAlive = this.enemyUnits.filter(u => u.alive && u.state !== 'dead');
+    document.getElementById('enemyCount').textContent = enemyAlive.length;
     // Live refresh of selection HP/status
     this.updateSelectionUI?.();
   }
