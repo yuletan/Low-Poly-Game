@@ -173,13 +173,27 @@ export class Unit {
 
     this.attackMove = attackMove;
     this.attackMoveDest = targetPos.clone();
-    const path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
-    if (path && path.length > 0) {
-      this.path = path;
-      this.moveTarget = this.path.shift();
-    } else {
+    if (this.domain === 'air') {
       this.moveTarget = targetPos.clone();
       this.path = [];
+    } else {
+      const path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
+      if (path && path.length > 0) {
+        this.path = path;
+        this.moveTarget = this.path.shift();
+      } else {
+        // No path found — move stepwise toward target, staying on valid terrain
+        const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+        const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, this.domain);
+        if (nearest) {
+          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+          this.moveTarget = new THREE.Vector3(w.x, 0, w.z);
+          this.path = [];
+        } else {
+          this.state = 'idle';
+          return;
+        }
+      }
     }
     this.state = 'moving';
   }
@@ -274,7 +288,7 @@ export class Unit {
       case 'attacking': this.updateAttack(dt); break;
     }
 
-    // Terrain enforcement: push to valid terrain
+    // Terrain enforcement: push to valid terrain (short cooldown)
     if (this.state !== 'dead') {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
@@ -283,6 +297,11 @@ export class Unit {
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
         this._pushToValidTerrain('land');
       }
+    }
+
+    // Range ring follows unit
+    if (this.selected && this._rangeRing) {
+      this._rangeRing.position.set(this.mesh.position.x, 0.3, this.mesh.position.z);
     }
   }
 
@@ -339,7 +358,7 @@ export class Unit {
 
   _pushToValidTerrain(domain) {
     if (this._pushCooldown > 0) return;
-    this._pushCooldown = 0.5;
+    this._pushCooldown = 0.15;
     const gx = Math.floor((this.mesh.position.x + MAP_SIZE/2) / 12);
     const gy = Math.floor((this.mesh.position.z + MAP_SIZE/2) / 12);
     const nearest = this.game.pathfinder.findNearestWalkable(gx, gy, domain);
