@@ -8,47 +8,15 @@ export function initAI(game) {
   let economyTimer = 0;
   let aiMoney      = 200;
 
-  /** Check if water exists between two positions */
-  function isWaterBetween(pos1, pos2) {
-    const steps = 20;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = pos1.x + (pos2.x - pos1.x) * t;
-      const z = pos1.z + (pos2.z - pos1.z) * t;
-      const terrain = game.terrain.getTerrainAt(x, z);
-      if (terrain === TERRAIN.SEA) return true;
-    }
-    return false;
-  }
-
-  /** Check if transport ships are needed for any player base */
-  function needsTransport() {
-    const enemyBases = game.bases.filter(b => b.faction === 'enemy');
-    const playerBases = game.bases.filter(b => b.faction === 'player');
-    if (!enemyBases.length || !playerBases.length) return false;
-    for (const eb of enemyBases) {
-      for (const pb of playerBases) {
-        if (isWaterBetween(eb.mesh.position, pb.mesh.position)) return true;
-      }
-    }
-    return false;
-  }
-
-  /** Pick the unit composition based on difficulty and need for transport. */
+  /** Pick the unit composition based on difficulty. */
   function chooseUnitToBuild() {
-    const needTrans = needsTransport();
-    // Hard AI uses combined arms; Easy spams cheap stuff
     if (game.difficulty === 'easy') {
-      const pool = needTrans ? ['infantry', 'infantry', 'tank', 'transport'] : ['infantry', 'infantry', 'tank'];
-      return pool[Math.floor(Math.random() * pool.length)];
+      return ['infantry', 'infantry', 'tank'][Math.floor(Math.random() * 3)];
     }
     if (game.difficulty === 'normal') {
-      const pool = needTrans ? ['infantry', 'tank', 'tank', 'artillery', 'fighter', 'transport'] : ['infantry', 'tank', 'tank', 'artillery', 'fighter'];
-      return pool[Math.floor(Math.random() * pool.length)];
+      return ['infantry', 'tank', 'tank', 'artillery', 'fighter'][Math.floor(Math.random() * 5)];
     }
-    // Hard — balanced combined arms with naval threats
-    const pool = needTrans ? ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'transport', 'battleship', 'carrier'] : ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer'];
-    return pool[Math.floor(Math.random() * pool.length)];
+    return ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'battleship', 'carrier'][Math.floor(Math.random() * 8)];
   }
 
   /** Pick a random enemy-owned base to spawn from. */
@@ -174,92 +142,55 @@ export function initAI(game) {
       }
     }
 
-    // Ground units: check if any target requires water crossing
+    // Ground units move in formation (auto-convert to boat when hitting water)
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
-    // Decide attack method: amphibious only if transports exist or can be spawned
-    let useAmphibious = false;
-    const waterBetween = targets.some(t =>
-      groundAttackers.some(u => isWaterBetween(u.mesh.position, t.mesh.position))
-    );
-    if (waterBetween) {
-      const existingTransports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
-      const neededTransports = Math.ceil(groundAttackers.length / (UNIT_TYPES.transport.transportCapacity || 4));
-      const canAffordMore = aiMoney >= UNIT_TYPES.transport.cost * Math.max(0, neededTransports - existingTransports.length);
-      useAmphibious = existingTransports.length > 0 || canAffordMore;
-    }
-
-    if (useAmphibious) {
-      // --- Amphibious assault: load ground troops onto transports ---
-      let transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
-      let availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
-
-      // Spawn extra transports if needed (up to what AI can afford)
-      const needCount = Math.ceil(groundAttackers.length / (UNIT_TYPES.transport.transportCapacity || 4));
-      while (transports.length < needCount && aiMoney >= UNIT_TYPES.transport.cost) {
-        if (spawnEnemyUnit('transport')) {
-          aiMoney -= UNIT_TYPES.transport.cost;
-          transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
-          availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
-        } else break;
+    if (multiTarget) {
+      const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
+      let idx = 0;
+      for (const t of targets) {
+        const slice = groundAttackers.slice(idx, idx + perGroup);
+        idx += perGroup;
+        const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
+        slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
       }
-
-      // Load ground attackers onto transports (AI teleport-loads)
-      let loaded = 0;
-      for (const u of groundAttackers) {
-        if (availSlots <= 0) break;
-        const tp = transports.find(t => t.carriedUnits.length < t.transportCapacity);
-        if (!tp) break;
-        tp.carriedUnits.push(u);
-        u.mesh.visible = false;
-        u.carried = true;
-        u.state = 'idle';
-        loaded++;
-        availSlots--;
-      }
-
-      // Move transport fleet to landing zone near primary target
-      if (loaded > 0) {
+      const leftover = groundAttackers.slice(idx);
+      if (leftover.length > 0) {
         const primary = targets[0];
-        const coastPos = findLandingZone(primary.mesh.position);
-        if (coastPos) {
-          const loadedTransports = transports.filter(t => t.carriedUnits.length > 0);
-          const pos = game.computeFormation(coastPos, loadedTransports.length, 'line');
-          loadedTransports.forEach((tp, i) => tp.moveTo(pos[i] || coastPos.clone()));
-          console.log(`[DEBUG AI] AMPHIBIOUS ASSAULT: ${loaded} troops on ${loadedTransports.length} transports → ${primary.name}`);
-        }
+        const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
+        leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
       }
-      // Any ground attackers that couldn't be loaded still get no move order (they stay as defense)
-    }
-
-    // Normal ground movement for:
-    //   - targets that DON'T need water crossing
-    //   - OR when no transports are available (fallback sends everything anyway)
-    if (!useAmphibious) {
-      if (multiTarget) {
-        const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
-        let idx = 0;
-        for (const t of targets) {
-          const slice = groundAttackers.slice(idx, idx + perGroup);
-          idx += perGroup;
-          const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
-          slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
-        }
-        const leftover = groundAttackers.slice(idx);
-        if (leftover.length > 0) {
-          const primary = targets[0];
-          const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
-          leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
-        }
-      } else {
-        const primary = targets[0];
-        const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
-        groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
-      }
+    } else {
+      const primary = targets[0];
+      const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
+      groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
     }
 
     console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
+  }
+
+  /** Find a COAST landing zone near a target position */
+  function findLandingZone(targetPos) {
+    const g = game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+    for (let r = 0; r < 15; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = g.gx + dx, ny = g.gy + dy;
+          if (!game.pathfinder.inBounds(nx, ny)) continue;
+          const w = game.pathfinder.gridToWorld(nx, ny);
+          const t = game.terrain.getTerrainAt(w.x, w.z);
+          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
+        }
+      }
+    }
+    const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+    if (nearest) {
+      const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+      return new THREE.Vector3(w.x, 0, w.z);
+    }
+    return null;
   }
 
   /** Defensive: any idle defender near a base that has hostile units near it should engage. */
@@ -288,93 +219,12 @@ export function initAI(game) {
     }
   }
 
-  /** Find idle land units near a transport and load them (extended range) */
-  function loadTransport(tp) {
-    const idle = game.enemyUnits.filter(u =>
-      u.alive && u.domain === 'land' && !u.carried && u.state === 'idle'
-    );
-    for (const u of idle) {
-      if (tp.carriedUnits.length >= tp.transportCapacity) break;
-      if (tp.mesh.position.distanceTo(u.mesh.position) <= 30) {
-        // Force-load units in extended range (bypass canLoadUnit's 12-range limit)
-        tp.carriedUnits.push(u);
-        u.mesh.visible = false;
-        u.carried = true;
-        u.state = 'idle';
-      }
-    }
-  }
-
-  /** Find a COAST landing zone near a target position */
-  function findLandingZone(targetPos) {
-    const g = game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
-    for (let r = 0; r < 15; r++) {
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-          const nx = g.gx + dx, ny = g.gy + dy;
-          if (!game.pathfinder.inBounds(nx, ny)) continue;
-          const w = game.pathfinder.gridToWorld(nx, ny);
-          const t = game.terrain.getTerrainAt(w.x, w.z);
-          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
-        }
-      }
-    }
-    // Fallback: nearest sea walkable
-    const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-    if (nearest) {
-      const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-      return new THREE.Vector3(w.x, 0, w.z);
-    }
-    return null;
-  }
-
-  /** Order a transport to carry land troops across water */
-  function launchAmphibiousAttack() {
-    const playerBases = game.bases.filter(b => b.faction === 'player');
-    if (!playerBases.length) return;
-    const target = pickPlayerTarget();
-
-    // Find idle transports with cargo or ready to load
-    const transports = game.enemyUnits.filter(u =>
-      u.isTransport && u.alive && u.state === 'idle'
-    );
-    if (!transports.length) return;
-
-    for (const tp of transports) {
-      // Load nearby land units
-      if (tp.carriedUnits.length < tp.transportCapacity) {
-        loadTransport(tp);
-      }
-      // Count how many idle land units are nearby (within 30) that could still be loaded
-      const nearbyIdleLand = game.enemyUnits.filter(u =>
-        u.alive && u.domain === 'land' && !u.carried && u.state === 'idle' &&
-        tp.mesh.position.distanceTo(u.mesh.position) < 30
-      );
-      const isFull = tp.carriedUnits.length >= tp.transportCapacity;
-      const noMoreNearby = nearbyIdleLand.length === 0;
-      // Only sail if full OR no more troops nearby to pick up
-      if ((isFull || noMoreNearby) && tp.carriedUnits.length > 0) {
-        const landing = findLandingZone(target.mesh.position);
-        if (landing) {
-          tp.moveTo(landing);
-          console.log(`[DEBUG AI] Transport moving ${tp.carriedUnits.length}/${tp.transportCapacity} units toward ${target.name}`);
-        }
-      }
-    }
-  }
-
   // ===== Hook the AI into the game's update loop =====
   game.onAITick = function (dt) {
     if (game.ended) return;
 
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
-
-    // --- Amphibious transport logic (8% chance per tick) ---
-    if (needsTransport() && Math.random() < 0.08) {
-      launchAmphibiousAttack();
-    }
 
     // --- Unified 1-second tick: income + spawn-vs-attack ---
     economyTimer += dt;

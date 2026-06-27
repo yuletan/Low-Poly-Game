@@ -46,6 +46,9 @@ export class Unit {
     this.carriedUnits = [];
     this.transportCapacity = this.stats.transportCapacity || 0;
 
+    // Amphibious mode: land unit auto-converts to boat in water
+    this._amphibious = false;
+
     // Unique mechanics state
     this._destroyerShotCount = 0;        // For flak every 3rd shot
     this._battleshipBroadside = false;    // Broadside requirement
@@ -184,7 +187,11 @@ export class Unit {
       this.moveTarget = targetPos.clone();
       this.path = [];
     } else {
-      const path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
+      let path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
+      // Fallback for land units: try sea path (triggers amphibious conversion)
+      if (!path && this.domain === 'land') {
+        path = this.game.pathfinder.findPath(this.mesh.position, targetPos, 'sea');
+      }
       if (path && path.length > 0) {
         this.path = path;
         this.moveTarget = this.path.shift();
@@ -338,8 +345,25 @@ export class Unit {
       this.target = null;
     }
 
-    // Terrain enforcement: push to valid terrain (short cooldown)
-    if (this.state !== 'dead') {
+    // Amphibious auto-conversion: land unit in water → boat, boat on land → land
+    if (this.domain !== 'air' && this.state !== 'dead') {
+      const pos = this.mesh.position;
+      const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      if (this.domain === 'land' && terrain === TERRAIN.SEA) {
+        this._amphibious = true;
+        this.domain = 'sea';
+        this.mesh.position.y = 0.3;
+        if (this._rangeRing) this._rangeRing.material.color.setHex(0x4488ff);
+      } else if (this._amphibious && (terrain === TERRAIN.LAND || terrain === TERRAIN.COAST)) {
+        this._amphibious = false;
+        this.domain = 'land';
+        this.mesh.position.y = 0.5;
+        if (this._rangeRing) this._rangeRing.material.color.setHex(this.faction === 'player' ? 0x4488ff : 0xff4444);
+      }
+    }
+
+    // Terrain enforcement: push to valid terrain (skip amphibious boats)
+    if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
       if (this.domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) {
