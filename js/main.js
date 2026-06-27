@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game } from './game.js?v=5';
+import { Game } from './game.js?v=6';
 import { initInput } from './input.js?v=3';
 import { initAI }    from './ai.js?v=6';
 import { initUI }    from './ui.js?v=3';

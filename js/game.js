@@ -461,25 +461,33 @@ export class Unit {
   unloadAll() {
     if (!this.canUnload()) return;
     const count = this.carriedUnits.length;
+
+    // Find the nearest walkable land cell as the landing zone
+    const g = this.game.pathfinder.worldToGrid(this.mesh.position.x, this.mesh.position.z);
+    const landing = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
+    let basePos;
+    if (landing) {
+      const w = this.game.pathfinder.gridToWorld(landing.gx, landing.gy);
+      basePos = new THREE.Vector3(w.x, 0, w.z);
+    } else {
+      basePos = this.mesh.position.clone();
+    }
+
     for (let i = this.carriedUnits.length - 1; i >= 0; i--) {
       const u = this.carriedUnits[i];
-      const offset = new THREE.Vector3(
-        (i - (count - 1) / 2) * 3,
-        0,
-        -5
+      // Fan units around the landing cell
+      const angle = (i / count) * Math.PI * 2;
+      const dist = 4 + Math.floor(i / count) * 4;
+      const pos = basePos.clone().add(
+        new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist)
       );
-      offset.applyQuaternion(this.mesh.quaternion);
-      const pos = this.mesh.position.clone().add(offset);
       // Snap to valid terrain
       if (u.domain !== 'air') {
-        const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
-        if (!u.canEnter(terrain)) {
-          const g = this.game.pathfinder.worldToGrid(pos.x, pos.z);
-          const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, u.domain);
-          if (nearest) {
-            const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-            pos.set(w.x, 0, w.z);
-          }
+        const pg = this.game.pathfinder.worldToGrid(pos.x, pos.z);
+        const nearest = this.game.pathfinder.findNearestWalkable(pg.gx, pg.gy, u.domain);
+        if (nearest) {
+          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+          pos.set(w.x, 0, w.z);
         }
       }
       u.mesh.position.copy(pos);
