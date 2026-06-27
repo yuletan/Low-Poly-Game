@@ -46,8 +46,8 @@ export class FogOfWar {
     for (let i = 0; i < this.grid.length; i++) {
       if (this.grid[i] === 2) this.grid[i] = 1;
     }
-    const VISION_UNIT = 50;
-    const VISION_BASE = 80;
+    const VISION_UNIT = 100;
+    const VISION_BASE = 200;
     for (const u of playerUnits) if (u.alive) this.reveal(u.mesh.position.x, u.mesh.position.z, VISION_UNIT);
     for (const b of playerBases) this.reveal(b.mesh.position.x, b.mesh.position.z, VISION_BASE);
 
@@ -72,7 +72,7 @@ export class FogOfWar {
     for (let i = 0; i < this.size * this.size; i++) {
       const v = this.grid[i];
       // unexplored = nearly opaque black, explored = semi-transparent dark, visible = fully transparent
-      const alpha = v === 0 ? 220 : v === 1 ? 120 : 0;
+      const alpha = v === 0 ? 80 : v === 1 ? 30 : 0;
       data[i*4]   = 0;    // R
       data[i*4+1] = 0;    // G
       data[i*4+2] = 0;    // B

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { Game } from './game.js';
-import { initInput } from './input.js';
+import { Game } from './game.js?v=3';
+import { initInput } from './input.js?v=3';
 import { initAI }    from './ai.js';
-import { initUI }    from './ui.js';
+import { initUI }    from './ui.js?v=3';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
-import { MAP_SIZE }  from './config.js';
+import { MAP_SIZE }  from './config.js?v=3';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8e8);
@@ -34,7 +34,14 @@ scene.add(sun);
 
 const cameraTarget = new THREE.Vector3(-500, 0, 200); // start over player base
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; Sound.resume(); });
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  Sound.resume();
+  // Placement mode — cancel on Escape
+  if (e.key === 'Escape' && game && game.placementMode && game.placementMode.active) {
+    game.exitPlacementMode(true);
+  }
+});
 window.addEventListener('keyup',   e => keys[e.key.toLowerCase()] = false);
 
 function updateCamera(dt) {
@@ -95,16 +102,30 @@ document.querySelectorAll('#startMenu .btn[data-diff]').forEach(btn => {
 });
 
 function startGame(difficulty, saveData) {
-  game = new Game(scene, camera, difficulty, cameraTarget);
-  game.init();
+  try {
+    console.log('[INIT] Starting game with difficulty:', difficulty);
+    game = new Game(scene, camera, difficulty, cameraTarget);
+    console.log('[INIT] Game instance created');
+    game.init();
+    console.log('[INIT] game.init() done, playerUnits:', game.playerUnits.length);
 
-  if (saveData) {
-    applySave(game, saveData);
+    if (saveData) {
+      applySave(game, saveData);
+    }
+
+    initInput(game, camera, renderer);
+    console.log('[INIT] Input initialized');
+    initAI(game);
+    console.log('[INIT] AI initialized');
+    initUI(game);
+    console.log('[INIT] UI initialized — game ready!');
+  } catch(err) {
+    console.error('[INIT] CRASH:', err);
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;padding:16px;z-index:99999;font-family:monospace;font-size:16px;white-space:pre-wrap;';
+    div.textContent = 'GAME CRASH: ' + err.message + '\n' + err.stack;
+    document.body.appendChild(div);
   }
-
-  initInput(game, camera, renderer);
-  initAI(game);
-  initUI(game);
 }
 
 function applySave(game, save) {
@@ -125,7 +146,7 @@ function applySave(game, save) {
       b.faction = sb.faction;
       const flagColor = sb.faction === 'player' ? 0x2266aa : 0xaa3333;
       b.mesh.children.forEach(c => {
-        if (c.geometry?.type === 'BoxGeometry' && c.position.y > 4) {
+        if (c.userData?.isFlag) {
           c.material.color.setHex(flagColor);
         }
       });
@@ -158,68 +179,6 @@ function applySave(game, save) {
 }
 
 const clock = new THREE.Clock();
-
-// ==========================================
-// VISUAL DEBUG MODE
-// ==========================================
-import { LAND_HEIGHT } from './terrain.js';
-
-// Green grid at land height
-const landGrid = new THREE.GridHelper(MAP_SIZE, 50, 0x00ff00, 0x00ff00);
-landGrid.position.y = LAND_HEIGHT; 
-scene.add(landGrid);
-
-// Right-Click Debug Marker
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const clickMarkerGeom = new THREE.SphereGeometry(3, 8, 8);
-const clickMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-const clickMarker = new THREE.Mesh(clickMarkerGeom, clickMarkerMat);
-clickMarker.visible = false;
-scene.add(clickMarker);
-
-// Create an invisible floor for the raycaster to hit reliably
-const invisibleFloor = new THREE.Mesh(
-  new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE),
-  new THREE.MeshBasicMaterial({ visible: false })
-);
-invisibleFloor.rotation.x = -Math.PI / 2;
-invisibleFloor.position.y = LAND_HEIGHT; // Put it at land level
-scene.add(invisibleFloor);
-
-window.addEventListener('contextmenu', (e) => e.preventDefault());
-
-window.addEventListener('mousedown', (e) => {
-  if (e.button === 2) { // Right click
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    
-    raycaster.setFromCamera(mouse, camera);
-    
-    // Test against the invisible floor
-    const intersects = raycaster.intersectObject(invisibleFloor);
-    
-    if (intersects.length > 0) {
-      const point = intersects[0].point;
-      
-      // Move the red marker to where we clicked!
-      clickMarker.position.copy(point);
-      clickMarker.visible = true;
-      
-      console.log("🎯 RIGHT CLICK HIT! World Coordinates:", point);
-      console.log("   Is Y equal to LAND_HEIGHT (" + LAND_HEIGHT + ")?", point.y.toFixed(2));
-      
-      // If a game exists, try to move selected units to this point
-      if (game && game.selectedUnits && game.selectedUnits.length > 0) {
-        game.selectedUnits.forEach(u => {
-          if (u.moveTo) u.moveTo(point);
-        });
-      }
-    } else {
-      console.log("❌ RIGHT CLICK MISSED! Raycaster didn't hit the invisible floor.");
-    }
-  }
-});
 
 function animate() {
   requestAnimationFrame(animate);

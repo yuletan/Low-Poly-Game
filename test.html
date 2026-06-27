@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Low-Poly RTS — Feature Test Suite</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Courier New',monospace; background:#111; color:#eee; padding:20px; }
+    h1 { color:#4af; margin-bottom:6px; }
+    #summary { padding:10px; margin:10px 0; border-radius:6px; font-size:16px; font-weight:bold; }
+    .pass { background:#1a3a1a; color:#4f4; }
+    .fail { background:#3a1a1a; color:#f44; }
+    .test-group { margin:12px 0; padding:10px; border:1px solid #333; border-radius:6px; }
+    .test-group h3 { color:#cc9933; margin-bottom:6px; }
+    .test { padding:3px 0; font-size:13px; }
+    .test.pass { color:#4f4; }
+    .test.fail { color:#f44; }
+    .test.info { color:#888; }
+    #console { margin-top:20px; padding:10px; background:#0a0a0a; border:1px solid #333; border-radius:6px; max-height:400px; overflow-y:auto; font-size:11px; color:#8f8; }
+    button { padding:8px 16px; margin:4px; background:#4af; color:#fff; border:none; border-radius:4px; cursor:pointer; font-family:inherit; }
+    button:hover { background:#5bf; }
+    .hidden { display:none !important; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <h1>Low-Poly RTS — Feature Test Suite</h1>
+  <p style="color:#888;margin-bottom:10px;">Click "Run All Tests" to validate every system. Results appear below and in browser console.</p>
+  <button id="runBtn">Run All Tests</button>
+  <div id="summary" class="pass" style="display:none;"></div>
+  <div id="results"></div>
+  <h3 style="margin-top:16px;color:#4af;">Console Output</h3>
+  <div id="console"></div>
+
+  <!-- Hidden HUD stubs so Game.init() doesn't crash -->
+  <div id="hud" class="hidden">
+    <div id="topBar">
+      <span>💰 <span id="money">0</span></span>
+      <span>🏰 Bases: <span id="basesOwned">0</span> / <span id="basesTotal">0</span></span>
+      <span>👥 Units: <span id="unitCount">0</span></span>
+      <span id="difficulty">Difficulty: —</span>
+    </div>
+    <div id="selectionPanel"><div id="selectionInfo"></div></div>
+    <div id="formationPanel"><select id="formationSelect"><option value="line">Line</option></select></div>
+    <div id="buildPanel"><div id="buildButtons"></div></div>
+    <div id="selectionBox"></div>
+  </div>
+  <div id="endScreen" class="hidden"><div class="panel"><h1 id="endTitle"></h1></div></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { UNIT_TYPES, DIFFICULTY, UPGRADES, TERRAIN, MAP_SIZE, GRID_CELL, GRID_SIZE,
+             STARTING_MONEY, PASSIVE_INCOME, CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES,
+             CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT } from './js/config.js?v=3';
+    import { buildTerrain, LAND_HEIGHT } from './js/terrain.js?v=3';
+    import { Pathfinder } from './js/pathfinder.js?v=3';
+    import { FogOfWar } from './js/fogOfWar.js?v=3';
+    import { UpgradeManager } from './js/upgrades.js?v=3';
+    import { Minimap } from './js/minimap.js?v=3';
+    import { initAI } from './js/ai.js?v=3';
+    import { Game } from './js/game.js?v=3';
+    import { Sound } from './js/sound.js?v=3';
+
+    const logEl = document.getElementById('console');
+    const resultsEl = document.getElementById('results');
+    let totalPass = 0, totalFail = 0;
+
+    function log(msg, color) {
+      const line = document.createElement('div');
+      line.textContent = msg;
+      line.style.color = color || '#8f8';
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    function assert(condition, name) {
+      if (condition) { totalPass++; log(`  ✅ PASS: ${name}`, '#4f4'); return true; }
+      else { totalFail++; log(`  ❌ FAIL: ${name}`, '#f44'); return false; }
+    }
+
+    function startGroup(name) {
+      const div = document.createElement('div');
+      div.className = 'test-group';
+      div.innerHTML = `<h3>${name}</h3>`;
+      resultsEl.appendChild(div);
+      return div;
+    }
+
+    function addResult(group, name, pass) {
+      const div = document.createElement('div');
+      div.className = `test ${pass ? 'pass' : 'fail'}`;
+      div.textContent = `${pass ? '✅' : '❌'} ${name}`;
+      group.appendChild(div);
+    }
+
+    // ===== TEST SUITES =====
+
+    function testConfig(group) {
+      log('--- CONFIG ---', '#4af');
+
+      // UNIT_TYPES
+      assert(Object.keys(UNIT_TYPES).length === 8, '8 unit types defined');
+      assert(UNIT_TYPES.infantry.domain === 'land', 'Infantry is land domain');
+      assert(UNIT_TYPES.tank.domain === 'land', 'Tank is land domain');
+      assert(UNIT_TYPES.artillery.domain === 'land', 'Artillery is land domain');
+      assert(UNIT_TYPES.destroyer.domain === 'sea', 'Destroyer is sea domain');
+      assert(UNIT_TYPES.battleship.domain === 'sea', 'Battleship is sea domain');
+      assert(UNIT_TYPES.carrier.domain === 'sea', 'Carrier is sea domain');
+      assert(UNIT_TYPES.fighter.domain === 'air', 'Fighter is air domain');
+      assert(UNIT_TYPES.bomber.domain === 'air', 'Bomber is air domain');
+      assert(UNIT_TYPES.carrier.canLaunchFighters === true, 'Carrier has launch ability');
+      assert(UNIT_TYPES.fighter.altitude === 25, 'Fighter altitude = 25');
+      assert(UNIT_TYPES.bomber.altitude === 30, 'Bomber altitude = 30');
+
+      // Unit costs
+      assert(UNIT_TYPES.infantry.cost === 50, 'Infantry cost = $50');
+      assert(UNIT_TYPES.tank.cost === 200, 'Tank cost = $200');
+      assert(UNIT_TYPES.carrier.cost === 700, 'Carrier cost = $700');
+
+      // DIFFICULTY
+      assert(DIFFICULTY.easy.aiIncome === 0.6, 'Easy AI income = 0.6');
+      assert(DIFFICULTY.normal.aiIncome === 1.0, 'Normal AI income = 1.0');
+      assert(DIFFICULTY.hard.aiIncome === 1.5, 'Hard AI income = 1.5');
+      assert(DIFFICULTY.hard.aiAggression === 1.0, 'Hard aggression = 100%');
+
+      // UPGRADES
+      assert(Object.keys(UPGRADES).length === 3, '3 upgrade lines');
+      assert(UPGRADES.hp.tiers.length === 4, '4 upgrade tiers each');
+      assert(UPGRADES.hp.costs[0] === 0, 'T0 upgrade is free');
+
+      // TERRAIN
+      assert(TERRAIN.LAND === 'land', 'TERRAIN.LAND = "land"');
+      assert(TERRAIN.SEA === 'sea', 'TERRAIN.SEA = "sea"');
+      assert(TERRAIN.COAST === 'coast', 'TERRAIN.COAST = "coast"');
+      assert(TERRAIN.MOUNTAIN === 'mountain', 'TERRAIN.MOUNTAIN = "mountain"');
+
+      // Constants
+      assert(MAP_SIZE === 1200, 'MAP_SIZE = 1200');
+      assert(STARTING_MONEY === 500, 'STARTING_MONEY = 500');
+      assert(PASSIVE_INCOME === 10, 'PASSIVE_INCOME = 10');
+      assert(CRIT_CHANCE === 0.10, 'CRIT_CHANCE = 10%');
+      assert(CRIT_MULT === 1.5, 'CRIT_MULT = 1.5x');
+    }
+
+    function testTerrain(group) {
+      log('--- TERRAIN ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const terrain = buildTerrain(scene);
+
+      assert(terrain !== null, 'buildTerrain returns terrain object');
+      assert(terrain.landmasses.length === 5, '5 landmasses created');
+      assert(terrain.mountains.length === 18, '18 mountains created');
+      assert(terrain.getTerrainAt !== undefined, 'getTerrainAt exists');
+
+      // Test terrain types at known positions
+      const midLand = terrain.getTerrainAt(-400, 0);
+      assert(midLand === TERRAIN.LAND || midLand === TERRAIN.COAST,
+        `Center of west landmass is land/coast (got: ${midLand})`);
+
+      const midSea = terrain.getTerrainAt(-600, -600);
+      assert(midSea === TERRAIN.SEA, 'Far corner is sea');
+
+      const mapEdge = terrain.getTerrainAt(0, 0);
+      assert([TERRAIN.LAND, TERRAIN.SEA, TERRAIN.COAST, TERRAIN.MOUNTAIN].includes(mapEdge),
+        `Map center returns valid terrain (got: ${mapEdge})`);
+
+      // Mountain test
+      const mt = terrain.mountains[0];
+      const mtTerrain = terrain.getTerrainAt(mt.x, mt.z);
+      assert(mtTerrain === TERRAIN.MOUNTAIN, `Mountain at (${mt.x},${mt.z}) is MOUNTAIN`);
+    }
+
+    function testPathfinder(group) {
+      log('--- PATHFINDER ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const terrain = buildTerrain(scene);
+      const pf = new Pathfinder(terrain);
+
+      assert(pf !== null, 'Pathfinder created');
+      assert(pf.size === GRID_SIZE, `Grid size matches (${pf.size} === ${GRID_SIZE})`);
+      assert(pf.terrainGrid.length === pf.size * pf.size, 'Terrain grid populated');
+      assert(pf.terrainGrid.every(t => [TERRAIN.LAND, TERRAIN.SEA, TERRAIN.COAST, TERRAIN.MOUNTAIN].includes(t)),
+        'All grid cells have valid terrain');
+
+      // Grid conversion roundtrip
+      const wx = -200, wz = 100;
+      const g = pf.worldToGrid(wx, wz);
+      const back = pf.gridToWorld(g.gx, g.gy);
+      assert(Math.abs(back.x - wx) < pf.cell, 'Grid->World X roundtrip accurate');
+      assert(Math.abs(back.z - wz) < pf.cell, 'Grid->World Z roundtrip accurate');
+
+      // Walkability
+      const landG = pf.worldToGrid(-400, 0);
+      assert(pf.walkable(landG.gx, landG.gy, 'land'), 'West landmass is walkable for land');
+      assert(!pf.walkable(landG.gx, landG.gy, 'sea'), 'West landmass NOT walkable for sea');
+
+      const seaG = pf.worldToGrid(-600, -600);
+      assert(pf.walkable(seaG.gx, seaG.gy, 'sea'), 'Far corner is walkable for sea');
+      assert(!pf.walkable(seaG.gx, seaG.gy, 'land'), 'Far corner NOT walkable for land');
+
+      // Air ignores terrain
+      assert(pf.walkable(landG.gx, landG.gy, 'air'), 'Air units can fly over land');
+
+      // Pathfinding — land to land
+      const start = new THREE.Vector3(-400, 0, 0);
+      const end = new THREE.Vector3(-400, 0, 200);
+      const path = pf.findPath(start, end, 'land');
+      assert(path !== null, 'Land pathfinding finds a path');
+      assert(path.length > 0, 'Path has at least one waypoint');
+      const lastWp = path[path.length - 1];
+      assert(Math.abs(lastWp.x - end.x) < 50 && Math.abs(lastWp.z - end.z) < 50,
+        'Path ends near target');
+
+      // Pathfinding — air goes direct
+      const airPath = pf.findPath(start, end, 'air');
+      assert(airPath !== null, 'Air pathfinding returns path');
+      assert(airPath.length === 1, 'Air path is direct (single waypoint)');
+
+      // findNearestWalkable
+      const nearest = pf.findNearestWalkable(0, 0, 'land');
+      assert(nearest !== null, 'findNearestWalkable finds a cell');
+    }
+
+    function testFogOfWar(group) {
+      log('--- FOG OF WAR ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const fog = new FogOfWar(scene);
+
+      assert(fog !== null, 'FogOfWar created');
+      assert(fog.size === 60, `Fog grid size = ${fog.size}`);
+      assert(fog.grid.length === 60 * 60, 'Fog grid has 3600 cells');
+      assert(fog.grid.every(v => v === 0), 'All cells start unexplored (0)');
+
+      // Reveal some area
+      fog.reveal(0, 0, 200);
+      assert(fog.isVisible(0, 0), 'Center is visible after reveal');
+      assert(!fog.isVisible(-600, -600), 'Far corner is NOT visible');
+      assert(fog.isExplored(0, 0), 'Center is explored');
+
+      // Update: visible -> explored
+      fog.update([], []);
+      assert(fog.grid[30 * 60 + 30] === 1, 'Previously visible cell becomes explored (1)');
+
+      // Serialization
+      const serialized = fog.serialize();
+      assert(Array.isArray(serialized), 'serialize() returns array');
+      assert(serialized.length === 3600, 'Serialized array has 3600 entries');
+
+      fog.deserialize(serialized);
+      assert(fog.grid.length === 3600, 'deserialize restores grid');
+
+      // worldToGrid
+      const wg = fog.worldToGrid(0, 0);
+      assert(wg.gx >= 0 && wg.gx < 60 && wg.gy >= 0 && wg.gy < 60, 'worldToGrid returns valid coords');
+    }
+
+    function testUpgrades(group) {
+      log('--- UPGRADES ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      const um = new UpgradeManager(game);
+      assert(um !== null, 'UpgradeManager created');
+      assert(um.tiers.hp === 0, 'Starts at tier 0');
+      assert(um.multiplier('hp') === 1.0, 'T0 multiplier = 1.0');
+
+      // applyTo
+      const base = { hp:100, damage:50, speed:10 };
+      const upgraded = um.applyTo(base);
+      assert(upgraded.hp === 100, 'T0 hp unchanged');
+      assert(upgraded.damage === 50, 'T0 damage unchanged');
+
+      // nextCost
+      assert(um.nextCost('hp') === 300, 'HP T1 costs $300');
+      assert(um.nextCost('damage') === 300, 'Damage T1 costs $300');
+      assert(um.nextCost('speed') === 250, 'Speed T1 costs $250');
+
+      // canUpgrade
+      game.money = 500;
+      assert(um.canUpgrade('hp') === true, 'Can upgrade HP with $500');
+      game.money = 0;
+      assert(um.canUpgrade('hp') === false, 'Cannot upgrade HP with $0');
+
+      // upgrade
+      game.money = 500;
+      const result = um.upgrade('hp');
+      assert(result === true, 'upgrade() returns true');
+      assert(um.tiers.hp === 1, 'HP upgraded to tier 1');
+      assert(um.multiplier('hp') === 1.25, 'T1 hp multiplier = 1.25');
+      assert(game.money === 200, 'Money deducted ($500 - $300 = $200)');
+
+      // Serialization
+      const ser = um.serialize();
+      assert(ser.hp === 1, 'serialize() has correct HP tier');
+      um.deserialize({ hp: 0, damage: 0, speed: 0 });
+      assert(um.tiers.hp === 0, 'deserialize() restores tier');
+    }
+
+    function testPlacementMode(group) {
+      log('--- PLACEMENT MODE ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // enterPlacementMode
+      game.money = 1000;
+      const entered = game.enterPlacementMode('tank');
+      assert(entered === true, 'enterPlacementMode returns true');
+      assert(game.placementMode.active === true, 'Placement mode is active');
+      assert(game.placementMode.type === 'tank', 'Placement type is tank');
+      assert(game.placementMode.ghost !== null, 'Ghost mesh created');
+      assert(game.placementMode.ring !== null, 'Ring mesh created');
+      assert(game.placementMode.ghost.parent === scene, 'Ghost added to scene');
+
+      // Ghost physically moves when preview updates
+      game.updatePlacementPreview({ x: -450, z: 200 });
+      const ghostX1 = game.placementMode.ghost.position.x;
+      const ghostZ1 = game.placementMode.ghost.position.z;
+      assert(Math.abs(ghostX1 - (-450)) < 1, `Ghost X tracks mouse (${ghostX1.toFixed(1)} ≈ -450)`);
+      assert(Math.abs(ghostZ1 - 200) < 1, `Ghost Z tracks mouse (${ghostZ1.toFixed(1)} ≈ 200)`);
+
+      // Ghost Y is correct for land unit
+      const ghostY1 = game.placementMode.ghost.position.y;
+      assert(Math.abs(ghostY1 - (8 + 0.5)) < 1, `Ghost Y = land height + 0.5 (got ${ghostY1.toFixed(1)})`);
+
+      // Ghost moves to new position
+      game.updatePlacementPreview({ x: -300, z: 100 });
+      const ghostX2 = game.placementMode.ghost.position.x;
+      assert(Math.abs(ghostX2 - (-300)) < 1, `Ghost moves to new position X (${ghostX2.toFixed(1)} ≈ -300)`);
+
+      // Ghost removed on cancel
+      const ghostToRemove = game.placementMode.ghost;
+      game.exitPlacementMode(true);
+      assert(ghostToRemove.parent === null, 'Ghost removed from scene on cancel');
+
+      // --- PHYSICAL SPAWN: unit actually appears on map ---
+      game.money = 1000;
+      game.enterPlacementMode('tank');
+      game.updatePlacementPreview({ x: -460, z: 210 });
+      const spawnX = -460, spawnZ = 210;
+      const sceneChildrenBefore = scene.children.length;
+      game.confirmPlacement({ x: spawnX, z: spawnZ });
+
+      const spawned = game.playerUnits[game.playerUnits.length - 1];
+      assert(spawned !== undefined, 'Unit object exists after confirm');
+      assert(spawned.alive === true, 'Spawned unit is alive');
+      assert(spawned.type === 'tank', 'Spawned unit type is tank');
+      assert(spawned.faction === 'player', 'Spawned unit faction is player');
+
+      // Physical position on map
+      assert(Math.abs(spawned.mesh.position.x - spawnX) < 5,
+        `Unit X on map ≈ ${spawnX} (got ${spawned.mesh.position.x.toFixed(1)})`);
+      assert(Math.abs(spawned.mesh.position.z - spawnZ) < 5,
+        `Unit Z on map ≈ ${spawnZ} (got ${spawned.mesh.position.z.toFixed(1)})`);
+      assert(Math.abs(spawned.mesh.position.y - (8 + 0.5)) < 2,
+        `Unit Y on map = land height (got ${spawned.mesh.position.y.toFixed(1)})`);
+
+      // Mesh is in the scene
+      assert(spawned.mesh.parent === scene, 'Unit mesh is added to Three.js scene');
+
+      // Scene has more children after spawn
+      assert(scene.children.length > sceneChildrenBefore,
+        `Scene children increased (${sceneChildrenBefore} → ${scene.children.length})`);
+
+      // Ghost is gone after confirm
+      assert(game.placementMode.ghost === null, 'Ghost removed after confirm');
+      assert(game.placementMode.active === false, 'Placement mode off after confirm');
+
+      // --- PHYSICAL SPAWN: sea unit on water ---
+      game.money = 1000;
+      game.enterPlacementMode('destroyer');
+      game.updatePlacementPreview({ x: -550, z: -500 });
+      const seaConfirm = game.confirmPlacement({ x: -550, z: -500 });
+      assert(seaConfirm === true, 'Sea unit placement on water succeeds');
+      const seaUnit = game.playerUnits[game.playerUnits.length - 1];
+      assert(seaUnit.domain === 'sea', 'Spawned sea unit has sea domain');
+      assert(seaUnit.mesh.position.y === 0.3, `Sea unit Y = 0.3 (got ${seaUnit.mesh.position.y})`);
+      assert(seaUnit.mesh.parent === scene, 'Sea unit mesh in scene');
+
+      // --- PHYSICAL SPAWN: air unit ---
+      game.money = 1000;
+      game.enterPlacementMode('fighter');
+      game.updatePlacementPreview({ x: -350, z: 50 });
+      const airConfirm = game.confirmPlacement({ x: -350, z: 50 });
+      assert(airConfirm === true, 'Air unit placement succeeds');
+      const airUnit = game.playerUnits[game.playerUnits.length - 1];
+      assert(airUnit.domain === 'air', 'Spawned air unit has air domain');
+      assert(airUnit.mesh.position.y === 25, `Air unit Y = 25 (got ${airUnit.mesh.position.y})`);
+      assert(airUnit.mesh.parent === scene, 'Air unit mesh in scene');
+
+      // confirmPlacement — invalid (should fail, no spawn)
+      game.money = 1000;
+      game.enterPlacementMode('tank');
+      const unitsBefore = game.playerUnits.length;
+      const failConfirm = game.confirmPlacement({ x: -600, z: -600 });
+      assert(failConfirm === false, 'confirmPlacement fails on invalid spot (sea for land)');
+      assert(game.playerUnits.length === unitsBefore, 'No new unit added on failed confirm');
+      assert(game.placementMode.active === true, 'Placement mode still active after failed confirm');
+      assert(game.money === 1000, 'Money NOT deducted on failed confirm');
+
+      // exitPlacementMode
+      game.exitPlacementMode(true);
+      assert(game.placementMode.active === false, 'Placement mode deactivated on cancel');
+      assert(game.placementMode.ghost === null, 'Ghost removed');
+    }
+
+    async function testCombat(group) {
+      log('--- COMBAT ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn two units
+      const attacker = game.spawn('tank', 'player', { x: -400, z: 0 });
+      const defender = game.spawn('infantry', 'enemy', { x: -390, z: 0 });
+      attacker.mesh.position.set(-400, LAND_HEIGHT + 0.5, 0);
+      defender.mesh.position.set(-390, LAND_HEIGHT + 0.5, 0);
+
+      assert(attacker.alive === true, 'Attacker spawned alive');
+      assert(defender.alive === true, 'Defender spawned alive');
+      assert(attacker.stats.damage > 0, 'Attacker has damage > 0');
+      assert(attacker.stats.range > 0, 'Attacker has range > 0');
+
+      // Take damage
+      defender.takeDamage(10);
+      assert(defender.hp < defender.maxHp, 'Defender took damage');
+
+      // Die
+      const hpBefore = defender.hp;
+      defender.takeDamage(hpBefore + 100);
+      assert(defender.alive === false, 'Defender dies after lethal damage');
+
+      // Terrain bonuses
+      const { dmg, hp } = { dmg: 30, hp: 200 };
+      const seaBonus = { dmg: 1, hp: 1 }; // sea domain on sea
+      // applyTerrainBonus
+      const combat = await import('./js/combat.js');
+      const result = combat.applyTerrainBonus('sea', 'sea', 30, 200);
+      assert(result.dmg > 30, 'Sea domain gets damage bonus on sea terrain');
+      assert(result.hp > 200, 'Sea domain gets HP bonus on sea terrain');
+    }
+
+    function testPhysicalMovement(group) {
+      log('--- PHYSICAL MOVEMENT ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn a tank on land
+      const tank = game.spawn('tank', 'player', { x: -450, z: 200 });
+      tank.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+      const startPos = tank.mesh.position.clone();
+      assert(tank.mesh.parent === scene, 'Tank mesh is in scene before movement');
+
+      // Issue move command
+      const moveTarget = new THREE.Vector3(-400, 0, 250);
+      tank.moveTo(moveTarget);
+      assert(tank.state === 'moving', 'Tank state is "moving" after moveTo');
+      assert(tank.moveTarget !== null, 'Tank has a moveTarget');
+
+      // Run update loop — unit should physically move
+      const posBeforeX = tank.mesh.position.x;
+      const posBeforeZ = tank.mesh.position.z;
+      for (let i = 0; i < 30; i++) game.update(0.1);  // 3 seconds
+
+      const movedX = tank.mesh.position.x;
+      const movedZ = tank.mesh.position.z;
+      const distMoved = Math.hypot(movedX - posBeforeX, movedZ - posBeforeZ);
+      assert(distMoved > 5, `Tank physically moved ${distMoved.toFixed(1)} units (expected > 5)`);
+      assert(Math.abs(movedX - posBeforeX) > 1 || Math.abs(movedZ - posBeforeZ) > 1,
+        `Tank position changed on map (X: ${posBeforeX.toFixed(1)}→${movedX.toFixed(1)}, Z: ${posBeforeZ.toFixed(1)}→${movedZ.toFixed(1)})`);
+
+      // Tank Y stays on ground during movement
+      assert(Math.abs(tank.mesh.position.y - (LAND_HEIGHT + 0.5)) < 2,
+        `Tank Y stays on ground during movement (got ${tank.mesh.position.y.toFixed(1)})`);
+
+      // --- Formation move: multiple units physically spread out ---
+      const u1 = game.spawn('infantry', 'player', { x: -450, z: 200 });
+      const u2 = game.spawn('infantry', 'player', { x: -450, z: 206 });
+      u1.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+      u2.mesh.position.set(-450, LAND_HEIGHT + 0.5, 206);
+      game.selectedUnits = [u1, u2];
+
+      const targetPoint = new THREE.Vector3(-350, 0, 250);
+      game.computeFormation(targetPoint, 2, 'line');
+
+      // Issue group move
+      const positions = game.computeFormation(targetPoint, 2, 'line');
+      u1.moveTo(positions[0]);
+      u2.moveTo(positions[1]);
+
+      for (let i = 0; i < 50; i++) game.update(0.1);  // 5 seconds
+
+      // Units should be separated (not stacked)
+      const sep = Math.hypot(u1.mesh.position.x - u2.mesh.position.x, u1.mesh.position.z - u2.mesh.position.z);
+      assert(sep > 3, `Formation units separated by ${sep.toFixed(1)} units (expected > 3)`);
+
+      // --- Air unit moves at correct altitude ---
+      const fighter = game.spawn('fighter', 'player', { x: -400, z: 100 });
+      fighter.mesh.position.set(-400, 25, 100);
+      fighter.moveTo(new THREE.Vector3(-300, 0, 200));
+      for (let i = 0; i < 20; i++) game.update(0.1);
+      assert(Math.abs(fighter.mesh.position.y - 25) < 2,
+        `Fighter stays at altitude 25 during movement (got ${fighter.mesh.position.y.toFixed(1)})`);
+
+      // --- Sea unit stays at water level ---
+      const destroyer = game.spawn('destroyer', 'player', { x: -600, z: -250 });
+      destroyer.mesh.position.set(-600, 0.3, -250);
+      destroyer.moveTo(new THREE.Vector3(-550, 0, -200));
+      for (let i = 0; i < 20; i++) game.update(0.1);
+      assert(Math.abs(destroyer.mesh.position.y - 0.3) < 2,
+        `Destroyer stays at water level 0.3 (got ${destroyer.mesh.position.y.toFixed(1)})`);
+
+      // --- Chase behavior: unit re-paths when target moves ---
+      const chaser = game.spawn('tank', 'player', { x: -440, z: 200 });
+      chaser.mesh.position.set(-440, LAND_HEIGHT + 0.5, 200);
+      const fleeTarget = game.spawn('infantry', 'enemy', { x: -420, z: 200 });
+      fleeTarget.mesh.position.set(-420, LAND_HEIGHT + 0.5, 200);
+      chaser.attack(fleeTarget);
+      assert(chaser.state === 'attacking', 'Chaser enters attack state');
+
+      // Move the target away
+      fleeTarget.mesh.position.set(-350, LAND_HEIGHT + 0.5, 250);
+      for (let i = 0; i < 60; i++) game.update(0.1);
+      const chaseDist = chaser.mesh.position.distanceTo(fleeTarget.mesh.position);
+      assert(chaseDist < chaser.stats.range + 50,
+        `Chaser closes distance to ${chaseDist.toFixed(0)} (range: ${chaser.stats.range})`);
+    }
+
+    function testAI(group) {
+      log('--- AI SYSTEM ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'hard', new THREE.Vector3());
+      game.init();
+      initAI(game);
+
+      // Verify AI hook
+      assert(typeof game.onAITick === 'function', 'onAITick is a function');
+
+      // Tick the AI
+      game.onAITick(0.1);
+
+      // checkWinCondition
+      game.checkWinCondition();
+      assert(typeof game.checkWinCondition === 'function', 'checkWinCondition exists');
+
+      // findValidSpawn
+      const base = game.bases[1]; // enemy base
+      const pos = game.findValidSpawn(base.mesh.position, 'land');
+      assert(pos !== null, 'findValidSpawn returns position for land');
+      assert(typeof pos.x === 'number', 'Position has x coordinate');
+      assert(typeof pos.z === 'number', 'Position has z coordinate');
+
+      const airPos = game.findValidSpawn(base.mesh.position, 'air');
+      assert(airPos !== null, 'findValidSpawn returns position for air');
+
+      const seaPos = game.findValidSpawn(base.mesh.position, 'sea');
+      assert(seaPos !== null, 'findValidSpawn returns position for sea');
+    }
+
+    function testEconomy(group) {
+      log('--- ECONOMY ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      assert(game.money === STARTING_MONEY, `Starting money = $${STARTING_MONEY}`);
+
+      // Passive income
+      const ownedBases = game.bases.filter(b => b.faction === 'player').length;
+      const income = PASSIVE_INCOME * ownedBases;
+      assert(income > 0, `Passive income = $${income}/sec`);
+
+      // Kill bounty
+      const bounty = 25;
+      assert(bounty === 25, 'Kill bounty = $25');
+
+      // Base capture reward
+      const captureReward = 200;
+      assert(captureReward === 200, 'Base capture reward = $200');
+    }
+
+    async function testSaveLoad(group) {
+      log('--- SAVE/LOAD ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Starting army creates 4 player units, add 2 more
+      const unitsBefore = game.playerUnits.length;
+      game.spawn('tank', 'player', { x: -400, z: 0 });
+      game.spawn('infantry', 'player', { x: -390, z: 0 });
+      game.money = 1234;
+
+      const { saveGame, loadSaveData, hasSave, deleteSave } = await import('./js/saveLoad.js');
+
+      deleteSave();
+      assert(hasSave() === false, 'No save exists initially');
+
+      const saved = saveGame(game);
+      assert(saved === true, 'saveGame returns true');
+      assert(hasSave() === true, 'hasSave returns true after save');
+
+      const data = loadSaveData();
+      assert(data !== null, 'loadSaveData returns data');
+      assert(data.money === 1234, 'Saved money matches');
+      assert(data.difficulty === 'normal', 'Saved difficulty matches');
+      assert(data.playerUnits.length === unitsBefore + 2, `Saved ${unitsBefore + 2} player units (got ${data.playerUnits.length})`);
+      assert(data.enemyUnits.length > 0, `Saved ${data.enemyUnits.length} enemy units`);
+      assert(data.bases.length === game.bases.length, 'All bases saved');
+      assert(data.upgrades !== undefined, 'Upgrades saved');
+      assert(data.fog !== null, 'Fog data saved');
+      assert(data.cameraTarget !== null, 'Camera target saved');
+
+      deleteSave();
+      assert(hasSave() === false, 'hasSave returns false after delete');
+    }
+
+    function testCarrierAbility(group) {
+      log('--- CARRIER ABILITY ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn carrier
+      const carrier = game.spawn('carrier', 'player', { x: -600, z: -300 });
+      carrier.mesh.position.set(-600, 0.3, -300);
+      assert(carrier.canLaunch === true, 'Carrier has canLaunch = true');
+      assert(carrier.launchCooldown === 0, 'Launch cooldown starts at 0');
+
+      const unitsBefore = game.playerUnits.length;
+      const launched = carrier.launchFighters();
+      assert(launched === true, 'launchFighters returns true');
+      assert(carrier.launchCooldown === CARRIER_FIGHTER_COOLDOWN,
+        `Cooldown set to ${CARRIER_FIGHTER_COOLDOWN}`);
+      assert(game.playerUnits.length > unitsBefore, 'New fighters spawned');
+
+      // Can't launch during cooldown
+      const again = carrier.launchFighters();
+      assert(again === false, 'Cannot launch during cooldown');
+    }
+
+    function testFormations(group) {
+      log('--- FORMATIONS ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      const center = new THREE.Vector3(0, 0, 0);
+
+      // Line
+      const line = game.computeFormation(center, 4, 'line');
+      assert(line.length === 4, 'Line formation: 4 positions');
+      assert(line[0].z === line[1].z, 'Line: same Z');
+      assert(line[0].x !== line[1].x, 'Line: different X');
+
+      // Column
+      const col = game.computeFormation(center, 4, 'column');
+      assert(col.length === 4, 'Column formation: 4 positions');
+      assert(col[0].x === col[1].x, 'Column: same X');
+      assert(col[0].z !== col[1].z, 'Column: different Z');
+
+      // Wedge
+      const wedge = game.computeFormation(center, 5, 'wedge');
+      assert(wedge.length === 5, 'Wedge formation: 5 positions');
+
+      // Square
+      const sq = game.computeFormation(center, 4, 'square');
+      assert(sq.length === 4, 'Square formation: 4 positions');
+    }
+
+    function testBases(group) {
+      log('--- BASES ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      assert(game.bases.length === 7, '7 bases created');
+      assert(game.bases[0].faction === 'player', 'First base is player HQ');
+      assert(game.bases[0].size === 1.8, 'Player HQ size = 1.8');
+
+      const enemyBases = game.bases.filter(b => b.faction === 'enemy');
+      assert(enemyBases.length === 6, '6 enemy bases');
+
+      // Base HP
+      assert(game.bases[0].hp === 500 * 1.8, 'Player HQ HP = 900');
+      assert(game.bases[0].maxHp === game.bases[0].hp, 'maxHp matches hp');
+
+      // Base turret properties
+      assert(game.bases[0].turretRange === 60 * 1.8, 'HQ turret range scaled by size');
+      assert(game.bases[0].turretCooldown <= 0, 'Turret cooldown starts at/near 0');
+    }
+
+    function testSound(group) {
+      log('--- SOUND SYSTEM ---', '#4af');
+
+      assert(typeof Sound.init === 'function', 'Sound.init exists');
+      assert(typeof Sound.play === 'function', 'Sound.play exists');
+      assert(typeof Sound.resume === 'function', 'Sound.resume exists');
+      assert(Sound.enabled === true, 'Sound starts enabled');
+
+      // Toggle
+      Sound.enabled = false;
+      assert(Sound.enabled === false, 'Sound can be disabled');
+      Sound.enabled = true;
+      assert(Sound.enabled === true, 'Sound can be re-enabled');
+    }
+
+    function testMinimap(group) {
+      log('--- MINIMAP ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2500);
+      const game = new Game(scene, camera, 'normal', new THREE.Vector3());
+      game.init();
+
+      const minimap = new Minimap(game, camera);
+      assert(minimap !== null, 'Minimap created');
+      assert(minimap.size === 200, 'Minimap size = 200');
+      assert(minimap.canvas !== undefined, 'Canvas element exists');
+      assert(minimap.ctx !== undefined, '2D context exists');
+
+      // Coordinate conversion
+      const mid = minimap.worldToMini(0, 0);
+      assert(mid.x === 100 && mid.y === 100, 'worldToMini(0,0) = center (100,100)');
+
+      const back = minimap.miniToWorld(100, 100);
+      assert(Math.abs(back.x) < 1 && Math.abs(back.z) < 1, 'miniToWorld(100,100) ≈ (0,0)');
+
+      // Draw
+      minimap.draw();
+      assert(true, 'minimap.draw() completes without error');
+    }
+
+    // ===== RUN ALL =====
+    async function runAll() {
+      totalPass = 0; totalFail = 0;
+      resultsEl.innerHTML = '';
+
+      const groups = [
+        ['Config & Constants', testConfig],
+        ['Terrain System', testTerrain],
+        ['Pathfinder (A*)', testPathfinder],
+        ['Fog of War', testFogOfWar],
+        ['Upgrade System', testUpgrades],
+        ['Placement Mode (Click-to-Place)', testPlacementMode],
+        ['Combat System', testCombat],
+        ['Physical Movement & Positioning', testPhysicalMovement],
+        ['AI System', testAI],
+        ['Economy', testEconomy],
+        ['Save/Load', testSaveLoad],
+        ['Carrier Ability', testCarrierAbility],
+        ['Formations', testFormations],
+        ['Bases', testBases],
+        ['Sound System', testSound],
+        ['Minimap', testMinimap],
+        ['HP Bars', testHpBars],
+        ['Hit Flash', testHitFlash],
+        ['Attack Move', testAttackMove],
+        ['Soft Collision', testSoftCollision],
+        ['Territory System', testTerritory],
+        ['Base Defense', testBaseDefense],
+        ['Auto-Target Bases', testAutoTargetBases],
+        ['Ship Water Push', testShipWaterPush],
+        ['Projectile Types', testProjectileTypes],
+      ];
+
+      for (const [name, fn] of groups) {
+        const group = startGroup(name);
+        log(`\n=== ${name} ===`, '#cc9933');
+        try { await fn(group); }
+        catch (e) { totalFail++; addResult(group, `ERROR: ${e.message}`, false); log(`  ❌ ERROR: ${e.message}`, '#f44'); }
+      }
+
+      const summary = document.getElementById('summary');
+      summary.style.display = 'block';
+      const pct = totalPass + totalFail > 0 ? Math.round(totalPass / (totalPass + totalFail) * 100) : 0;
+      summary.textContent = `Results: ${totalPass} passed / ${totalFail} failed (${pct}% pass rate) — ${totalPass + totalFail} total`;
+      summary.className = totalFail === 0 ? 'pass' : 'fail';
+      log(`\n=== FINAL: ${totalPass} passed, ${totalFail} failed (${pct}%) ===`, totalFail === 0 ? '#4f4' : '#f44');
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runAll);
+
+    // ============================================================
+    //  NEW TESTS: HP Bars, Hit Flash, Attack Move, Soft Collision
+    // ============================================================
+
+    function testHpBars(group) {
+      log('--- HP BARS ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      const tank = game.spawn('tank', 'player', { x: -450, z: 200 });
+      tank.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+
+      assert(tank._hpBar !== null && tank._hpBar !== undefined, 'Unit has _hpBar');
+      assert(tank._hpBar.fg !== undefined, 'HP bar has foreground');
+      assert(tank._hpBar.trail !== undefined, 'HP bar has trail');
+      assert(tank._displayHp === tank.maxHp, 'Initial _displayHp equals maxHp');
+      assert(tank._trailHp === tank.maxHp, 'Initial _trailHp equals maxHp');
+
+      // Take damage — displayHp should drop instantly
+      tank.takeDamage(50);
+      assert(tank._displayHp === tank.maxHp - 50, '_displayHp drops immediately');
+      assert(tank._trailHp === tank.maxHp, '_trailHp starts at old value');
+
+      // Simulate trail catching up
+      tank._updateHpBar(1.0);
+      assert(Math.abs(tank._trailHp - (tank.maxHp - 50)) < 5, '_trailHp lerps toward _displayHp');
+
+      // Bar visibility
+      tank.selected = false;
+      tank._updateHpBar(0);
+      assert(tank._hpBar.fg.parent.visible === true, 'Bar visible when HP < max');
+
+      // Bar at full HP
+      tank.hp = tank.maxHp;
+      tank._displayHp = tank.maxHp;
+      tank._trailHp = tank.maxHp;
+      tank.selected = false;
+      tank._updateHpBar(0);
+      assert(tank._hpBar.fg.parent.visible === false, 'Bar hidden at full HP when not selected');
+
+      // Bar visible when selected
+      tank.setSelected(true);
+      assert(tank._hpBar.fg.parent.visible === true, 'Bar visible when selected');
+
+      // Enemy unit has red bar color
+      const enemy = game.spawn('infantry', 'enemy', { x: -300, z: 200 });
+      assert(enemy._hpBar !== null && enemy._hpBar !== undefined, 'Enemy unit has HP bar');
+    }
+
+    function testHitFlash(group) {
+      log('--- HIT FLASH ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      const tank = game.spawn('tank', 'player', { x: -450, z: 200 });
+      tank.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+
+      assert(tank._hitFlash === false, 'No hit flash initially');
+      assert(tank._hitFlashTimer === 0, 'Hit flash timer is 0');
+      assert(tank._hitFlashOrig === false, 'No original colors stored yet');
+
+      // Take damage — should trigger flash
+      tank.takeDamage(50);
+      assert(tank._hitFlash === true, 'Hit flash activated');
+      assert(tank._hitFlashTimer > 0, 'Hit flash timer > 0');
+      assert(tank._hitFlashOrig === true, 'Original colors stored');
+
+      // Simulate flash duration passing
+      tank._updateHitFlash(0.2);
+      assert(tank._hitFlash === false, 'Hit flash deactivated after timer');
+
+      // Check original colors were restored
+      let colorsRestored = true;
+      tank.mesh.traverse(c => {
+        if (c.material?.color && c.userData.origColor !== undefined) {
+          if (c.material.color.getHex() !== c.userData.origColor) colorsRestored = false;
+        }
+      });
+      assert(colorsRestored, 'Colors restored after flash ends');
+    }
+
+    function testAttackMove(group) {
+      log('--- ATTACK MOVE ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      assert(game.attackMoveMode === false, 'Attack move starts OFF');
+
+      // Toggle on
+      game.attackMoveMode = true;
+      assert(game.attackMoveMode === true, 'Attack move toggled ON');
+
+      // Move with attack move flag
+      const tank = game.spawn('tank', 'player', { x: -450, z: 200 });
+      tank.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+      tank.moveTo(new THREE.Vector3(-400, 0, 250), true);
+
+      assert(tank.attackMove === true, 'Unit has attackMove flag');
+      assert(tank.attackMoveDest !== null, 'attackMoveDest set');
+      assert(Math.abs(tank.attackMoveDest.x - (-400)) < 5, 'attackMoveDest X correct');
+      assert(tank.state === 'moving', 'Unit is moving');
+
+      // Spawn enemy in range
+      const enemy = game.spawn('infantry', 'enemy', { x: -420, z: 230 });
+      enemy.mesh.position.set(-420, LAND_HEIGHT + 0.5, 230);
+
+      // Run updates — unit should find target and switch to attack
+      for (let i = 0; i < 50; i++) game.update(0.1);
+      assert(enemy.hp < enemy.maxHp || enemy.alive === false, 'Enemy took damage or died');
+
+      // Toggle off
+      game.attackMoveMode = false;
+      assert(game.attackMoveMode === false, 'Attack move toggled OFF');
+    }
+
+    function testSoftCollision(group) {
+      log('--- SOFT COLLISION ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn two land units very close together
+      const a = game.spawn('tank', 'player', { x: -450, z: 200 });
+      const b = game.spawn('tank', 'player', { x: -452, z: 200 });
+      a.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+      b.mesh.position.set(-452, LAND_HEIGHT + 0.5, 200);
+      a.state = 'idle';
+      b.state = 'idle';
+
+      const distBefore = Math.hypot(a.mesh.position.x - b.mesh.position.x, a.mesh.position.z - b.mesh.position.z);
+      assert(distBefore < 3.5, `Units start overlapping (dist=${distBefore.toFixed(2)})`);
+
+      // Run collision pass
+      game._applySoftCollision(game.playerUnits);
+
+      const distAfter = Math.hypot(a.mesh.position.x - b.mesh.position.x, a.mesh.position.z - b.mesh.position.z);
+      assert(distAfter >= 3.5 || distAfter > distBefore, `Units pushed apart (dist: ${distBefore.toFixed(2)} → ${distAfter.toFixed(2)})`);
+
+      // Air units should not collide
+      const c = game.spawn('fighter', 'player', { x: -450, z: 200 });
+      const d = game.spawn('fighter', 'player', { x: -451, z: 200 });
+      c.mesh.position.set(-450, 25, 200);
+      d.mesh.position.set(-451, 25, 200);
+
+      const airDistBefore = Math.hypot(c.mesh.position.x - d.mesh.position.x, c.mesh.position.z - d.mesh.position.z);
+      game._applySoftCollision(game.playerUnits);
+      const airDistAfter = Math.hypot(c.mesh.position.x - d.mesh.position.x, c.mesh.position.z - d.mesh.position.z);
+      assert(Math.abs(airDistBefore - airDistAfter) < 0.01, 'Air units do not collide');
+
+      // Sea units get wider push
+      const e = game.spawn('destroyer', 'player', { x: -600, z: -300 });
+      const f = game.spawn('destroyer', 'player', { x: -603, z: -300 });
+      e.mesh.position.set(-600, 0.3, -300);
+      f.mesh.position.set(-603, 0.3, -300);
+      game._applySoftCollision(game.playerUnits);
+      const seaDist = Math.hypot(e.mesh.position.x - f.mesh.position.x, e.mesh.position.z - f.mesh.position.z);
+      assert(seaDist >= 5.5, `Sea units get wider collision (dist=${seaDist.toFixed(2)}, min=6)`);
+    }
+
+    function testTerritory(group) {
+      log('--- TERRITORY SYSTEM ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Player HQ has territory
+      const phq = game.bases.find(b => b.name === 'Player HQ');
+      assert(phq.territory > 0, 'Player HQ has territory radius');
+      assert(phq.territory === 150 * 1.8, 'Player HQ territory = 150 * size');
+
+      // Main Base has larger territory
+      const mb = game.bases.find(b => b.name === 'Main Base');
+      assert(mb.territory === 200 * 2.2, 'Main Base has larger territory');
+
+      // getTerritoryAt works for player HQ
+      const terr = game.getTerritoryAt(-500, 200);
+      assert(terr !== null, 'getTerritoryAt returns non-null near HQ');
+      assert(terr.faction === 'player', 'HQ territory is player');
+
+      // Far from any base returns null
+      const farTerr = game.getTerritoryAt(0, 0);
+      assert(farTerr === null, 'getTerritoryAt returns null in unclaimed area');
+
+      // Territory ring exists on bases
+      assert(phq.territoryRing !== null, 'Player HQ has territory ring mesh');
+
+      // isValidPlacement restricts to player territory
+      const valid = game.isValidPlacement(-500, 210, 'land');
+      const invalid = game.isValidPlacement(300, -50, 'land');
+      assert(valid === true, 'Placement valid within player territory');
+      assert(invalid === false, 'Placement invalid outside player territory');
+    }
+
+    function testBaseDefense(group) {
+      log('--- BASE DEFENSE ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      const phq = game.bases.find(b => b.name === 'Player HQ');
+      assert(phq.turretRange > 0, 'Player HQ has turret range');
+      assert(phq.turretDamage > 0, 'Player HQ has turret damage');
+      assert(phq.hp > 500, 'Player HQ has boosted HP (distance scaling)');
+
+      // Enemy Main Base has higher HP due to distance
+      const mb = game.bases.find(b => b.name === 'Main Base');
+      assert(mb.hp > mb.maxHp * 0.5, 'Main Base HP is scaled');
+
+      // Spawn enemy unit near player HQ and check turret fires
+      const enemy = game.spawn('infantry', 'enemy', { x: -440, z: 200 });
+      enemy.mesh.position.set(-440, LAND_HEIGHT + 0.5, 200);
+      const projCountBefore = game.projectiles.length;
+      phq.turretCooldown = 0;
+      phq.update(0.1);
+      assert(game.projectiles.length > projCountBefore, 'Base turret fires at nearby enemies');
+    }
+
+    function testAutoTargetBases(group) {
+      log('--- AUTO-TARGET BASES ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn a tank near an enemy base
+      const mb = game.bases.find(b => b.name === 'Main Base');
+      const tank = game.spawn('tank', 'player', { x: mb.mesh.position.x + 30, z: mb.mesh.position.z });
+      tank.mesh.position.set(mb.mesh.position.x + 30, LAND_HEIGHT + 0.5, mb.mesh.position.z);
+
+      // Tank should auto-target the base
+      tank.findTarget();
+      assert(tank.target !== null, 'Tank found a target');
+      assert(tank.target.type === 'Main Base', 'Tank targets enemy base');
+      assert(tank.state === 'attacking', 'Tank enters attacking state');
+    }
+
+    function testShipWaterPush(group) {
+      log('--- SHIP WATER PUSH ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Spawn a destroyer near water
+      const ship = game.spawn('destroyer', 'player', { x: -500, z: -400 });
+      ship.mesh.position.set(-500, 0.3, -400);
+
+      // Place it on land manually (simulate glitch)
+      ship.mesh.position.set(-430, 0.3, 100);
+      ship.state = 'idle';
+      ship._pushCooldown = 0;
+
+      // Check it's on land terrain
+      const terrain = game.terrain.getTerrainAt(-430, 100);
+      assert(terrain !== 'sea', 'Ship placed on non-sea terrain');
+
+      // Run update — should trigger water push
+      for (let i = 0; i < 10; i++) game.update(0.1);
+
+      // Ship should have started moving toward water
+      assert(ship.state === 'moving' || ship.mesh.position.x !== -430, 'Ship is being pushed to water');
+    }
+
+    function testProjectileTypes(group) {
+      log('--- PROJECTILE TYPES ---', '#4af');
+
+      const scene = new THREE.Scene();
+      const game = new Game(scene, null, 'normal', new THREE.Vector3());
+      game.init();
+
+      // Land unit fires shell
+      const tank = game.spawn('tank', 'player', { x: -450, z: 200 });
+      tank.mesh.position.set(-450, LAND_HEIGHT + 0.5, 200);
+      const enemy = game.spawn('infantry', 'enemy', { x: -420, z: 200 });
+      enemy.mesh.position.set(-420, LAND_HEIGHT + 0.5, 200);
+      tank.target = enemy;
+      tank.state = 'attacking';
+      tank.cooldown = 0;
+      tank.fire();
+      assert(tank.game.projectiles.length > 0, 'Land unit creates projectile');
+      const lastProj = tank.game.projectiles[tank.game.projectiles.length - 1];
+      assert(lastProj.type === 'land', 'Land projectile has type "land"');
+      assert(lastProj.speed === 80, 'Land shell speed is 80');
+
+      // Ship fires cannonball
+      const ship = game.spawn('destroyer', 'player', { x: -500, z: -300 });
+      ship.mesh.position.set(-500, 0.3, -300);
+      ship.target = enemy;
+      ship.state = 'attacking';
+      ship.cooldown = 0;
+      ship.fire();
+      const shipProj = ship.game.projectiles[ship.game.projectiles.length - 1];
+      assert(shipProj.type === 'sea', 'Sea projectile has type "sea"');
+      assert(shipProj.speed === 60, 'Cannonball speed is 60');
+
+      // Air unit fires missile
+      const fighter = game.spawn('fighter', 'player', { x: -450, z: 200 });
+      fighter.mesh.position.set(-450, 25, 200);
+      fighter.target = enemy;
+      fighter.state = 'attacking';
+      fighter.cooldown = 0;
+      fighter.fire();
+      const airProj = fighter.game.projectiles[fighter.game.projectiles.length - 1];
+      assert(airProj.type === 'air', 'Air projectile has type "air"');
+      assert(airProj.speed === 120, 'Missile speed is 120');
+    }
+  </script>
+</body>
+</html>

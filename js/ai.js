@@ -38,8 +38,12 @@ export function initAI(game) {
     if (!base) return false;
     const stats = UNIT_TYPES[type];
     const pos = game.findValidSpawn(base.mesh.position, stats.domain);
-    if (!pos) return false;
+    if (!pos) {
+      console.warn(`[DEBUG AI] Failed to find spawn for ${type} near ${base.name}`);
+      return false;
+    }
     game.spawn(type, 'enemy', pos);
+    console.log(`[DEBUG AI] Spawned ${type} near ${base.name} at (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})`);
     return true;
   }
 
@@ -95,7 +99,7 @@ export function initAI(game) {
       }
     });
 
-    console.log(`🤖 AI launches ${attackers.length}-unit assault on ${target.name}`);
+    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units → ${target.name} (target HP: ${target.hp.toFixed(0)})`);
   }
 
   /** Defensive: any idle defender near a base that has hostile units near it should engage. */
@@ -132,7 +136,9 @@ export function initAI(game) {
     economyTimer += dt;
     if (economyTimer >= 1) {
       const ownedBases = game.bases.filter(b => b.faction === 'enemy').length;
-      aiMoney += 12 * ownedBases * cfg.aiIncome;
+      const income = 12 * ownedBases * cfg.aiIncome;
+      aiMoney += income;
+      console.log(`[DEBUG AI] Economy tick: +$${income.toFixed(0)} (bases: ${ownedBases}, money: $${aiMoney.toFixed(0)})`);
       economyTimer = 0;
     }
 

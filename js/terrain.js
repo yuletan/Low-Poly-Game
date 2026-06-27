@@ -62,6 +62,40 @@ export function buildTerrain(scene) {
     mountains.push({ x, z, r });
   }
 
+  // === BEACHES on large landmasses (area > 100k sq units) ===
+  for (const lm of landmasses) {
+    const area = lm.w * lm.d;
+    if (area <= 100000) continue;
+    const beachWidth = 15;
+    const beachHeight = 20;
+    const beachColor = 0xd4c4a8;
+    // Top edge
+    const beachTop = new THREE.Mesh(
+      new THREE.BoxGeometry(lm.w, beachHeight, beachWidth),
+      new THREE.MeshLambertMaterial({ color: beachColor })
+    );
+    beachTop.position.set(lm.x, LAND_HEIGHT - beachHeight / 2, lm.z + lm.d / 2 - beachWidth / 2);
+    // Bottom edge
+    const beachBottom = new THREE.Mesh(
+      new THREE.BoxGeometry(lm.w, beachHeight, beachWidth),
+      new THREE.MeshLambertMaterial({ color: beachColor })
+    );
+    beachBottom.position.set(lm.x, LAND_HEIGHT - beachHeight / 2, lm.z - lm.d / 2 + beachWidth / 2);
+    // Left edge
+    const beachLeft = new THREE.Mesh(
+      new THREE.BoxGeometry(beachWidth, beachHeight, lm.d),
+      new THREE.MeshLambertMaterial({ color: beachColor })
+    );
+    beachLeft.position.set(lm.x + lm.w / 2 - beachWidth / 2, LAND_HEIGHT - beachHeight / 2, lm.z);
+    // Right edge
+    const beachRight = new THREE.Mesh(
+      new THREE.BoxGeometry(beachWidth, beachHeight, lm.d),
+      new THREE.MeshLambertMaterial({ color: beachColor })
+    );
+    beachRight.position.set(lm.x - lm.w / 2 + beachWidth / 2, LAND_HEIGHT - beachHeight / 2, lm.z);
+    scene.add(beachTop, beachBottom, beachLeft, beachRight);
+  }
+
   // === TREES ===
   for (let i = 0; i < 80; i++) {
     const lm = landmasses[Math.floor(Math.random() * landmasses.length)];

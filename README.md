@@ -45,9 +45,14 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 2. Open the project folder
 3. Right-click `index.html` → **Open with Live Server**
 
-**Option 2 — Python**
+**Option 2 — Python (start script)**
 ```bash
-cd rts-game
+python start
+```
+Opens `http://localhost:8000` automatically in your browser.
+
+**Option 2b — Python (manual)**
+```bash
 python -m http.server 8000
 # Open http://localhost:8000
 ```
