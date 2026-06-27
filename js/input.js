@@ -321,6 +321,39 @@ export function initInput(game, camera, renderer) {
     Sound.play('move');
   }
 
+  // ----- Hover HP tooltip -----
+  let hoverTooltip = null;
+
+  function updateHoverTooltip(e) {
+    const u = getUnitUnderMouse(e);
+    const base = getBaseUnderMouse(e);
+
+    // Prefer unit over base
+    const target = u || base;
+
+    if (target && target.alive !== false) {
+      if (!hoverTooltip) {
+        hoverTooltip = document.createElement('div');
+        hoverTooltip.className = 'unit-tooltip';
+        document.body.appendChild(hoverTooltip);
+      }
+      const hp = Math.ceil(target.hp || target._displayHp || 0);
+      const maxHp = Math.ceil(target.maxHp || 0);
+      const pct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0;
+      const typeName = target.type || target.name || 'Unit';
+      hoverTooltip.innerHTML = `<strong>${typeName.toUpperCase()}</strong><br>❤ HP: ${hp} / ${maxHp} <span style="color:${pct > 50 ? '#4f4' : pct > 25 ? '#fa0' : '#f44'}">(${pct}%)</span>`;
+      hoverTooltip.style.left = (e.clientX + 16) + 'px';
+      hoverTooltip.style.top = (e.clientY + 16) + 'px';
+      hoverTooltip.classList.add('visible');
+    } else {
+      if (hoverTooltip) {
+        hoverTooltip.classList.remove('visible');
+        hoverTooltip.remove();
+        hoverTooltip = null;
+      }
+    }
+  }
+
   // ===== EVENT LISTENERS =====
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -338,6 +371,9 @@ export function initInput(game, camera, renderer) {
   });
 
   canvas.addEventListener('mousemove', e => {
+    // Hover HP tooltip
+    updateHoverTooltip(e);
+
     // Placement mode — update preview
     if (game.placementMode && game.placementMode.active) {
       const point = getGroundPoint(e);
@@ -428,6 +464,15 @@ export function initInput(game, camera, renderer) {
           issueMoveCommand(point);
         }
       }
+    }
+  });
+
+  // Cleanup hover tooltip when mouse leaves canvas
+  canvas.addEventListener('mouseleave', () => {
+    if (hoverTooltip) {
+      hoverTooltip.classList.remove('visible');
+      hoverTooltip.remove();
+      hoverTooltip = null;
     }
   });
 
