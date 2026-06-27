@@ -171,30 +171,84 @@ export function initAI(game) {
       }
     }
 
-    // Ground units move in formation
+    // Ground units: check if any target requires water crossing
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
-    if (multiTarget) {
-      const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
-      let idx = 0;
-      for (const t of targets) {
-        const slice = groundAttackers.slice(idx, idx + perGroup);
-        idx += perGroup;
-        const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
-        slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
+    const needsAmphibious = targets.some(t =>
+      groundAttackers.some(u => isWaterBetween(u.mesh.position, t.mesh.position))
+    );
+
+    if (needsAmphibious) {
+      // --- Amphibious assault: load ground troops onto transports ---
+      const capacity = UNIT_TYPES.transport.transportCapacity || 4;
+      let transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
+      let availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
+
+      // Spawn extra transports if needed (up to what AI can afford)
+      const neededTransports = Math.ceil(groundAttackers.length / capacity);
+      while (transports.length < neededTransports && aiMoney >= UNIT_TYPES.transport.cost) {
+        if (spawnEnemyUnit('transport')) {
+          aiMoney -= UNIT_TYPES.transport.cost;
+          // Re-fetch idle transports
+          transports = game.enemyUnits.filter(u => u.isTransport && u.alive && u.state === 'idle');
+          availSlots = transports.reduce((s, t) => s + (t.transportCapacity - t.carriedUnits.length), 0);
+        } else break;
       }
-      // Leftover units attack the primary target
-      const leftover = groundAttackers.slice(idx);
-      if (leftover.length > 0) {
+
+      // Load ground attackers onto transports (AI teleport-loads)
+      let loaded = 0;
+      for (const u of groundAttackers) {
+        if (availSlots <= 0) break;
+        // Find a transport with room
+        const tp = transports.find(t => t.carriedUnits.length < t.transportCapacity);
+        if (!tp) break;
+        tp.carriedUnits.push(u);
+        u.mesh.visible = false;
+        u.carried = true;
+        u.state = 'idle';
+        loaded++;
+        availSlots--;
+      }
+
+      // Move transport fleet to coast near primary target
+      if (loaded > 0 && transports.length > 0) {
         const primary = targets[0];
-        const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
-        leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
+        const g = game.pathfinder.worldToGrid(primary.mesh.position.x, primary.mesh.position.z);
+        const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+        if (nearest) {
+          const coastPos = new THREE.Vector3(
+            game.pathfinder.gridToWorld(nearest.gx, nearest.gy).x, 0,
+            game.pathfinder.gridToWorld(nearest.gx, nearest.gy).z
+          );
+          const loadedTransports = transports.filter(t => t.carriedUnits.length > 0);
+          const pos = game.computeFormation(coastPos, loadedTransports.length, 'line');
+          loadedTransports.forEach((tp, i) => tp.moveTo(pos[i] || coastPos.clone()));
+          console.log(`[DEBUG AI] AMPHIBIOUS ASSAULT: ${loaded} troops on ${loadedTransports.length} transports → ${primary.name}`);
+        }
       }
     } else {
-      const primary = targets[0];
-      const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
-      groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
+      // --- Normal ground movement (no water crossing needed) ---
+      if (multiTarget) {
+        const perGroup = Math.max(1, Math.floor(groundAttackers.length / targets.length));
+        let idx = 0;
+        for (const t of targets) {
+          const slice = groundAttackers.slice(idx, idx + perGroup);
+          idx += perGroup;
+          const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
+          slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
+        }
+        const leftover = groundAttackers.slice(idx);
+        if (leftover.length > 0) {
+          const primary = targets[0];
+          const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
+          leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
+        }
+      } else {
+        const primary = targets[0];
+        const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
+        groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
+      }
     }
 
     console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
