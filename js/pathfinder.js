@@ -70,7 +70,7 @@ export class Pathfinder {
     while (!open.isEmpty() && iterations++ < MAX_ITER) {
       const cur = open.pop();
       if (cur.gx === g.gx && cur.gy === g.gy) {
-        return this.reconstruct(cameFrom, cur.key, endWorld);
+        return this.reconstruct(cameFrom, cur.key, endWorld, domain);
       }
       closed.add(cur.key);
       for (const [dx, dy, cost] of NEIGHBORS) {
@@ -99,7 +99,7 @@ export class Pathfinder {
     return (dx + dy) + (1.414 - 2) * Math.min(dx, dy);
   }
 
-  reconstruct(cameFrom, endKey, endWorld) {
+  reconstruct(cameFrom, endKey, endWorld, domain) {
     const path = [];
     let k = endKey;
     while (k !== undefined) {

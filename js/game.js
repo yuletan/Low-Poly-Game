@@ -4,7 +4,7 @@ import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SI
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage } from './combat.js?v=3';
-import { Pathfinder } from './pathfinder.js?v=3';
+import { Pathfinder } from './pathfinder.js?v=4';
 import { FogOfWar } from './fogOfWar.js?v=3';
 import { Minimap } from './minimap.js';
 import { UpgradeManager } from './upgrades.js';
