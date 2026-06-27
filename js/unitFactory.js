@@ -18,6 +18,7 @@ export function createUnitMesh(type, color, faction) {
     case 'destroyer':return buildShip(g, tint, 1.0);
     case 'battleship':return buildShip(g, tint, 1.6);
     case 'carrier':  return buildCarrier(g, tint);
+    case 'transport':return buildTransport(g, tint);
     case 'fighter':  return buildJet(g, tint, 1.0);
     case 'bomber':   return buildJet(g, tint, 1.4);
   }
@@ -125,6 +126,33 @@ function buildCarrier(g, color){
   }
   g.add(hull, deck, angledDeck, tower);
   g.userData.bobPhase = Math.random() * Math.PI * 2;
+  return g;
+}
+
+function buildTransport(g, color) {
+  // Flat hull (landing craft style)
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(6, 1, 14), mat(color));
+  hull.position.y = 0.5; hull.castShadow = true;
+  // Deck
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.3, 10), mat(0x5c4a3a));
+  deck.position.y = 1.2;
+  // Ramp front
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 2), mat(0x5c4a3a));
+  ramp.position.set(0, 0.8, 6.5);
+  ramp.rotation.x = 0.3;
+  // Cabin
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 3), mat(0x666666));
+  cabin.position.set(0, 2.5, -4);
+  // Deck railings
+  const railMat = mat(0x333333);
+  for (let side = -1; side <= 1; side += 2) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 10), railMat);
+    rail.position.set(side * 3, 1.5, 0);
+    g.add(rail);
+  }
+  g.add(hull, deck, ramp, cabin);
+  g.userData.bobPhase = Math.random() * Math.PI * 2;
+  g.userData.muzzleOffset = null;
   return g;
 }
 

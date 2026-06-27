@@ -39,6 +39,12 @@ export class Unit {
     this.canLaunch = !!baseStats.canLaunchFighters;
     this.launchCooldown = 0;
     this.canFireWhileMoving = !!this.stats.canFireWhileMoving;
+    this._targetScanTimer = 0;
+
+    // Transport ship
+    this.isTransport = this.type === 'transport';
+    this.carriedUnits = [];
+    this.transportCapacity = this.stats.transportCapacity || 0;
 
     // Unique mechanics state
     this._destroyerShotCount = 0;        // For flak every 3rd shot
@@ -236,6 +242,14 @@ export class Unit {
       this.game.money += bounty;
       this.game.flashMessage(`+${bounty}$ bounty`);
     }
+    // Transport: kill all carried units
+    for (const u of this.carriedUnits) {
+      if (u.alive) {
+        u.mesh.visible = true;
+        u.die();
+      }
+    }
+    this.carriedUnits = [];
     // Create "OUT OF COMMISSION" label
     this._createDeathLabel();
     this.game.queueDeath(this);
@@ -299,9 +313,14 @@ export class Unit {
       this._tryCaptureBase(dt);
     }
 
-    // Auto-target: idle units, or attack-move units scanning while moving
+    // Periodic auto-target scan: idle faster, all units every 2s
     if (this.state === 'idle' || (this.state === 'moving' && (!this.moveTarget || this.attackMove))) {
       this.findTarget();
+    }
+    this._targetScanTimer += dt;
+    if (this._targetScanTimer >= 2) {
+      this._targetScanTimer = 0;
+      if (this.state !== 'dead') this.findTarget();
     }
     // Units that can fire while moving: run attack logic even in 'moving' state
     if (this.state === 'moving' && this.canFireWhileMoving && this.target) {
@@ -310,6 +329,13 @@ export class Unit {
     switch (this.state) {
       case 'moving':    this.updateMove(dt); break;
       case 'attacking': this.updateAttack(dt); break;
+    }
+
+    // Transport: sync carried units; skip combat
+    if (this.isTransport) {
+      this._updateTransport(dt);
+      // Transport can't attack — clear any target
+      this.target = null;
     }
 
     // Terrain enforcement: push to valid terrain (short cooldown)
@@ -380,9 +406,91 @@ export class Unit {
     }
   }
 
+  // ----- Transport ship -----
+  canLoadUnit(unit) {
+    if (!this.isTransport || !this.alive) return false;
+    if (unit.faction !== this.faction) return false;
+    if (!unit.alive) return false;
+    if (unit.domain !== 'land') return false;
+    if (this.carriedUnits.length >= this.transportCapacity) return false;
+    const d = this.mesh.position.distanceTo(unit.mesh.position);
+    return d <= 12;
+  }
+
+  loadUnit(unit) {
+    if (!this.canLoadUnit(unit)) return false;
+    this.carriedUnits.push(unit);
+    unit.mesh.visible = false;
+    unit.carried = true;
+    unit.state = 'idle';
+    console.log(`[DEBUG TRANSPORT] Loaded ${unit.type} (${this.carriedUnits.length}/${this.transportCapacity})`);
+    return true;
+  }
+
+  canUnload() {
+    if (!this.isTransport || !this.alive) return false;
+    if (this.carriedUnits.length === 0) return false;
+    const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
+    return terrain === TERRAIN.COAST || terrain === TERRAIN.LAND;
+  }
+
+  unloadAll() {
+    if (!this.canUnload()) return;
+    const count = this.carriedUnits.length;
+    for (let i = this.carriedUnits.length - 1; i >= 0; i--) {
+      const u = this.carriedUnits[i];
+      const offset = new THREE.Vector3(
+        (i - (count - 1) / 2) * 3,
+        0,
+        -5
+      );
+      offset.applyQuaternion(this.mesh.quaternion);
+      const pos = this.mesh.position.clone().add(offset);
+      // Snap to valid terrain
+      if (u.domain !== 'air') {
+        const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+        if (!u.canEnter(terrain)) {
+          const g = this.game.pathfinder.worldToGrid(pos.x, pos.z);
+          const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, u.domain);
+          if (nearest) {
+            const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+            pos.set(w.x, 0, w.z);
+          }
+        }
+      }
+      u.mesh.position.copy(pos);
+      u.mesh.visible = true;
+      u.carried = false;
+      u.state = 'idle';
+
+      // Auto-attack nearby enemies after unload
+      const enemies = u.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+      const nearestEnemy = enemies.reduce((best, e) => {
+        if (!e.alive) return best;
+        const d = u.mesh.position.distanceTo(e.mesh.position);
+        return d < (best?.dist ?? Infinity) ? { unit: e, dist: d } : best;
+      }, null);
+      if (nearestEnemy && nearestEnemy.dist < u.stats.range * 2) {
+        u.attack(nearestEnemy.unit);
+      }
+
+      this.carriedUnits.splice(i, 1);
+    }
+    console.log(`[DEBUG TRANSPORT] Unloaded ${count} units`);
+  }
+
+  _updateTransport(dt) {
+    if (!this.alive) return;
+    // Sync carried unit meshes
+    for (const u of this.carriedUnits) {
+      u.mesh.position.copy(this.mesh.position);
+      u.mesh.position.y += 0.5;
+    }
+  }
+
   _pushToValidTerrain(domain) {
     if (this._pushCooldown > 0) return;
-    this._pushCooldown = 0.15;
+    this._pushCooldown = 0.05;
     const gx = Math.floor((this.mesh.position.x + MAP_SIZE/2) / 12);
     const gy = Math.floor((this.mesh.position.z + MAP_SIZE/2) / 12);
     const nearest = this.game.pathfinder.findNearestWalkable(gx, gy, domain);
@@ -450,6 +558,34 @@ export class Unit {
       else { this.state = 'idle'; return; }
     }
     const pos = this.mesh.position;
+
+    // Hard clamp: if on invalid terrain, snap to nearest walkable and stop
+    if (this.domain !== 'air') {
+      const curTerrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      if (!this.canEnter(curTerrain)) {
+        this._pushToValidTerrain(this.domain);
+        return;
+      }
+    }
+
+    // Validate current waypoint is reachable
+    if (this.domain !== 'air') {
+      const wpTerrain = this.game.terrain.getTerrainAt(this.moveTarget.x, this.moveTarget.z);
+      if (!this.canEnter(wpTerrain)) {
+        // Reject invalid waypoint, find nearest valid one
+        const g = this.game.pathfinder.worldToGrid(this.moveTarget.x, this.moveTarget.z);
+        const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, this.domain);
+        if (nearest) {
+          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+          this.moveTarget.set(w.x, 0, w.z);
+        } else {
+          this.moveTarget = this.path.shift() || null;
+          if (!this.moveTarget) this.state = 'idle';
+        }
+        return;
+      }
+    }
+
     const dx = this.moveTarget.x - pos.x;
     const dz = this.moveTarget.z - pos.z;
     const dist = Math.hypot(dx, dz);
@@ -541,7 +677,19 @@ export class Unit {
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     const dist = this._dist2d(targetPos);
     if (dist > this.stats.range) {
-      this.moveTo(targetPos, this.attackMove);
+      // Sea units attacking a land target: move to closest coast in range
+      if (this.domain === 'sea' && this.target.domain === 'land') {
+        const coastPos = this._findCoastInRange(targetPos);
+        if (coastPos) {
+          this.moveTo(coastPos, this.attackMove);
+        } else {
+          // No reachable coast — just try to approach
+          const snap = this._snapToNearestSea(targetPos);
+          if (snap) this.moveTo(snap, this.attackMove);
+        }
+      } else {
+        this.moveTo(targetPos, this.attackMove);
+      }
       return;
     }
     const dx = targetPos.x - this.mesh.position.x;
@@ -555,20 +703,53 @@ export class Unit {
     if (this.cooldown <= 0) this.fire();
   }
 
+  /** Find closest coast cell within range of the target */
+  _findCoastInRange(targetPos) {
+    const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+    const rangeCell = Math.ceil(this.stats.range / this.game.pathfinder.cell) + 1;
+    let best = null, bestDist = Infinity;
+    for (let dy = -rangeCell; dy <= rangeCell; dy++) {
+      for (let dx = -rangeCell; dx <= rangeCell; dx++) {
+        const gx = g.gx + dx, gy = g.gy + dy;
+        if (!this.game.pathfinder.walkable(gx, gy, 'sea')) continue;
+        const w = this.game.pathfinder.gridToWorld(gx, gy);
+        const d = Math.hypot(w.x - targetPos.x, w.z - targetPos.z);
+        if (d <= this.stats.range && d < bestDist) {
+          const fromDist = Math.hypot(w.x - this.mesh.position.x, w.z - this.mesh.position.z);
+          if (fromDist < bestDist) {
+            bestDist = fromDist;
+            best = new THREE.Vector3(w.x, 0, w.z);
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  _snapToNearestSea(targetPos) {
+    const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+    const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+    if (!nearest) return null;
+    const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+    return new THREE.Vector3(w.x, 0, w.z);
+  }
+
   /** Attack logic for units that can fire while moving (ships, planes). */
   updateAttackWhileMoving(dt) {
-    if (!this.target || !this.target.alive) {
-      this.target = null;
-      return;
-    }
+    if (!this.target) { this.target = null; return; }
+    // Check alive (works for both units and base synthetic targets)
+    const alive = this.target.alive != null ? this.target.alive : true;
+    if (!alive) { this.target = null; return; }
     // Base captured (faction changed) — release target
-    if (this.target.faction && this.target.faction === this.faction) {
-      this.target = null;
-      return;
-    }
+    if (this.target.faction && this.target.faction === this.faction) { this.target = null; return; }
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     const dist = this._dist2d(targetPos);
     if (dist > this.stats.range) {
+      // Sea units attacking a land target: steer toward closest coast in range
+      if (this.domain === 'sea' && this.target.domain === 'land') {
+        const coastPos = this._findCoastInRange(targetPos);
+        if (coastPos) this.moveTo(coastPos, this.attackMove);
+      }
       return;
     }
     // In range: aim and fire, but keep moving

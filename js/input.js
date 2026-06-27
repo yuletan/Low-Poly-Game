@@ -259,6 +259,7 @@ export function initInput(game, camera, renderer) {
           case 'carrier': ctx.moveTo(cx-s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy-s*0.3); ctx.lineTo(cx-s*1.3, cy-s*0.3); ctx.closePath(); break;
           case 'fighter': ctx.moveTo(cx, cy-s*1.1); ctx.lineTo(cx+s*0.6, cy+s*0.2); ctx.lineTo(cx+s*0.3, cy+s*0.2); ctx.lineTo(cx+s*0.4, cy+s*0.6); ctx.lineTo(cx, cy+s*0.4); ctx.lineTo(cx-s*0.4, cy+s*0.6); ctx.lineTo(cx-s*0.3, cy+s*0.2); ctx.lineTo(cx-s*0.6, cy+s*0.2); ctx.closePath(); break;
           case 'bomber': ctx.moveTo(cx, cy-s*1.2); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.4, cy+s*0.3); ctx.lineTo(cx+s*0.5, cy+s*0.7); ctx.lineTo(cx, cy+s*0.5); ctx.lineTo(cx-s*0.5, cy+s*0.7); ctx.lineTo(cx-s*0.4, cy+s*0.3); ctx.lineTo(cx-s*0.8, cy+s*0.3); ctx.closePath(); break;
+          case 'transport': ctx.roundRect(cx-s, cy-s*0.5, s*2, s, 2); ctx.closePath(); break;
         }
         ctx.fill(); ctx.stroke();
         iconCache[type] = canvas.toDataURL('image/png');
@@ -287,7 +288,45 @@ export function initInput(game, camera, renderer) {
     }
     const unitLabel = game.selectedUnits.length === 1 ? 'unit' : 'units';
     html += `<div style="margin-top:8px;color:#4af;text-align:center;">Total: ${game.selectedUnits.length} ${unitLabel}</div>`;
+
+    // Transport ship: show Load/Unload buttons
+    const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
+    if (hasTransport) {
+      const transport = game.selectedUnits.find(u => u.isTransport);
+      const canLoad = game.selectedUnits.some(u => !u.isTransport && transport && transport.canLoadUnit(u));
+      const canUnload = transport && transport.canUnload();
+      html += `<div class="transport-actions" style="display:flex;gap:8px;margin-top:8px;justify-content:center;">`;
+      if (canLoad) {
+        html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;">📦 Load</button>`;
+      }
+      if (canUnload) {
+        html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;">📤 Unload</button>`;
+      }
+      html += `</div>`;
+    }
+
     info.innerHTML = html;
+
+    // Bind transport buttons
+    const loadBtn = document.getElementById('loadBtn');
+    if (loadBtn) {
+      loadBtn.addEventListener('click', () => {
+        const t = game.selectedUnits.find(u => u.isTransport);
+        if (t) {
+          const toLoad = game.selectedUnits.filter(u => !u.isTransport && t.canLoadUnit(u));
+          for (const u of toLoad) t.loadUnit(u);
+          game.updateSelectionUI();
+        }
+      }, { once: true });
+    }
+    const unloadBtn = document.getElementById('unloadBtn');
+    if (unloadBtn) {
+      unloadBtn.addEventListener('click', () => {
+        const t = game.selectedUnits.find(u => u.isTransport);
+        if (t) t.unloadAll();
+        game.updateSelectionUI();
+      }, { once: true });
+    }
   }
 
   // ----- Command issuing -----
@@ -299,6 +338,25 @@ export function initInput(game, camera, renderer) {
     if (additiveTarget && additiveTarget.faction !== 'player') {
       for (const u of units) u.attack(additiveTarget);
       return;
+    }
+
+    // Auto-load land units into nearby transports
+    const transports = game.playerUnits.filter(u => u.isTransport && u.alive);
+    for (const u of units) {
+      if (u.domain !== 'land') continue;
+      if (u.carried) continue;
+      for (const t of transports) {
+        if (t.carriedUnits.length >= t.transportCapacity) continue;
+        const d = u.mesh.position.distanceTo(t.mesh.position);
+        if (d <= 12) {
+          // Check if the move destination is near the transport (unit going to board it)
+          const toTrans = t.mesh.position.distanceTo(worldPoint);
+          if (toTrans <= 10) {
+            t.loadUnit(u);
+            break;
+          }
+        }
+      }
     }
 
     // Otherwise compute formation positions

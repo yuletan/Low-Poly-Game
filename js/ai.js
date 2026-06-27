@@ -1,6 +1,6 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY } from './config.js';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js';
 
 export function initAI(game) {
   const cfg = DIFFICULTY[game.difficulty];
@@ -9,19 +9,46 @@ export function initAI(game) {
   let attackTimer  = cfg.aiInterval * 0.5; // first attack comes sooner
   let aiMoney      = 200;
 
-  /** Pick the unit composition based on difficulty. */
+  /** Check if water exists between two positions */
+  function isWaterBetween(pos1, pos2) {
+    const steps = 20;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = pos1.x + (pos2.x - pos1.x) * t;
+      const z = pos1.z + (pos2.z - pos1.z) * t;
+      const terrain = game.terrain.getTerrainAt(x, z);
+      if (terrain === TERRAIN.SEA) return true;
+    }
+    return false;
+  }
+
+  /** Check if transport ships are needed for any player base */
+  function needsTransport() {
+    const enemyBases = game.bases.filter(b => b.faction === 'enemy');
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (!enemyBases.length || !playerBases.length) return false;
+    for (const eb of enemyBases) {
+      for (const pb of playerBases) {
+        if (isWaterBetween(eb.mesh.position, pb.mesh.position)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Pick the unit composition based on difficulty and need for transport. */
   function chooseUnitToBuild() {
+    const needTrans = needsTransport();
     // Hard AI uses combined arms; Easy spams cheap stuff
     if (game.difficulty === 'easy') {
-      const pool = ['infantry', 'infantry', 'tank'];
+      const pool = needTrans ? ['infantry', 'infantry', 'tank', 'transport'] : ['infantry', 'infantry', 'tank'];
       return pool[Math.floor(Math.random() * pool.length)];
     }
     if (game.difficulty === 'normal') {
-      const pool = ['infantry', 'tank', 'tank', 'artillery', 'fighter'];
+      const pool = needTrans ? ['infantry', 'tank', 'tank', 'artillery', 'fighter', 'transport'] : ['infantry', 'tank', 'tank', 'artillery', 'fighter'];
       return pool[Math.floor(Math.random() * pool.length)];
     }
     // Hard — balanced combined arms with naval threats
-    const pool = ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer'];
+    const pool = needTrans ? ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'transport', 'battleship', 'carrier'] : ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer'];
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
@@ -62,44 +89,77 @@ export function initAI(game) {
 
   /** Order a group of idle enemy units to attack. */
   function launchAttack() {
-    const target = pickPlayerTarget();
-    if (!target) return;
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (playerBases.length === 0) return;
 
-    // Group size scales with aggression
+    // 70% single target, 30% multi-target (attack all bases)
+    const multiTarget = Math.random() < 0.3;
+    const targets = multiTarget ? playerBases : [pickPlayerTarget()];
+    if (!targets.length) return;
+
+    // Group size: 5% chance of "huge" battalion (12-20), normal 2-8
+    const isHuge = Math.random() < 0.05;
+    const maxGroup = isHuge ? 20 : 8;
+    const minGroup = isHuge ? 12 : 2;
+
     const idle = game.enemyUnits.filter(u =>
       u.alive && (u.state === 'idle' || (u.state === 'attacking' && !u.target))
     );
-    if (idle.length < 2) return;
+    if (idle.length < minGroup) return;
 
-    let groupSize;
-    if (game.difficulty === 'easy')   groupSize = Math.min(2 + Math.floor(Math.random()*2), idle.length);
-    else if (game.difficulty === 'normal') groupSize = Math.min(4 + Math.floor(Math.random()*3), idle.length);
-    else                              groupSize = Math.min(6 + Math.floor(Math.random()*4), idle.length);
+    const totalGroup = Math.min(minGroup + Math.floor(Math.random() * (maxGroup - minGroup + 1)), idle.length);
+    if (totalGroup < 1) return;
 
-    // Pick the closest units to the target (more tactical than random)
-    const sorted = idle.sort((a, b) =>
-      a.mesh.position.distanceTo(target.mesh.position) -
-      b.mesh.position.distanceTo(target.mesh.position)
-    );
-    const attackers = sorted.slice(0, groupSize);
-
-    // Form up around the target with a wedge
-    const formationFormation = game.difficulty === 'hard' ? 'wedge' : 'line';
-    const positions = game.computeFormation(
-      target.mesh.position, attackers.length, formationFormation
-    );
-
-    attackers.forEach((u, i) => {
-      // Some units march to the position, then attack; air units attack directly
-      if (u.domain === 'air') {
-        u.moveTarget = target.mesh.position.clone();
-        u.moveTarget.y = u.stats.altitude;
-      } else {
-        u.moveTo(positions[i] || target.mesh.position.clone());
-      }
+    // Sort idle by distance to their nearest target for fairness
+    const sorted = [...idle].sort((a, b) => {
+      const aD = targets.reduce((m, t) => Math.min(m, a.mesh.position.distanceTo(t.mesh.position)), Infinity);
+      const bD = targets.reduce((m, t) => Math.min(m, b.mesh.position.distanceTo(t.mesh.position)), Infinity);
+      return aD - bD;
     });
+    const attackers = sorted.slice(0, totalGroup);
 
-    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units → ${target.name} (target HP: ${target.hp.toFixed(0)})`);
+    if (multiTarget) {
+      // Round-robin split attackers across all player bases
+      const perGroup = Math.max(1, Math.floor(attackers.length / targets.length));
+      let idx = 0;
+      for (const t of targets) {
+        const slice = attackers.slice(idx, idx + perGroup);
+        idx += perGroup;
+        const formationType = isHuge ? 'wedge' : 'line';
+        const positions = game.computeFormation(t.mesh.position, slice.length, formationType);
+        slice.forEach((u, i) => {
+          if (u.domain === 'air') {
+            u.attack({ mesh: t.mesh, faction: t.faction, get alive() { return true; }, get hp() { return t.hp; }, takeDamage: d => t.takeDamage(d), type: t.name, domain: 'land' });
+          } else {
+            u.moveTo(positions[i] || t.mesh.position.clone());
+          }
+        });
+      }
+      // Leftover units attack the primary target
+      const leftover = attackers.slice(idx);
+      const primary = targets[0];
+      const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
+      leftover.forEach((u, i) => {
+        if (u.domain === 'air') {
+          u.attack({ mesh: primary.mesh, faction: primary.faction, get alive() { return true; }, get hp() { return primary.hp; }, takeDamage: d => primary.takeDamage(d), type: primary.name, domain: 'land' });
+        } else {
+          u.moveTo(lPos[i] || primary.mesh.position.clone());
+        }
+      });
+    } else {
+      // Single target: send all attackers
+      const formationType = isHuge ? 'wedge' : 'line';
+      const positions = game.computeFormation(targets[0].mesh.position, attackers.length, formationType);
+      attackers.forEach((u, i) => {
+        if (u.domain === 'air') {
+          u.attack({ mesh: targets[0].mesh, faction: targets[0].faction, get alive() { return true; }, get hp() { return targets[0].hp; }, takeDamage: d => targets[0].takeDamage(d), type: targets[0].name, domain: 'land' });
+        } else {
+          u.moveTo(positions[i] || targets[0].mesh.position.clone());
+        }
+      });
+    }
+
+    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
   }
 
   /** Defensive: any idle defender near a base that has hostile units near it should engage. */
@@ -124,6 +184,48 @@ export function initAI(game) {
           d.mesh.position.distanceTo(b.mesh.position) ? a : b
         );
         d.attack(nearest);
+      }
+    }
+  }
+
+  /** Find idle land units near a transport and load them */
+  function loadTransport(tp) {
+    const idle = game.enemyUnits.filter(u =>
+      u.alive && u.domain === 'land' && !u.carried && u.state === 'idle'
+    );
+    for (const u of idle) {
+      if (tp.carriedUnits.length >= tp.transportCapacity) break;
+      if (tp.canLoadUnit(u)) tp.loadUnit(u);
+    }
+  }
+
+  /** Order a transport to carry land troops across water */
+  function launchAmphibiousAttack() {
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (!playerBases.length) return;
+    const target = playerBases[Math.floor(Math.random() * playerBases.length)];
+
+    // Find idle transports with cargo or ready to load
+    const transports = game.enemyUnits.filter(u =>
+      u.isTransport && u.alive && u.state === 'idle'
+    );
+    if (!transports.length) return;
+
+    for (const tp of transports) {
+      // Load nearby land units
+      if (tp.carriedUnits.length < tp.transportCapacity) {
+        loadTransport(tp);
+      }
+      // If we have some cargo, head toward target via coast
+      if (tp.carriedUnits.length > 0) {
+        // Find a coast position near the target
+        const g = game.pathfinder.worldToGrid(target.mesh.position.x, target.mesh.position.z);
+        const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+        if (nearest) {
+          const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+          tp.moveTo(new THREE.Vector3(w.x, 0, w.z));
+          console.log(`[DEBUG AI] Transport moving ${tp.carriedUnits.length} units toward ${target.name}`);
+        }
       }
     }
   }
@@ -153,6 +255,11 @@ export function initAI(game) {
 
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
+
+    // --- Amphibious transport logic ---
+    if (needsTransport() && Math.random() < 0.02) {
+      launchAmphibiousAttack();
+    }
 
     // --- Attack waves on a timer ---
     attackTimer -= dt;
