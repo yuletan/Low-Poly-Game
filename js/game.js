@@ -481,18 +481,43 @@ export class Unit {
 
   _updateTransport(dt) {
     if (!this.alive) return;
-    // Auto-unload when idle on coast/land with cargo
-    if (this.state === 'idle' && this.carriedUnits.length > 0 && this.canUnload()) {
-      this.unloadAll();
-      // After unloading, retreat to nearest friendly base for more troops
-      this._retreatToFriendlyBase();
-      return;
+    // Auto-beach: if idle with cargo but on sea, path to nearest coast
+    if (this.state === 'idle' && this.carriedUnits.length > 0) {
+      const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
+      if (terrain === TERRAIN.SEA) {
+        const g = this.game.pathfinder.worldToGrid(this.mesh.position.x, this.mesh.position.z);
+        const coast = this._findNearestCoast(g.gx, g.gy);
+        if (coast) {
+          this.moveTo(coast);
+          return;
+        }
+      } else if (this.canUnload()) {
+        this.unloadAll();
+        this._retreatToFriendlyBase();
+        return;
+      }
     }
     // Sync carried unit meshes
     for (const u of this.carriedUnits) {
       u.mesh.position.copy(this.mesh.position);
       u.mesh.position.y += 0.5;
     }
+  }
+
+  _findNearestCoast(gx, gy) {
+    for (let r = 0; r < 15; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = gx + dx, ny = gy + dy;
+          if (!this.game.pathfinder.inBounds(nx, ny)) continue;
+          const w = this.game.pathfinder.gridToWorld(nx, ny);
+          const t = this.game.terrain.getTerrainAt(w.x, w.z);
+          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
+        }
+      }
+    }
+    return null;
   }
 
   _retreatToFriendlyBase() {
@@ -512,12 +537,21 @@ export class Unit {
   _pushToValidTerrain(domain) {
     if (this._pushCooldown > 0) return;
     this._pushCooldown = 0.05;
+    // Teleport directly to nearest walkable cell
     const gx = Math.floor((this.mesh.position.x + MAP_SIZE/2) / 12);
     const gy = Math.floor((this.mesh.position.z + MAP_SIZE/2) / 12);
     const nearest = this.game.pathfinder.findNearestWalkable(gx, gy, domain);
     if (nearest) {
       const world = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-      this.moveTo(new THREE.Vector3(world.x, 0, world.z));
+      // Teleport to valid position
+      this.mesh.position.set(world.x, 0, world.z);
+      // Rotate 90 degrees to face away from land
+      const angle = Math.random() * Math.PI * 2;
+      this.mesh.rotation.y = angle;
+      // Clear current movement and recalculate path to existing destination
+      if (this.attackMoveDest && this.state !== 'idle') {
+        this.moveTo(this.attackMoveDest, this.attackMove);
+      }
     }
   }
 

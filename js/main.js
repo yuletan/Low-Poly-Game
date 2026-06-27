@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Game } from './game.js?v=4';
+import { Game } from './game.js?v=5';
 import { initInput } from './input.js?v=3';
-import { initAI }    from './ai.js?v=4';
+import { initAI }    from './ai.js?v=5';
 import { initUI }    from './ui.js?v=3';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';

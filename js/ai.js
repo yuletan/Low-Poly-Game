@@ -103,11 +103,10 @@ export function initAI(game) {
   let lastKnownEnemyCount = 0;
   let buildUpWarningShown = false;
 
-  /** Gather available attacking units (exclude air, transports, and defenders near bases). */
+  /** Gather available attacking units (exclude transports). */
   function gatherAttackers() {
-    // Count ALL alive enemy units (not just idle)
     return game.enemyUnits.filter(u =>
-      u.alive && u.domain !== 'air' && !u.isTransport
+      u.alive && !u.isTransport
     );
   }
 
@@ -220,16 +219,11 @@ export function initAI(game) {
         availSlots--;
       }
 
-      // Move transport fleet to coast near primary target
+      // Move transport fleet to landing zone near primary target
       if (loaded > 0) {
         const primary = targets[0];
-        const g = game.pathfinder.worldToGrid(primary.mesh.position.x, primary.mesh.position.z);
-        const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-        if (nearest) {
-          const coastPos = new THREE.Vector3(
-            game.pathfinder.gridToWorld(nearest.gx, nearest.gy).x, 0,
-            game.pathfinder.gridToWorld(nearest.gx, nearest.gy).z
-          );
+        const coastPos = findLandingZone(primary.mesh.position);
+        if (coastPos) {
           const loadedTransports = transports.filter(t => t.carriedUnits.length > 0);
           const pos = game.computeFormation(coastPos, loadedTransports.length, 'line');
           loadedTransports.forEach((tp, i) => tp.moveTo(pos[i] || coastPos.clone()));
@@ -311,6 +305,30 @@ export function initAI(game) {
     }
   }
 
+  /** Find a COAST landing zone near a target position */
+  function findLandingZone(targetPos) {
+    const g = game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+    for (let r = 0; r < 15; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = g.gx + dx, ny = g.gy + dy;
+          if (!game.pathfinder.inBounds(nx, ny)) continue;
+          const w = game.pathfinder.gridToWorld(nx, ny);
+          const t = game.terrain.getTerrainAt(w.x, w.z);
+          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
+        }
+      }
+    }
+    // Fallback: nearest sea walkable
+    const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+    if (nearest) {
+      const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+      return new THREE.Vector3(w.x, 0, w.z);
+    }
+    return null;
+  }
+
   /** Order a transport to carry land troops across water */
   function launchAmphibiousAttack() {
     const playerBases = game.bases.filter(b => b.faction === 'player');
@@ -337,11 +355,9 @@ export function initAI(game) {
       const noMoreNearby = nearbyIdleLand.length === 0;
       // Only sail if full OR no more troops nearby to pick up
       if ((isFull || noMoreNearby) && tp.carriedUnits.length > 0) {
-        const g = game.pathfinder.worldToGrid(target.mesh.position.x, target.mesh.position.z);
-        const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-        if (nearest) {
-          const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-          tp.moveTo(new THREE.Vector3(w.x, 0, w.z));
+        const landing = findLandingZone(target.mesh.position);
+        if (landing) {
+          tp.moveTo(landing);
           console.log(`[DEBUG AI] Transport moving ${tp.carriedUnits.length}/${tp.transportCapacity} units toward ${target.name}`);
         }
       }
