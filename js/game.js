@@ -1,6 +1,6 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, PROJECTILE_PATTERNS } from './config.js?v=4';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, PROJECTILE_PATTERNS } from './config.js?v=5';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage } from './combat.js?v=3';
