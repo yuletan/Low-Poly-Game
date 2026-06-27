@@ -230,14 +230,10 @@ export function initInput(game, camera, renderer) {
       }
       return;
     }
-    // Group by type and calculate combined stats
+    // Group by type
     const counts = {};
-    let totalHp = 0, totalDmg = 0, maxRange = 0;
     for (const u of game.selectedUnits) {
       counts[u.type] = (counts[u.type] || 0) + 1;
-      totalHp += u.hp;
-      totalDmg += u.stats.damage;
-      maxRange = Math.max(maxRange, u.stats.range);
     }
     
     // Generate unit icon data URLs for portraits
@@ -267,20 +263,29 @@ export function initInput(game, camera, renderer) {
       return iconCache[type];
     }
     
-    // Build HTML with unit portraits
+    // Build HTML with unit portraits (per-type stats)
     let html = '';
-    let first = true;
     for (const [type, count] of Object.entries(counts)) {
       const stats = UNIT_TYPES[type];
       const iconDataUrl = getIcon(type, stats.color);
-      const avgHp = Math.round(totalHp / game.selectedUnits.length);
-      const avgDmg = Math.round(totalDmg / game.selectedUnits.length);
+      // Calculate per-type stats from selected units of this type
+      let typeHp = 0, typeDmg = 0, typeRange = 0, typeCount = 0;
+      for (const u of game.selectedUnits) {
+        if (u.type === type) {
+          typeHp += u.hp;
+          typeDmg += u.stats.damage;
+          typeRange = Math.max(typeRange, u.stats.range);
+          typeCount++;
+        }
+      }
+      const avgHp = Math.round(typeHp / typeCount);
+      const avgDmg = Math.round(typeDmg / typeCount);
       html += `
         <div class="selection-item">
           <img class="selection-icon" src="${iconDataUrl}" alt="${type}">
           <div>
             <div class="selection-type">${type.toUpperCase()}</div>
-            <div class="selection-stats">HP: ${avgHp} | DMG: ${avgDmg} | RNG: ${maxRange}</div>
+            <div class="selection-stats">HP: ${avgHp} | DMG: ${avgDmg} | RNG: ${typeRange}</div>
           </div>
           <div class="selection-count">×${count}</div>
         </div>

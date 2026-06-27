@@ -138,7 +138,7 @@ export function initAI(game) {
     const airAttackers = attackers.filter(u => u.domain === 'air');
     for (const target of targets) {
       for (const u of airAttackers) {
-        u.attack({ mesh: target.mesh, faction: target.faction, get alive() { return true; }, get hp() { return target.hp; }, takeDamage: d => target.takeDamage(d), type: target.name, domain: 'land' });
+        u.attack(target);
       }
     }
 
@@ -203,9 +203,9 @@ export function initAI(game) {
       );
       if (threats.length === 0) continue;
 
-      // Order nearby idle defenders to engage
+      // Order nearby idle defenders to engage (skip units already targeting something)
       const defenders = game.enemyUnits.filter(u =>
-        u.alive && u.state === 'idle' &&
+        u.alive && u.state === 'idle' && !u.target &&
         u.mesh.position.distanceTo(base.mesh.position) < 100
       );
       for (const d of defenders) {

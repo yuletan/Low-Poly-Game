@@ -718,6 +718,14 @@ export class Unit {
       const d = this._dist2d(e.mesh.position);
       if (d < bestD) { best = e; bestD = d; }
     }
+    // Fallback: target enemy bases if no units in range
+    if (!best && this.stats.range > 0) {
+      const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
+      for (const b of bases) {
+        const d = this._dist2d(b.mesh.position);
+        if (d < bestD) { best = b; bestD = d; }
+      }
+    }
     if (best) {
       this.target = best;
       this.state = 'attacking';
@@ -1045,6 +1053,7 @@ export class Base {
     this.hp = 500 * size * hpMult;
     this.maxHp = this.hp;
     this.alive = true;
+    this.domain = 'land';
 
     // Territory radius (bigger for Main Base)
     this.territory = 150 * size;
