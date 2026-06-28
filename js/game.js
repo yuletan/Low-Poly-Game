@@ -286,6 +286,24 @@ export class Unit {
   }
 
   takeDamage(dmg) {
+    // Crusher absorption: nearby friendly crushers absorb 60% of damage
+    if (this.stats && !this.stats.crusher) {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const u of allies) {
+        if (!u.alive || !u.stats.crusher || u === this) continue;
+        const d = this.mesh.position.distanceTo(u.mesh.position);
+        if (d <= u.stats.range) {
+          const absorbed = dmg * 0.6;
+          dmg -= absorbed;
+          u.hp -= absorbed * 0.3; // Crusher takes 30% of absorbed damage
+          if (u.hp <= 0) u.hp = 0;
+          u._displayHp = u.hp;
+          if (u.hp <= 0) u.die();
+          break;
+        }
+      }
+    }
+
     this.hp -= dmg;
     if (this.hp <= 0) this.hp = 0;
     this._displayHp = this.hp;

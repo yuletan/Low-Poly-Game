@@ -251,11 +251,13 @@ export function initInput(game, camera, renderer) {
           case 'infantry': ctx.moveTo(cx, cy-s); ctx.lineTo(cx-s*0.6, cy+s*0.5); ctx.lineTo(cx+s*0.6, cy+s*0.5); ctx.closePath(); break;
           case 'tank': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
           case 'heavyTank': ctx.roundRect(cx-s*1.2, cy-s*0.8, s*2.4, s*1.6, 2); ctx.closePath(); break;
+          case 'crusher': ctx.roundRect(cx-s*1.3, cy-s*0.9, s*2.6, s*1.8, 2); ctx.closePath(); break;
           case 'artillery': ctx.roundRect(cx-s, cy-s*0.6, s*2, s*1.2, 1.5); ctx.closePath(); break;
           case 'missileDefense': ctx.roundRect(cx-s*0.8, cy-s*0.6, s*1.6, s*1.2, 1); ctx.moveTo(cx, cy-s*0.6); ctx.lineTo(cx, cy-s*1.3); ctx.closePath(); break;
           case 'mlrs': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.4, cy-s*1); ctx.lineTo(cx-s*0.4, cy-s*1); ctx.closePath(); break;
           case 'coastal': ctx.roundRect(cx-s, cy-s*0.3, s*2, s*0.6, 1); ctx.moveTo(cx-s*0.3, cy-s*0.3); ctx.lineTo(cx+s*0.3, cy-s*0.3); ctx.lineTo(cx+s*0.3, cy-s*0.8); ctx.lineTo(cx-s*0.3, cy-s*0.8); ctx.closePath(); break;
           case 'healer': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.3, cy); ctx.lineTo(cx+s*0.3, cy); ctx.moveTo(cx, cy-s*0.3); ctx.lineTo(cx, cy+s*0.3); ctx.closePath(); break;
+          case 'medHeli': ctx.moveTo(cx, cy); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.3); ctx.lineTo(cx, cy-s*0.2); ctx.lineTo(cx-s*0.8, cy-s*0.1); ctx.lineTo(cx-s*0.8, cy+s*0.1); ctx.closePath(); break;
           case 'escortJet': ctx.moveTo(cx, cy-s*1.1); ctx.lineTo(cx+s*0.7, cy+s*0.2); ctx.lineTo(cx+s*0.4, cy+s*0.2); ctx.lineTo(cx+s*0.5, cy+s*0.6); ctx.lineTo(cx, cy+s*0.4); ctx.lineTo(cx-s*0.5, cy+s*0.6); ctx.lineTo(cx-s*0.4, cy+s*0.2); ctx.lineTo(cx-s*0.7, cy+s*0.2); ctx.closePath(); break;
           case 'b2': ctx.moveTo(cx, cy-s*0.4); ctx.lineTo(cx-s*1.3, cy+s*0.5); ctx.lineTo(cx-s*1.3, cy+s*0.7); ctx.lineTo(cx+s*1.3, cy+s*0.7); ctx.lineTo(cx+s*1.3, cy+s*0.5); ctx.closePath(); break;
           case 'escortBomber': ctx.moveTo(cx, cy-s*1.3); ctx.lineTo(cx+s*1, cy+s*0.3); ctx.lineTo(cx+s*0.6, cy+s*0.3); ctx.lineTo(cx+s*0.7, cy+s*0.8); ctx.lineTo(cx, cy+s*0.6); ctx.lineTo(cx-s*0.7, cy+s*0.8); ctx.lineTo(cx-s*0.6, cy+s*0.3); ctx.lineTo(cx-s*1, cy+s*0.3); ctx.closePath(); break;
