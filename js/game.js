@@ -410,8 +410,8 @@ export class Unit {
       this._tryCaptureBase(dt);
     }
 
-    // Periodic auto-target scan: idle faster, all units every 2s
-    if (this.state === 'idle' || this.state === 'pursuing' || (this.state === 'moving' && (!this.moveTarget || this.attackMove))) {
+    // Periodic auto-target scan: always scan for targets
+    if (this.state === 'idle' || this.state === 'pursuing' || this.state === 'moving') {
       this.findTarget();
     }
     this._targetScanTimer += dt;
@@ -1103,12 +1103,21 @@ export class Unit {
     }
 
     // Fallback: target enemy bases (priority 2 for land units)
-    if (!best && this.stats.range > 0) {
+    // Always check bases, not just as fallback — troops should attack bases in range
+    if (this.stats.range > 0) {
       const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
-      let bestBaseD = this.engageRange;
       for (const b of bases) {
         const d = this._dist2d(b.mesh.position);
-        if (d < bestBaseD) { best = b; bestBaseD = d; bestPriority = 2; }
+        if (d < bestD) {
+          // Base in attack range — take it
+          if (d <= this.stats.range) {
+            best = b; bestD = d; bestPriority = 2;
+          }
+          // Base in engage range — pursue it (only if no closer unit target)
+          else if (!best || bestPriority > 2) {
+            best = b; bestD = d; bestPriority = 2;
+          }
+        }
       }
     }
 

@@ -192,15 +192,15 @@ export function initAI(game) {
     const targets = multiTarget ? playerBases : [pickPlayerTarget()];
     if (!targets.length) return;
 
-    // Spawn additional units near the attack target(s) so they're visible massing
-    const spawnCount = Math.min(3, maxSpawnsPerSecond); // spawn up to 3 units per attack
+    // Spawn additional mobile units near the attack target(s) — skip stationary defenses
+    const spawnCount = Math.min(3, maxSpawnsPerSecond);
     for (let i = 0; i < spawnCount; i++) {
       const desiredType = chooseUnitToBuild();
-      const cost = UNIT_TYPES[desiredType].cost;
-      if (aiMoney >= cost) {
-        // Pick the first target for spawning
+      const stats = UNIT_TYPES[desiredType];
+      if (stats.speed === 0) continue; // defenses stay at base
+      if (aiMoney >= stats.cost) {
         if (spawnEnemyUnit(desiredType, targets[0])) {
-          aiMoney -= cost;
+          aiMoney -= stats.cost;
         }
       }
     }
