@@ -49,6 +49,8 @@ export class Unit {
     this.isTransport = this.type === 'transport';
     this.carriedUnits = [];
     this.transportCapacity = this.stats.transportCapacity || 0;
+    this._boardingTimer = 0;
+    this._assignedEmbarkPoint = null;
 
     // Amphibious mode: land unit auto-converts to boat in water
     this._amphibious = false;
@@ -538,49 +540,72 @@ export class Unit {
   _updateTransport(dt) {
     if (!this.alive) return;
 
-    // Check if transport has reached its disembark point (from findTransportPath)
-    if (this._disembarkPoint && this.carriedUnits.length > 0) {
-      const d = this.mesh.position.distanceTo(this._disembarkPoint);
-      // If close to the land tile OR basically at the end of its sea path
-      if (d < 25 || this.path.length === 0) {
-        // Unload and give units their walk-to-target segment
-        const units = [...this.carriedUnits];
-        this.unloadAll();
-        for (const u of units) {
-          if (u.alive && u._transportData && u._transportData.segments) {
-            // Give the unit its final walk segment
-            u.path = u._transportData.segments.walkToTarget;
-            if (u.path.length > 0) {
-              u.moveTarget = u.path.shift();
-              u.state = 'moving';
-            }
-            u._transportData = null; // done with transport
+    // Phase 1: Empty ship looking for troops
+    if (this.state === 'idle' && this.carriedUnits.length === 0 && !this._disembarkPoint) {
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      let bestDist = Infinity;
+      let bestUnit = null;
+      for (const u of allUnits) {
+        if (u.alive && u.state === 'waitingForTransport' && u._transportData) {
+          const d = this.mesh.position.distanceTo(u.mesh.position);
+          if (d < bestDist) {
+            bestDist = d;
+            bestUnit = u;
           }
         }
-        this._disembarkPoint = null;
-        this._transportOwner = null;
-        // Retreat transport back to friendly base
-        this._retreatToFriendlyBase();
-        return;
       }
+      // If we found a waiting troop, sail to the water tile next to them
+      if (bestUnit) {
+        this.moveTo(bestUnit._transportData.shipEmbarkPoint.clone());
+        this._assignedEmbarkPoint = bestUnit._transportData.shipEmbarkPoint.clone();
+        this._transportData = bestUnit._transportData;
+        this._boardingTimer = 0;
+        console.log(`[DEBUG TRANSPORT] Ship moving to pick up ${bestUnit.type}`);
+      }
+      return;
     }
 
-    // Auto-beach: if idle with cargo but on sea, path to nearest coast
-    if (this.state === 'idle' && this.carriedUnits.length > 0) {
-      const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
-      if (terrain === TERRAIN.SEA) {
-        const g = this.game.pathfinder.worldToGrid(this.mesh.position.x, this.mesh.position.z);
-        const coast = this._findNearestCoast(g.gx, g.gy);
-        if (coast) {
-          this.moveTo(coast);
-          return;
-        }
-      } else if (this.canUnload()) {
-        this.unloadAll();
+    // Phase 2: Arrived at embark point, waiting for troops to board
+    if (this._assignedEmbarkPoint && this.path.length === 0) {
+      this._boardingTimer += dt;
+
+      // Set sail if full, OR if we've been waiting 15 seconds
+      const isFull = this.carriedUnits.length >= this.transportCapacity;
+      const timedOut = this._boardingTimer > 15;
+
+      if ((isFull || timedOut) && this.carriedUnits.length > 0) {
+        console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
+        this.moveTo(this._transportData.shipDisembarkPoint.clone());
+        this._disembarkPoint = this._transportData.disembarkPoint.clone();
+        this._assignedEmbarkPoint = null;
+      } else if (timedOut && this.carriedUnits.length === 0) {
+        // Nobody showed up, retreat to base
+        this._assignedEmbarkPoint = null;
         this._retreatToFriendlyBase();
-        return;
       }
+      return;
     }
+
+    // Phase 3: Arrived at disembark point, unloading troops
+    if (this._disembarkPoint && this.carriedUnits.length > 0 && this.path.length === 0) {
+      const units = [...this.carriedUnits];
+      this.unloadAll();
+      for (const u of units) {
+        if (u.alive && u._transportData && u._transportData.segments) {
+          u.path = u._transportData.segments.walkToTarget;
+          if (u.path.length > 0) {
+            u.moveTarget = u.path.shift();
+            u.state = 'moving';
+          }
+          u._transportData = null;
+        }
+      }
+      this._disembarkPoint = null;
+      this._transportData = null;
+      this._retreatToFriendlyBase();
+      return;
+    }
+
     // Sync carried unit meshes
     for (const u of this.carriedUnits) {
       u.mesh.position.copy(this.mesh.position);
@@ -1015,14 +1040,11 @@ export class Unit {
       if (d <= 20) {
         // Board the transport
         t.loadUnit(this);
-        // If this transport doesn't have a sail target yet, give it one
-        if (t.state === 'idle' && this._transportData.shipDisembarkPoint) {
-          // Tell the ship to sail to the water tile near the disembark coast
-          t.moveTo(this._transportData.shipDisembarkPoint.clone(), false);
-          t._disembarkPoint = this._transportData.disembarkPoint.clone(); // Troop disembarks here
-          t._transportOwner = this;
+        // Give the ship the destination data, but DO NOT make it move yet!
+        if (!t._transportData) {
+          t._transportData = this._transportData;
         }
-        console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport`);
+        console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${t.carriedUnits.length}/${t.transportCapacity})`);
         return;
       }
     }
