@@ -49,7 +49,7 @@ export const PROJECTILE_PATTERNS = {
 export const UNIT_TYPES = {
   infantry: { domain:'land',  hp:50,  damage:8,  range:18, speed:14, fireRate:1.0, hitChance:0.85, cost:50,  color:0x556b2f, canFireWhileMoving:false, bounty:30, projectile:'burst', splashRadius:0, splashFalloff:1 },
   tank:     { domain:'land',  hp:200, damage:50, range:50, speed:10, fireRate:1.5, hitChance:0.9,  cost:200, color:0x4a5d23, canFireWhileMoving:false, bounty:100, projectile:'ap', splashRadius:5, splashFalloff:0.5 },
-  heavyTank:{ domain:'land',  hp:1000,damage:1500,range:30, speed:10, fireRate:5.0, hitChance:0.9,  cost:1000,color:0x3a3a2a, canFireWhileMoving:false, bounty:400, projectile:'ap', splashRadius:0, splashFalloff:1 },
+  heavyTank:{ domain:'land',  hp:1000,damage:1500,range:30, speed:10, fireRate:5.0, hitChance:0.9,  cost:500, color:0x3a3a2a, canFireWhileMoving:false, bounty:400, projectile:'ap', splashRadius:0, splashFalloff:1 },
   artillery:{ domain:'land',  hp:120, damage:128, range:96, speed:6,  fireRate:3.0, hitChance:0.7,  cost:300, color:0x6b5b3a, canFireWhileMoving:false, bounty:120, projectile:'barrage', splashRadius:10, splashFalloff:0.5 },
   mlrs:     { domain:'land',  hp:80,  damage:15, range:110, speed:10,  fireRate:4.0, hitChance:0.6,  cost:350, color:0x5b5b3a, canFireWhileMoving:false, bounty:120, projectile:'salvo', splashRadius:8, splashFalloff:0.4 },
   missileDefense:{ domain:'land', hp:500, damage:200, range:85, speed:0, fireRate:2.0, hitChance:0.9, cost:500, color:0x884488, canFireWhileMoving:false, bounty:150, projectile:'homing', splashRadius:0, splashFalloff:1, airOnly:true },
