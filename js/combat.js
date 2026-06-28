@@ -33,6 +33,12 @@ export class Projectile {
     this._burstTimer = 0;
     this._initialPos = from.clone();
     this._targetPos = target.mesh ? target.mesh.position.clone() : target.position.clone();
+
+    // Arc trajectory for land projectiles
+    this._arcProgress = 0; // t = 0..1
+    this._arcTotalDist = this._initialPos.distanceTo(this._targetPos);
+    this._arcHeight = this._arcTotalDist * 0.3; // peak height proportional to distance
+    this._arcDuration = this._arcTotalDist / this.speed; // time to reach target
   }
 
   update(dt) {
@@ -40,20 +46,26 @@ export class Projectile {
     if (!this.target.mesh) { this.destroy(); return; }
 
     const targetPos = this.target.mesh.position;
-    const dir = new THREE.Vector3().subVectors(targetPos, this.mesh.position);
-    const dist = dir.length();
 
-    if (dist < 2) {
-      this.impact();
-      return;
-    }
-
-    // Homing: recalculate direction each frame
-    if (this.homing) {
-      dir.normalize().multiplyScalar(this.speed * dt);
-      this.mesh.position.add(dir);
+    if (this.type === 'land') {
+      // Parabolic arc for land projectiles
+      this._arcProgress += dt / this._arcDuration;
+      if (this._arcProgress >= 1) {
+        this.mesh.position.copy(targetPos);
+        this.impact();
+        return;
+      }
+      const t = this._arcProgress;
+      // Lerp from start to target
+      this.mesh.position.lerpVectors(this._initialPos, this._targetPos, t);
+      // Parabolic height: 4*h*t*(1-t) peaks at t=0.5
+      const arcY = 4 * this._arcHeight * t * (1 - t);
+      this.mesh.position.y += arcY;
     } else {
-      // Straight line
+      // Straight line for sea/air
+      const dir = new THREE.Vector3().subVectors(targetPos, this.mesh.position);
+      const dist = dir.length();
+      if (dist < 2) { this.impact(); return; }
       dir.normalize().multiplyScalar(this.speed * dt);
       this.mesh.position.add(dir);
     }

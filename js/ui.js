@@ -58,6 +58,15 @@ function generateUnitIcon(type, color, size = 48) {
       ctx.lineTo(cx + s * 0.1, cy);
       ctx.closePath();
       break;
+    case 'missileDefense':
+      roundRect(ctx, cx - s * 0.8, cy - s * 0.6, s * 1.6, s * 1.2, 2);
+      ctx.moveTo(cx, cy - s * 0.6);
+      ctx.lineTo(cx, cy - s * 1.3);
+      ctx.lineTo(cx + s * 0.3, cy - s * 1.1);
+      ctx.lineTo(cx, cy - s * 1.3);
+      ctx.lineTo(cx - s * 0.3, cy - s * 1.1);
+      ctx.closePath();
+      break;
     case 'destroyer':
     case 'battleship':
       ctx.moveTo(cx - s * 1.2, cy + s * 0.3);

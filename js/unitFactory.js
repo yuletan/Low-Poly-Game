@@ -15,6 +15,7 @@ export function createUnitMesh(type, color, faction) {
     case 'infantry': return buildInfantry(g, tint);
     case 'tank':     return buildTank(g, tint);
     case 'artillery':return buildArtillery(g, tint);
+    case 'missileDefense':return buildMissileDefense(g, tint);
     case 'destroyer':return buildShip(g, tint, 1.0);
     case 'battleship':return buildShip(g, tint, 1.6);
     case 'carrier':  return buildCarrier(g, tint);
@@ -78,6 +79,27 @@ function buildArtillery(g, color){
   g.add(base, turret);
   g.userData.turret = turret;
   g.userData.muzzleOffset = new THREE.Vector3(0, 2.4, 2);
+  return g;
+}
+
+function buildMissileDefense(g, color){
+  const base = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 4), mat(color));
+  base.position.y = 0.6; base.castShadow = true;
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2, 0.5, 8), mat(0x444444));
+  platform.position.y = 1.3;
+  const turret = new THREE.Group();
+  const launcher = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 2.5), mat(0x666666));
+  launcher.position.y = 2.0;
+  const missile1 = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.8, 6), mat(0xcc4444));
+  missile1.position.set(-0.3, 2.5, 0);
+  missile1.rotation.x = Math.PI / 2;
+  const missile2 = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.8, 6), mat(0xcc4444));
+  missile2.position.set(0.3, 2.5, 0);
+  missile2.rotation.x = Math.PI / 2;
+  turret.add(launcher, missile1, missile2);
+  g.add(base, platform, turret);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 0);
   return g;
 }
 

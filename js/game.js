@@ -1,6 +1,6 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, PROJECTILE_PATTERNS } from './config.js?v=5';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT } from './config.js?v=6';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage } from './combat.js?v=3';
@@ -34,6 +34,10 @@ export class Unit {
     this.cooldown = 0;
     this.alive    = true;
     this.selected = false;
+
+    // Engagement range: invisible awareness range beyond attack range
+    this.engageRange = this.stats.range * ENGAGE_RANGE_MULT;
+    this._pursueTarget = null;
 
     // Carrier ability
     this.canLaunch = !!baseStats.canLaunchFighters;
@@ -163,6 +167,8 @@ export class Unit {
 /** Use A* pathfinder. Validates destination terrain for sea/land units. */
   moveTo(pos, attackMove = false) {
     if (!pos || pos.x == null || pos.z == null) { this.state = 'idle'; return; }
+    // Immovable units (speed=0) cannot move
+    if (this.stats.speed === 0) { this.state = 'idle'; return; }
     const targetPos = pos instanceof THREE.Vector3 ? pos : new THREE.Vector3(pos.x, 0, pos.z);
 
     // Sea/land units: validate destination terrain
@@ -321,7 +327,7 @@ export class Unit {
     }
 
     // Periodic auto-target scan: idle faster, all units every 2s
-    if (this.state === 'idle' || (this.state === 'moving' && (!this.moveTarget || this.attackMove))) {
+    if (this.state === 'idle' || this.state === 'pursuing' || (this.state === 'moving' && (!this.moveTarget || this.attackMove))) {
       this.findTarget();
     }
     this._targetScanTimer += dt;
@@ -329,8 +335,8 @@ export class Unit {
       this._targetScanTimer = 0;
       if (this.state !== 'dead') this.findTarget();
     }
-    // Units that can fire while moving: run attack logic even in 'moving' state
-    if (this.state === 'moving' && this.canFireWhileMoving && this.target) {
+    // Units that can fire while moving: run attack logic even in 'moving' or 'pursuing' state
+    if ((this.state === 'moving' || this.state === 'pursuing') && this.canFireWhileMoving && this.target) {
       this.updateAttackWhileMoving(dt);
     }
 
@@ -355,6 +361,7 @@ export class Unit {
     switch (this.state) {
       case 'moving':    this.updateMove(dt); break;
       case 'attacking': this.updateAttack(dt); break;
+      case 'pursuing':  this.updatePursue(dt); break;
     }
 
     // Transport: sync carried units; skip combat
@@ -711,26 +718,63 @@ export class Unit {
   }
 
   findTarget() {
-    let best = null, bestD = this.stats.range;
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+    const airOnly = !!this.stats.airOnly; // missile defense only targets air
+    const isLand = this.domain === 'land';
+    const isSea = this.domain === 'sea';
+
+    let best = null, bestD = this.engageRange;
+    let bestPriority = 99;
+
     for (const e of enemies) {
       if (!e.alive) continue;
-      // Land units cannot target air
-      if (this.domain === 'land' && e.domain === 'air') continue;
+
+      // Missile defense: air only
+      if (airOnly && e.domain !== 'air') continue;
+
+      // Land units cannot target air (except missile defense handled above)
+      if (isLand && !airOnly && e.domain === 'air') continue;
+
       const d = this._dist2d(e.mesh.position);
-      if (d < bestD) { best = e; bestD = d; }
-    }
-    // Fallback: target enemy bases if no units in range
-    if (!best && this.stats.range > 0) {
-      const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
-      for (const b of bases) {
-        const d = this._dist2d(b.mesh.position);
-        if (d < bestD) { best = b; bestD = d; }
+
+      // Targeting priority for land units: ground(1) > base(2) > ship(3)
+      let priority = 1;
+      if (isLand && !airOnly) {
+        if (e.domain === 'sea') {
+          // Ships only targetable if very close (30% of attack range)
+          if (d > this.stats.range * 0.3) continue;
+          priority = 3;
+        } else {
+          priority = 1; // ground enemy
+        }
+      }
+
+      if (priority < bestPriority || (priority === bestPriority && d < bestD)) {
+        best = e; bestD = d; bestPriority = priority;
       }
     }
+
+    // Fallback: target enemy bases (priority 2 for land units)
+    if (!best && this.stats.range > 0) {
+      const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
+      let bestBaseD = this.engageRange;
+      for (const b of bases) {
+        const d = this._dist2d(b.mesh.position);
+        if (d < bestBaseD) { best = b; bestBaseD = d; bestPriority = 2; }
+      }
+    }
+
     if (best) {
-      this.target = best;
-      this.state = 'attacking';
+      const dist = bestD;
+      if (dist <= this.stats.range) {
+        // Within attack range — attack directly
+        this.target = best;
+        this.state = 'attacking';
+      } else if (dist <= this.engageRange && this.stats.speed > 0) {
+        // Within engage range but not attack range — pursue
+        this._pursueTarget = best;
+        this.state = 'pursuing';
+      }
     }
   }
 
@@ -848,6 +892,66 @@ export class Unit {
     if (this.cooldown <= 0) this.fire();
   }
 
+  /** Pursue: move toward a target detected at engage range. */
+  updatePursue(dt) {
+    if (!this._pursueTarget || !this._pursueTarget.alive) {
+      this._pursueTarget = null;
+      this.target = null;
+      if (this.attackMove && this.attackMoveDest) {
+        this.moveTo(this.attackMoveDest, true);
+      } else {
+        this.state = 'idle';
+      }
+      return;
+    }
+    // Base captured check
+    if (this._pursueTarget.faction && this._pursueTarget.faction === this.faction) {
+      this._pursueTarget = null;
+      this.target = null;
+      this.state = 'idle';
+      return;
+    }
+    const targetPos = this._pursueTarget.mesh ? this._pursueTarget.mesh.position : this._pursueTarget.position;
+    const dist = this._dist2d(targetPos);
+
+    // If within attack range, switch to attacking
+    if (dist <= this.stats.range) {
+      this.target = this._pursueTarget;
+      this.state = 'attacking';
+      this._pursueTarget = null;
+      return;
+    }
+
+    // Fire while moving during pursuit (ships, planes)
+    if (this.canFireWhileMoving && dist <= this.stats.range * 1.2) {
+      this.target = this._pursueTarget;
+      const dx = targetPos.x - this.mesh.position.x;
+      const dz = targetPos.z - this.mesh.position.z;
+      const aimAngle = Math.atan2(dx, dz);
+      if (this.mesh.userData.turret) {
+        this.mesh.userData.turret.rotation.y = aimAngle - this.mesh.rotation.y;
+      }
+      if (this.cooldown <= 0) this.fire();
+    }
+
+    // Move toward target
+    const dx = targetPos.x - this.mesh.position.x;
+    const dz = targetPos.z - this.mesh.position.z;
+    const step = this.stats.speed * dt;
+    if (dist > step) {
+      this.mesh.position.x += (dx / dist) * step;
+      this.mesh.position.z += (dz / dist) * step;
+    }
+    const targetAngle = Math.atan2(dx, dz);
+    this.smoothRotate(targetAngle, dt);
+
+    // Keep bobbing for ships
+    if (this.domain === 'sea') {
+      this.mesh.userData.bobPhase += dt * 2;
+      this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase) * 0.15 + 0.3;
+    }
+  }
+
   fire() {
     this.cooldown = this.stats.fireRate;
     const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
@@ -894,6 +998,11 @@ export class Unit {
       const targetDomain = UNIT_TYPES[this.target.type]?.domain;
       if (targetDomain === 'air') finalDmg *= 1.5;
       else if (targetDomain === 'land' || targetDomain === 'sea') finalDmg *= 0.5;
+    }
+
+    // SEA vs AIR: reduced damage AA fire (no missiles, just AA guns)
+    if (this.domain === 'sea' && this.target.domain === 'air') {
+      finalDmg *= 0.5; // 50% damage vs air
     }
 
     // BOMBER: Carpet bomb direction stored for pattern
@@ -1052,7 +1161,10 @@ export class Base {
       else if (distance < 500) hpMult = 2.0;
       else hpMult = 1.5;
     }
-    this.hp = 500 * size * hpMult;
+    // Difficulty multiplier
+    const diffCfg = DIFFICULTY[game.difficulty] || DIFFICULTY.easy;
+    const diffHpMult = diffCfg.baseHpMultiplier || 1.0;
+    this.hp = 500 * size * hpMult * diffHpMult;
     this.maxHp = this.hp;
     this.alive = true;
     this.domain = 'land';
@@ -1159,12 +1271,17 @@ export class Base {
     const newOwner = attackers.length ? attackers[0].faction :
                     (this.faction === 'player' ? 'enemy' : 'player');
     this.faction = newOwner;
-    this.hp = this.maxHp * 0.5;
+    this.hp = this.maxHp;
     this._displayHp = this.hp;
     this._trailHp = this.hp;
     const flagColor = newOwner === 'player' ? 0x2266aa : 0xaa3333;
+    // Update flag AND building HQ color
     this.mesh.children.forEach(c => {
       if (c.userData?.isFlag) {
+        c.material.color.setHex(flagColor);
+      }
+      // Change HQ building color (the tall box)
+      if (c.geometry?.type === 'BoxGeometry' && c.position.y > 4) {
         c.material.color.setHex(flagColor);
       }
     });

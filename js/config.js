@@ -49,10 +49,11 @@ export const PROJECTILE_PATTERNS = {
 export const UNIT_TYPES = {
   infantry: { domain:'land',  hp:50,  damage:8,  range:18, speed:14, fireRate:1.0, hitChance:0.85, cost:50,  color:0x556b2f, canFireWhileMoving:false, bounty:30, projectile:'burst', splashRadius:0, splashFalloff:1 },
   tank:     { domain:'land',  hp:200, damage:50, range:40, speed:10, fireRate:1.5, hitChance:0.9,  cost:200, color:0x4a5d23, canFireWhileMoving:false, bounty:100, projectile:'ap', splashRadius:5, splashFalloff:0.5 },
-  artillery:{ domain:'land',  hp:120, damage:85, range:80, speed:6,  fireRate:3.0, hitChance:0.7,  cost:300, color:0x6b5b3a, canFireWhileMoving:false, bounty:120, projectile:'barrage', splashRadius:10, splashFalloff:0.5 },
-  destroyer:{ domain:'sea',   hp:250, damage:45, range:120, speed:12, fireRate:1.2, hitChance:0.85, cost:250, color:0x8899aa, canFireWhileMoving:true, bounty:150, projectile:'dual', splashRadius:10, splashFalloff:0.5 },
-  battleship:{domain:'sea',   hp:600, damage:130, range:200, speed:7,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:12, splashFalloff:0.6 },
-  carrier:  { domain:'sea',   hp:800, damage:20, range:200, speed:6,  fireRate:2.0, hitChance:0.7,  cost:700, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1 },
+  artillery:{ domain:'land',  hp:120, damage:128, range:96, speed:6,  fireRate:3.0, hitChance:0.7,  cost:300, color:0x6b5b3a, canFireWhileMoving:false, bounty:120, projectile:'barrage', splashRadius:10, splashFalloff:0.5 },
+  missileDefense:{ domain:'land', hp:500, damage:200, range:50, speed:0, fireRate:2.0, hitChance:0.9, cost:500, color:0x884488, canFireWhileMoving:false, bounty:150, projectile:'homing', splashRadius:0, splashFalloff:1, airOnly:true },
+  destroyer:{ domain:'sea',   hp:250, damage:45, range:96, speed:12, fireRate:1.2, hitChance:0.85, cost:250, color:0x8899aa, canFireWhileMoving:true, bounty:150, projectile:'dual', splashRadius:10, splashFalloff:0.5 },
+  battleship:{domain:'sea',   hp:600, damage:130, range:160, speed:7,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:12, splashFalloff:0.6 },
+  carrier:  { domain:'sea',   hp:800, damage:20, range:160, speed:6,  fireRate:2.0, hitChance:0.7,  cost:700, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1 },
   fighter:  { domain:'air',   hp:80,  damage:35, range:45, speed:30, fireRate:0.6, hitChance:0.9,  cost:300, color:0x9999aa, altitude:25, canFireWhileMoving:true, bounty:80, projectile:'homing', splashRadius:8, splashFalloff:0.5 },
   bomber:   { domain:'air',   hp:180, damage:140, range:30, speed:18, fireRate:3.5, hitChance:0.75, cost:500, color:0x778899, altitude:30, canFireWhileMoving:true, bounty:160, projectile:'carpet', splashRadius:12, splashFalloff:0.5 },
   transport:{ domain:'sea',   hp:1000,damage:0,  range:0,  speed:5,  fireRate:99, hitChance:0,   cost:400, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:4 },
@@ -64,10 +65,13 @@ export const PASSIVE_INCOME = 20;
 
 // ===== DIFFICULTY =====
 export const DIFFICULTY = {
-  easy:   { aiIncome:0.6, maxAttackGroup:10, hpMultiplier:1.0 },
-  normal: { aiIncome:1.0, maxAttackGroup:20, hpMultiplier:1.0 },
-  hard:   { aiIncome:1.5, maxAttackGroup:50, hpMultiplier:2.0 },
+  easy:   { aiIncome:0.6, maxAttackGroup:10, hpMultiplier:1.0, baseHpMultiplier:1.0 },
+  normal: { aiIncome:1.0, maxAttackGroup:20, hpMultiplier:1.0, baseHpMultiplier:2.0 },
+  hard:   { aiIncome:1.5, maxAttackGroup:50, hpMultiplier:2.0, baseHpMultiplier:4.0 },
 };
+
+// ===== ENGAGEMENT RANGE =====
+export const ENGAGE_RANGE_MULT = 1.3; // engage range = attack range * this multiplier
 
 // ===== UPGRADES =====
 export const UPGRADES = {
