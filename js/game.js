@@ -65,6 +65,7 @@ export class Unit {
       this.mesh.traverse(c => {
         if (c.material) {
           c.material = c.material.clone();
+          c.userData.origOpacity = c.material.opacity;
           c.material.transparent = true;
           c.material.opacity = 0.15;
         }
@@ -2166,6 +2167,23 @@ export class Game {
     // Update FX
     updateExplosions(this.scene, dt);
     updateAllTrails(this.scene, dt);
+
+    // Hit confirm rings
+    const hitConfirms = this.scene.userData.hitConfirms || [];
+    for (let i = hitConfirms.length - 1; i >= 0; i--) {
+      const h = hitConfirms[i];
+      h.userData.life -= dt;
+      const t = 1 - (h.userData.life / h.userData.maxLife);
+      h.scale.setScalar(1 + t * 3);
+      h.material.opacity = 0.9 * (1 - t);
+      if (h.userData.life <= 0) {
+        this.scene.remove(h);
+        h.geometry.dispose();
+        h.material.dispose();
+        hitConfirms.splice(i, 1);
+      }
+    }
+
     const flashes = this.scene.userData.flashes || [];
     for (let i=flashes.length-1;i>=0;i--) {
       flashes[i].userData.life -= dt;
