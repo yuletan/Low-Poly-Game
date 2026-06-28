@@ -2076,14 +2076,13 @@ export class Game {
   // ============================================================
   //  PLACEMENT MODE — click-to-place after buying a unit
   // ============================================================
-  enterPlacementMode(type) {
-    console.log(`[DEBUG] enterPlacementMode called: ${type}`);
+  enterPlacementMode(type, groupPlace) {
+    console.log(`[DEBUG] enterPlacementMode called: ${type}${groupPlace ? ' (GROUP×5)' : ''}`);
     const stats = UNIT_TYPES[type];
-    const cost = stats.cost;
-    console.log(`[DEBUG] Cost: $${cost}, Player money: $${Math.floor(this.money)}`);
+    const unitCost = stats.cost;
+    const cost = groupPlace ? unitCost * 5 : unitCost;
     if (this.money < cost) {
-      console.warn(`[DEBUG] Insufficient funds for ${type}`);
-      this.flashMessage(`Not enough $ for ${type} ($${cost})`);
+      this.flashMessage(`Not enough $ for ${groupPlace ? '5× ' : ''}${type} ($${cost})`);
       return false;
     }
 
@@ -2092,7 +2091,6 @@ export class Game {
 
     // Create ghost mesh
     const ghost = createUnitMesh(type, stats.color, 'player');
-    // Make all children semi-transparent
     ghost.traverse(child => {
       if (child.material) {
         child.material = child.material.clone();
@@ -2111,21 +2109,30 @@ export class Game {
     ring.position.y = 0.2;
     ghost.add(ring);
 
+    // Group placement: show 5 small markers in a circle
+    const groupMarkers = [];
+    if (groupPlace) {
+      const markerMat = new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const mx = Math.cos(a) * 10;
+        const mz = Math.sin(a) * 10;
+        const m = new THREE.Mesh(new THREE.RingGeometry(3, 3.5, 16), markerMat);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(mx, 0.2, mz);
+        ghost.add(m);
+        groupMarkers.push(m);
+      }
+    }
+
     this.placementMode = {
-      active: true,
-      type,
-      ghost,
-      ring,
-      isValid: false,
-      previewPos: null,
-      cost
+      active: true, type, ghost, ring, groupMarkers, groupPlace: !!groupPlace,
+      isValid: false, previewPos: null, cost, unitCost
     };
 
-    // Update UI
     this._showPlacementIndicator(type);
     this._setBuyButtonsDisabled(true);
-    this.flashMessage(`Click map to place ${type.toUpperCase()}`);
-    console.log(`[DEBUG] Placement mode ENTERED for ${type}`);
+    this.flashMessage(groupPlace ? `Ctrl+Click to place 5× ${type.toUpperCase()} ($${cost})` : `Click to place ${type.toUpperCase()}`);
     return true;
   }
 
@@ -2150,43 +2157,77 @@ export class Game {
     this.placementMode.ghost.position.set(pos.x, y, pos.z);
     this.placementMode.previewPos = pos;
 
-    const valid = this.isValidPlacement(pos.x, pos.z, domain);
-    this.placementMode.isValid = valid;
-    this.placementMode.ring.material.color.setHex(valid ? 0x44ff88 : 0xff4444);
+    const pm = this.placementMode;
+    let valid = this.isValidPlacement(pos.x, pos.z, domain);
+    if (pm.groupPlace && valid) {
+      // Validate all 5 circle positions
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const cx = pos.x + Math.cos(a) * 10;
+        const cz = pos.z + Math.sin(a) * 10;
+        if (!this.isValidPlacement(cx, cz, domain)) {
+          valid = false;
+          if (pm.groupMarkers?.[i]) pm.groupMarkers[i].material.color.setHex(0xff4444);
+        } else if (pm.groupMarkers?.[i]) {
+          pm.groupMarkers[i].material.color.setHex(0x44ff88);
+        }
+      }
+    }
+    pm.isValid = valid;
+    pm.ring.material.color.setHex(valid ? 0x44ff88 : 0xff4444);
   }
 
   confirmPlacement(pos) {
     if (!this.placementMode.active) return false;
     if (!pos) return false;
 
-    const type = this.placementMode.type;
+    const { type, groupPlace, unitCost } = this.placementMode;
     const stats = UNIT_TYPES[type];
     const domain = stats.domain;
-    console.log(`[DEBUG] confirmPlacement called: ${type} at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
+    const y = domain === 'air' ? stats.altitude : (domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5);
 
-    if (!this.isValidPlacement(pos.x, pos.z, domain)) {
-      console.warn(`[DEBUG] Invalid placement location — rejected`);
-      this.flashMessage('Cannot place here — invalid location');
-      return false;
+    if (groupPlace) {
+      // Validate all 5 circle positions
+      const positions = [];
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const x = pos.x + Math.cos(a) * 10;
+        const z = pos.z + Math.sin(a) * 10;
+        if (!this.isValidPlacement(x, z, domain)) {
+          this.flashMessage('Not enough space for group placement');
+          return false;
+        }
+        positions.push({ x, z });
+      }
+      // Spawn all 5
+      this.money -= unitCost * 5;
+      for (const p of positions) {
+        const u = this.spawn(type, 'player', p);
+        u.mesh.position.y = y;
+        this.spawnMuzzleFlash(u.mesh.position.clone().add(new THREE.Vector3(0, 3, 0)));
+        this.spawnSpawnMarker(u.mesh.position.clone());
+      }
+      Sound.play('build');
+      this.flashMessage(`Built 5× ${type.toUpperCase()} ($${unitCost * 5})`);
+      this.pingMinimap(pos.x, pos.z);
+    } else {
+      if (!this.isValidPlacement(pos.x, pos.z, domain)) {
+        this.flashMessage('Cannot place here — invalid location');
+        return false;
+      }
+      this.money -= unitCost;
+      const u = this.spawn(type, 'player', { x: pos.x, z: pos.z });
+      u.mesh.position.y = y;
+      this.spawnMuzzleFlash(u.mesh.position.clone().add(new THREE.Vector3(0, 3, 0)));
+      this.spawnSpawnMarker(u.mesh.position.clone());
+      Sound.play('build');
+      this.flashMessage(`Built ${type.toUpperCase()} ($${unitCost})`);
+      this.pingMinimap(pos.x, pos.z);
     }
 
-    // Deduct money and spawn
-    this.money -= stats.cost;
-    const y = domain === 'air' ? stats.altitude : (domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5);
-    const spawnPos = { x: pos.x, z: pos.z };
-    const u = this.spawn(type, 'player', spawnPos);
-    u.mesh.position.y = y;
-    console.log(`[DEBUG] Unit SPAWNED: ${type} at (${spawnPos.x.toFixed(1)}, ${spawnPos.z.toFixed(1)}) — Money left: $${Math.floor(this.money)}`);
-
-    this.spawnMuzzleFlash(u.mesh.position.clone().add(new THREE.Vector3(0, 3, 0)));
-    this.spawnSpawnMarker(u.mesh.position.clone());
-    Sound.play('build');
-    this.flashMessage(`Built ${type.toUpperCase()} ($${stats.cost})`);
-    this.pingMinimap(spawnPos.x, spawnPos.z);
     if (this.fog) {
       this.fog.update(this.playerUnits, this.bases.filter(b => b.faction === 'player'));
     }
-
     this.exitPlacementMode(false);
     return true;
   }

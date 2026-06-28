@@ -276,7 +276,7 @@ function createUnitButton(key, hotkey, game) {
     <span class="unit-hotkey">${hotkey}</span>
   `;
   b.title = '';
-  b.addEventListener('click', () => game.enterPlacementMode(key));
+  b.addEventListener('click', (e) => game.enterPlacementMode(key, e.ctrlKey));
   
   // Tooltip with stats
   let tooltip = null;
