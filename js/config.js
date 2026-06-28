@@ -50,7 +50,7 @@ export const UNIT_TYPES = {
   infantry: { domain:'land',  hp:50,  damage:8,  range:18, speed:14, fireRate:1.0, hitChance:0.85, cost:50,  color:0x556b2f, canFireWhileMoving:false, bounty:30, projectile:'burst', splashRadius:0, splashFalloff:1 },
   tank:     { domain:'land',  hp:200, damage:50, range:40, speed:10, fireRate:1.5, hitChance:0.9,  cost:200, color:0x4a5d23, canFireWhileMoving:false, bounty:100, projectile:'ap', splashRadius:5, splashFalloff:0.5 },
   artillery:{ domain:'land',  hp:120, damage:128, range:96, speed:6,  fireRate:3.0, hitChance:0.7,  cost:300, color:0x6b5b3a, canFireWhileMoving:false, bounty:120, projectile:'barrage', splashRadius:10, splashFalloff:0.5 },
-  missileDefense:{ domain:'land', hp:500, damage:200, range:50, speed:0, fireRate:2.0, hitChance:0.9, cost:500, color:0x884488, canFireWhileMoving:false, bounty:150, projectile:'homing', splashRadius:0, splashFalloff:1, airOnly:true },
+  missileDefense:{ domain:'land', hp:500, damage:200, range:85, speed:0, fireRate:2.0, hitChance:0.9, cost:500, color:0x884488, canFireWhileMoving:false, bounty:150, projectile:'homing', splashRadius:0, splashFalloff:1, airOnly:true },
   destroyer:{ domain:'sea',   hp:250, damage:45, range:96, speed:12, fireRate:1.2, hitChance:0.85, cost:250, color:0x8899aa, canFireWhileMoving:true, bounty:150, projectile:'dual', splashRadius:10, splashFalloff:0.5 },
   battleship:{domain:'sea',   hp:600, damage:130, range:160, speed:7,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:12, splashFalloff:0.6 },
   carrier:  { domain:'sea',   hp:800, damage:20, range:160, speed:6,  fireRate:2.0, hitChance:0.7,  cost:700, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1 },
@@ -71,7 +71,7 @@ export const DIFFICULTY = {
 };
 
 // ===== ENGAGEMENT RANGE =====
-export const ENGAGE_RANGE_MULT = 1.3; // engage range = attack range * this multiplier
+export const ENGAGE_RANGE_MULT = 1.56; // engage range = attack range * 1.3 * 1.2
 
 // ===== UPGRADES =====
 export const UPGRADES = {

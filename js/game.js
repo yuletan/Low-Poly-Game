@@ -1358,10 +1358,10 @@ export class Game {
     this.bases.push(new Base(this, 'player', { x:-500, z: 200 }, 1.8, 'Player HQ'));
     // Enemy bases spread across the bigger world
     this.bases.push(new Base(this, 'enemy', { x:-300, z:-200 }, 1.0, 'Outpost Alpha'));
-    this.bases.push(new Base(this, 'enemy', { x:-200, z: 350 }, 1.0, 'Outpost Bravo'));
+    this.bases.push(new Base(this, 'enemy', { x:-250, z: 350 }, 1.0, 'Outpost Bravo'));
     this.bases.push(new Base(this, 'enemy', { x:  50, z:-400 }, 1.2, 'Northern Fort'));
     this.bases.push(new Base(this, 'enemy', { x: 250, z: 100 }, 1.3, 'Coastal Garrison'));
-    this.bases.push(new Base(this, 'enemy', { x: 200, z: 400 }, 1.0, 'Island Watch'));
+    this.bases.push(new Base(this, 'enemy', { x: 200, z: 380 }, 1.0, 'Island Watch'));
     this.bases.push(new Base(this, 'enemy', { x: 450, z:-100 }, 2.2, 'Main Base'));
 
     // Create territory rings for each base

@@ -183,7 +183,7 @@ export function initAI(game) {
   /** Find a COAST landing zone near a target position */
   function findLandingZone(targetPos) {
     const g = game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
-    for (let r = 0; r < 15; r++) {
+    for (let r = 0; r <= 60; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dy = -r; dy <= r; dy++) {
           if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
@@ -212,36 +212,19 @@ export function initAI(game) {
     const fromPos = fromUnits[0]?.mesh.position;
     if (!fromPos) return false;
     const path = game.pathfinder.findPath(fromPos, toPos, 'land');
-    return !path || path.length === 0;
+    const needed = !path || path.length === 0;
+    console.log(`[DEBUG TRANSPORT] needsSeaTransport: from(${fromPos.x.toFixed(0)},${fromPos.z.toFixed(0)}) → to(${toPos.x.toFixed(0)},${toPos.z.toFixed(0)}) = ${needed} (path=${path ? path.length : 'null'})`);
+    return needed;
   }
 
-  /** Find the nearest enemy-owned coastal base to use as embark point. */
+  /** Find the nearest enemy-owned base that has coast accessible. */
   function findEmbarkBase(fromPos) {
     const enemyBases = game.bases.filter(b => b.faction === 'enemy');
     let best = null, bestDist = Infinity;
     for (const base of enemyBases) {
-      const terrain = game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z);
-      const isCoastal = terrain === TERRAIN.COAST || terrain === TERRAIN.SEA;
-      // Also check if there's coast nearby
-      let hasCoast = isCoastal;
-      if (!hasCoast) {
-        const g = game.pathfinder.worldToGrid(base.mesh.position.x, base.mesh.position.z);
-        for (let r = 1; r <= 5; r++) {
-          for (let dx = -r; dx <= r; dx++) {
-            for (let dy = -r; dy <= r; dy++) {
-              if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-              const nx = g.gx + dx, ny = g.gy + dy;
-              if (!game.pathfinder.inBounds(nx, ny)) continue;
-              const w = game.pathfinder.gridToWorld(nx, ny);
-              const t = game.terrain.getTerrainAt(w.x, w.z);
-              if (t === TERRAIN.COAST || t === TERRAIN.SEA) { hasCoast = true; break; }
-            }
-            if (hasCoast) break;
-          }
-          if (hasCoast) break;
-        }
-      }
-      if (!hasCoast) continue;
+      // Check if this base or any point on its landmass has coast
+      const coastPos = findLandingZone(base.mesh.position);
+      if (!coastPos) continue;
       const d = fromPos.distanceTo(base.mesh.position);
       if (d < bestDist) { bestDist = d; best = base; }
     }
@@ -252,32 +235,40 @@ export function initAI(game) {
   function launchSeaAttack(groundAttackers, targetBase) {
     const transportCapacity = 4;
     const groundOnly = groundAttackers.filter(u => u.domain === 'land');
-    if (groundOnly.length === 0) return;
+    if (groundOnly.length === 0) {
+      console.log(`[DEBUG TRANSPORT] No ground units to transport`);
+      return;
+    }
+    console.log(`[DEBUG TRANSPORT] launchSeaAttack: ${groundOnly.length} ground units → ${targetBase.name}`);
 
     // Find embark base (nearest friendly coastal base to the attackers' centroid)
     const centroid = new THREE.Vector3();
     for (const u of groundOnly) centroid.add(u.mesh.position);
     centroid.divideScalar(groundOnly.length);
+    console.log(`[DEBUG TRANSPORT] Centroid: (${centroid.x.toFixed(0)}, ${centroid.z.toFixed(0)})`);
 
     const embarkBase = findEmbarkBase(centroid);
     if (!embarkBase) {
-      console.log(`[DEBUG AI] No embark base found for sea attack`);
+      console.log(`[DEBUG TRANSPORT] FAIL: No embark base found for sea attack`);
       return;
     }
+    console.log(`[DEBUG TRANSPORT] Embark base: ${embarkBase.name} at (${embarkBase.mesh.position.x.toFixed(0)}, ${embarkBase.mesh.position.z.toFixed(0)})`);
 
     // Find coast near embark base for transport spawn
     const embarkCoast = findLandingZone(embarkBase.mesh.position);
     if (!embarkCoast) {
-      console.log(`[DEBUG AI] No coast found near embark base`);
+      console.log(`[DEBUG TRANSPORT] FAIL: No coast found near embark base ${embarkBase.name}`);
       return;
     }
+    console.log(`[DEBUG TRANSPORT] Embark coast: (${embarkCoast.x.toFixed(0)}, ${embarkCoast.z.toFixed(0)})`);
 
     // Find landing zone near target
     const targetCoast = findLandingZone(targetBase.mesh.position);
     if (!targetCoast) {
-      console.log(`[DEBUG AI] No landing zone near target ${targetBase.name}`);
+      console.log(`[DEBUG TRANSPORT] FAIL: No landing zone near target ${targetBase.name}`);
       return;
     }
+    console.log(`[DEBUG TRANSPORT] Target coast: (${targetCoast.x.toFixed(0)}, ${targetCoast.z.toFixed(0)})`);
 
     // Calculate transports needed
     const numTransports = Math.ceil(groundOnly.length / transportCapacity);
@@ -286,7 +277,11 @@ export function initAI(game) {
     const transports = [];
     for (let i = 0; i < numTransports; i++) {
       const spawnPos = game.findValidSpawn(embarkCoast, 'sea');
-      if (!spawnPos) continue;
+      if (!spawnPos) {
+        console.log(`[DEBUG TRANSPORT] FAIL: findValidSpawn returned null for transport ${i}`);
+        continue;
+      }
+      console.log(`[DEBUG TRANSPORT] Spawning transport ${i} at (${spawnPos.x.toFixed(0)}, ${spawnPos.z.toFixed(0)})`);
       const t = game.spawn('transport', 'enemy', spawnPos);
       if (cfg.hpMultiplier > 1) {
         t.maxHp = Math.round(t.maxHp * cfg.hpMultiplier);
@@ -296,7 +291,11 @@ export function initAI(game) {
       transports.push(t);
     }
 
-    if (transports.length === 0) return;
+    if (transports.length === 0) {
+      console.log(`[DEBUG TRANSPORT] FAIL: No transports could be spawned`);
+      return;
+    }
+    console.log(`[DEBUG TRANSPORT] ${transports.length} transports spawned, assigning ${groundOnly.length} units`);
 
     // Assign ground units to transports
     const unitAssignments = []; // { unit, transport }
