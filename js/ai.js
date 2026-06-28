@@ -57,7 +57,7 @@ export function initAI(game) {
       return ['infantry', 'infantry', 'tank'][Math.floor(Math.random() * 3)];
     }
     if (game.difficulty === 'normal') {
-      return ['infantry', 'tank', 'tank', 'artillery', 'fighter'][Math.floor(Math.random() * 5)];
+      return ['infantry', 'tank', 'tank', 'artillery', 'fighter', 'missileDefense'][Math.floor(Math.random() * 6)];
     }
     return ['tank', 'tank', 'heavyTank', 'artillery', 'mlrs', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'coastal'][Math.floor(Math.random() * 17)];
   }
