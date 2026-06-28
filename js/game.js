@@ -53,6 +53,9 @@ export class Unit {
     // Amphibious mode: land unit auto-converts to boat in water
     this._amphibious = false;
 
+    // Transport path data (from findTransportPath)
+    this._transportData = null;
+
     // Unique mechanics state
     this._destroyerShotCount = 0;        // For flak every 3rd shot
     this._battleshipBroadside = false;    // Broadside requirement
@@ -189,30 +192,41 @@ export class Unit {
 
     this.attackMove = attackMove;
     this.attackMoveDest = targetPos.clone();
+    this._transportData = null; // clear previous transport plan
+
     if (this.domain === 'air') {
       this.moveTarget = targetPos.clone();
       this.path = [];
-    } else {
-      let path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
-      // Fallback for land units: try sea path (triggers amphibious conversion)
-      if (!path && this.domain === 'land') {
-        path = this.game.pathfinder.findPath(this.mesh.position, targetPos, 'sea');
+    } else if (this.domain === 'land') {
+      // Use multi-modal pathfinding for land units
+      const result = this.game.pathfinder.findTransportPath(this.mesh.position, targetPos);
+      if (result) {
+        if (result.needsTransport) {
+          // Store transport plan, walk to embark point first
+          this._transportData = result;
+          this.path = result.segments.walkToShip;
+          if (this.path.length > 0) this.moveTarget = this.path.shift();
+          else { this.state = 'idle'; return; }
+          console.log(`[DEBUG PATH] ${this.type} needs transport — walking to embark (${result.embarkPoint.x.toFixed(0)}, ${result.embarkPoint.z.toFixed(0)})`);
+        } else {
+          this.path = result.path;
+          if (this.path.length > 0) this.moveTarget = this.path.shift();
+          else { this.state = 'idle'; return; }
+        }
+      } else {
+        // No path at all — try direct movement
+        this.path = [];
+        this.moveTarget = targetPos.clone();
       }
+    } else {
+      // Sea units: standard pathfinding
+      let path = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain);
       if (path && path.length > 0) {
         this.path = path;
         this.moveTarget = this.path.shift();
       } else {
-        // No path found — move stepwise toward target, staying on valid terrain
-        const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
-        const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, this.domain);
-        if (nearest) {
-          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-          this.moveTarget = new THREE.Vector3(w.x, 0, w.z);
-          this.path = [];
-        } else {
-          this.state = 'idle';
-          return;
-        }
+        this.path = [];
+        this.moveTarget = targetPos.clone();
       }
     }
     this.state = 'moving';
@@ -362,6 +376,7 @@ export class Unit {
       case 'moving':    this.updateMove(dt); break;
       case 'attacking': this.updateAttack(dt); break;
       case 'pursuing':  this.updatePursue(dt); break;
+      case 'waitingForTransport': this.updateWaitingForTransport(dt); break;
     }
 
     // Transport: sync carried units; skip combat
@@ -522,6 +537,34 @@ export class Unit {
 
   _updateTransport(dt) {
     if (!this.alive) return;
+
+    // Check if transport has reached its disembark point (from findTransportPath)
+    if (this._disembarkPoint && this.carriedUnits.length > 0) {
+      const d = this.mesh.position.distanceTo(this._disembarkPoint);
+      const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
+      if (d < 20 || terrain === TERRAIN.COAST || terrain === TERRAIN.LAND) {
+        // Unload and give units their walk-to-target segment
+        const units = [...this.carriedUnits];
+        this.unloadAll();
+        for (const u of units) {
+          if (u.alive && u._transportData && u._transportData.segments) {
+            // Give the unit its final walk segment
+            u.path = u._transportData.segments.walkToTarget;
+            if (u.path.length > 0) {
+              u.moveTarget = u.path.shift();
+              u.state = 'moving';
+            }
+            u._transportData = null; // done with transport
+          }
+        }
+        this._disembarkPoint = null;
+        this._transportOwner = null;
+        // Retreat transport back to friendly base
+        this._retreatToFriendlyBase();
+        return;
+      }
+    }
+
     // Auto-beach: if idle with cargo but on sea, path to nearest coast
     if (this.state === 'idle' && this.carriedUnits.length > 0) {
       const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
@@ -546,17 +589,10 @@ export class Unit {
   }
 
   _findNearestCoast(gx, gy) {
-    for (let r = 0; r < 15; r++) {
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-          const nx = gx + dx, ny = gy + dy;
-          if (!this.game.pathfinder.inBounds(nx, ny)) continue;
-          const w = this.game.pathfinder.gridToWorld(nx, ny);
-          const t = this.game.terrain.getTerrainAt(w.x, w.z);
-          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
-        }
-      }
+    const result = this.game.pathfinder.findNearestCoast(gx, gy, 'land');
+    if (result) {
+      const w = this.game.pathfinder.gridToWorld(result.gx, result.gy);
+      return new THREE.Vector3(w.x, 0, w.z);
     }
     return null;
   }
@@ -687,7 +723,16 @@ export class Unit {
     const dist = Math.hypot(dx, dz);
     if (dist < 2) {
       this.moveTarget = this.path.length > 0 ? this.path.shift() : null;
-      if (!this.moveTarget) this.state = 'idle';
+      if (!this.moveTarget) {
+        // Check if we finished walking to embark point — need transport
+        if (this._transportData && this._transportData.needsTransport && this._transportData.segments) {
+          this.state = 'waitingForTransport';
+          this._transportData._phase = 'waiting';
+          console.log(`[DEBUG TRANSPORT] ${this.type} reached embark point, waiting for transport`);
+          return;
+        }
+        this.state = 'idle';
+      }
       return;
     }
     const step = this.stats.speed * dt;
@@ -948,6 +993,41 @@ export class Unit {
     // Keep bobbing for ships
     if (this.domain === 'sea') {
       this.mesh.userData.bobPhase += dt * 2;
+      this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase) * 0.15 + 0.3;
+    }
+  }
+
+  /** Waiting for transport: find a nearby friendly transport and board it. */
+  updateWaitingForTransport(dt) {
+    if (!this._transportData || !this._transportData.needsTransport) {
+      this.state = 'idle';
+      return;
+    }
+
+    // Scan for a nearby friendly transport with space
+    const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    for (const t of allUnits) {
+      if (!t.alive || !t.isTransport) continue;
+      if (t.faction !== this.faction) continue;
+      if (t.carriedUnits.length >= t.transportCapacity) continue;
+      const d = this.mesh.position.distanceTo(t.mesh.position);
+      if (d <= 15) {
+        // Board the transport
+        t.loadUnit(this);
+        // If this transport doesn't have a sail target yet, give it one
+        if (t.state === 'idle' && this._transportData.disembarkPoint) {
+          t.moveTo(this._transportData.disembarkPoint.clone(), false);
+          t._disembarkPoint = this._transportData.disembarkPoint.clone();
+          t._transportOwner = this; // track who initiated the transport
+        }
+        console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport`);
+        return;
+      }
+    }
+
+    // No transport nearby yet — keep waiting, bob on coast
+    if (this.domain === 'sea') {
+      this.mesh.userData.bobPhase = (this.mesh.userData.bobPhase || 0) + dt * 2;
       this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase) * 0.15 + 0.3;
     }
   }

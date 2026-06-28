@@ -1,4 +1,4 @@
-// pathfinder.js — A* on a coarse grid. Domain-aware: respects sea/land/air.
+// pathfinder.js — A* on a coarse grid. Domain-aware: respects sea/land/air + amphibious.
 import * as THREE from 'three';
 import { TERRAIN, MAP_SIZE, GRID_CELL, GRID_SIZE } from './config.js';
 
@@ -21,12 +21,14 @@ export class Pathfinder {
     const gy = Math.floor((z + MAP_SIZE/2) / this.cell);
     return { gx, gy };
   }
+
   gridToWorld(gx, gy) {
     return {
       x: gx * this.cell - MAP_SIZE/2 + this.cell/2,
       z: gy * this.cell - MAP_SIZE/2 + this.cell/2
     };
   }
+
   inBounds(gx, gy) { return gx >= 0 && gy >= 0 && gx < this.size && gy < this.size; }
 
   walkable(gx, gy, domain) {
@@ -36,6 +38,56 @@ export class Pathfinder {
     if (domain === 'sea') return t === TERRAIN.SEA || t === TERRAIN.COAST;
     if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST;
     return false;
+  }
+
+  // --- Amphibious Pathfinding for Troop Transports ---
+  // Returns a segmented path so game logic knows when to board/disembark.
+  findTransportPath(startWorld, endWorld) {
+    // 1. Try standard land path first
+    const landPath = this.findPath(startWorld, endWorld, 'land');
+    if (landPath) {
+      return { needsTransport: false, path: landPath };
+    }
+
+    // 2. Water is in the way! Find the nearest walkable coast for start and end.
+    const s = this.worldToGrid(startWorld.x, startWorld.z);
+    const g = this.worldToGrid(endWorld.x, endWorld.z);
+
+    const embarkCell = this.findNearestCoast(s.gx, s.gy, 'land');
+    const disembarkCell = this.findNearestCoast(g.gx, g.gy, 'land');
+
+    if (!embarkCell || !disembarkCell) return null;
+
+    const embarkWorld = this.gridToWorld(embarkCell.gx, embarkCell.gy);
+    const disembarkWorld = this.gridToWorld(disembarkCell.gx, disembarkCell.gy);
+
+    const vEmbark = new THREE.Vector3(embarkWorld.x, 0, embarkWorld.z);
+    const vDisembark = new THREE.Vector3(disembarkWorld.x, 0, disembarkWorld.z);
+
+    // 3. Calculate the 3 segmented paths
+    const pathToShip = this.findPath(startWorld, vEmbark, 'land');
+    const seaPath = this.findPath(vEmbark, vDisembark, 'sea');
+    const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
+
+    if (!pathToShip || !seaPath || !pathToTarget) return null;
+
+    // 4. Merge into a single visual path
+    const fullPath = [...pathToShip];
+    for (let i = 1; i < seaPath.length; i++) fullPath.push(seaPath[i]);
+    for (let i = 1; i < pathToTarget.length; i++) fullPath.push(pathToTarget[i]);
+
+    // Return structural data for game manager to handle boarding logic
+    return {
+      needsTransport: true,
+      path: fullPath,
+      embarkPoint: vEmbark,
+      disembarkPoint: vDisembark,
+      segments: {
+        walkToShip: pathToShip,
+        sail: seaPath,
+        walkToTarget: pathToTarget
+      }
+    };
   }
 
   findPath(startWorld, endWorld, domain) {
@@ -137,10 +189,11 @@ export class Pathfinder {
       const t = s / steps;
       const x = a.x + (b.x - a.x) * t;
       const z = a.z + (b.z - a.z) * t;
-      // Check terrain walkability for this domain
       const terrain = this.terrain.getTerrainAt(x, z);
+
       if (domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) return false;
       if (domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) return false;
+
       // Check mountains for all ground domains
       for (const mt of this.terrain.mountains) {
         if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 2) return false;
@@ -149,14 +202,54 @@ export class Pathfinder {
     return true;
   }
 
+  // BFS for finding nearest walkable tile — navigates around obstacles
   findNearestWalkable(gx, gy, domain) {
-    for (let r = 1; r < 20; r++) {
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-          if (this.walkable(gx + dx, gy + dy, domain)) {
-            return { gx: gx + dx, gy: gy + dy };
-          }
+    const queue = [{ gx, gy }];
+    const visited = new Set([gy * this.size + gx]);
+
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      if (this.walkable(cur.gx, cur.gy, domain)) return cur;
+
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      for (const [dx, dy] of dirs) {
+        const nx = cur.gx + dx, ny = cur.gy + dy;
+        const nKey = ny * this.size + nx;
+        if (this.inBounds(nx, ny) && !visited.has(nKey)) {
+          visited.add(nKey);
+          queue.push({ gx: nx, gy: ny });
+        }
+      }
+    }
+    return null;
+  }
+
+  // BFS specifically for finding the coastline
+  // Only traverses land, guarantees we find a beach connected by ground.
+  findNearestCoast(gx, gy, domain) {
+    if (!this.walkable(gx, gy, domain)) {
+      const nearest = this.findNearestWalkable(gx, gy, domain);
+      if (!nearest) return null;
+      gx = nearest.gx;
+      gy = nearest.gy;
+    }
+
+    const queue = [{ gx, gy }];
+    const visited = new Set([gy * this.size + gx]);
+
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      const t = this.terrainGrid[cur.gy * this.size + cur.gx];
+
+      if (t === TERRAIN.COAST) return cur;
+
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      for (const [dx, dy] of dirs) {
+        const nx = cur.gx + dx, ny = cur.gy + dy;
+        const nKey = ny * this.size + nx;
+        if (this.inBounds(nx, ny) && !visited.has(nKey) && this.walkable(nx, ny, domain)) {
+          visited.add(nKey);
+          queue.push({ gx: nx, gy: ny });
         }
       }
     }

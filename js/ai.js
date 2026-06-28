@@ -142,18 +142,20 @@ export function initAI(game) {
       }
     }
 
-    // Ground units: check if sea transport is needed
+    // Ground units: use multi-modal pathfinding
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
     const primary = targets[0];
 
-    // Check if the primary target requires sea crossing
-    const needsTransport = needsSeaTransport(groundAttackers, primary.mesh.position);
+    // Use findTransportPath to determine if sea crossing is needed
+    const pathResult = game.pathfinder.findTransportPath(
+      groundAttackers[0].mesh.position, primary.mesh.position
+    );
 
-    if (needsTransport) {
-      // Sea assault mode — spawn transports and coordinate loading
-      launchSeaAttack(groundAttackers, primary);
+    if (pathResult && pathResult.needsTransport) {
+      // Sea assault — spawn transports at embark point
+      launchSeaAttack(groundAttackers, primary, pathResult);
       return;
     }
 
@@ -180,95 +182,22 @@ export function initAI(game) {
     console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
   }
 
-  /** Find a COAST landing zone near a target position */
-  function findLandingZone(targetPos) {
-    const g = game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
-    for (let r = 0; r <= 60; r++) {
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-          const nx = g.gx + dx, ny = g.gy + dy;
-          if (!game.pathfinder.inBounds(nx, ny)) continue;
-          const w = game.pathfinder.gridToWorld(nx, ny);
-          const t = game.terrain.getTerrainAt(w.x, w.z);
-          if (t === TERRAIN.COAST) return new THREE.Vector3(w.x, 0, w.z);
-        }
-      }
-    }
-    const nearest = game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-    if (nearest) {
-      const w = game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-      return new THREE.Vector3(w.x, 0, w.z);
-    }
-    return null;
-  }
-
   // ===== TRANSPORT SYSTEM =====
   const activeTransports = []; // Track ongoing transport operations
 
-  /** Check if a land path exists from attackers to target. Returns true if sea crossing needed. */
-  function needsSeaTransport(fromUnits, toPos) {
-    // Use the first ground unit's position (guaranteed to be on valid land)
-    const fromPos = fromUnits[0]?.mesh.position;
-    if (!fromPos) return false;
-    const path = game.pathfinder.findPath(fromPos, toPos, 'land');
-    const needed = !path || path.length === 0;
-    console.log(`[DEBUG TRANSPORT] needsSeaTransport: from(${fromPos.x.toFixed(0)},${fromPos.z.toFixed(0)}) → to(${toPos.x.toFixed(0)},${toPos.z.toFixed(0)}) = ${needed} (path=${path ? path.length : 'null'})`);
-    return needed;
-  }
-
-  /** Find the nearest enemy-owned base that has coast accessible. */
-  function findEmbarkBase(fromPos) {
-    const enemyBases = game.bases.filter(b => b.faction === 'enemy');
-    let best = null, bestDist = Infinity;
-    for (const base of enemyBases) {
-      // Check if this base or any point on its landmass has coast
-      const coastPos = findLandingZone(base.mesh.position);
-      if (!coastPos) continue;
-      const d = fromPos.distanceTo(base.mesh.position);
-      if (d < bestDist) { bestDist = d; best = base; }
-    }
-    return best;
-  }
-
-  /** Launch a sea transport operation: spawn transports, load troops, sail to target. */
-  function launchSeaAttack(groundAttackers, targetBase) {
+  /** Launch a sea transport operation using findTransportPath data. */
+  function launchSeaAttack(groundAttackers, targetBase, pathResult) {
     const transportCapacity = 4;
     const groundOnly = groundAttackers.filter(u => u.domain === 'land');
     if (groundOnly.length === 0) {
       console.log(`[DEBUG TRANSPORT] No ground units to transport`);
       return;
     }
-    console.log(`[DEBUG TRANSPORT] launchSeaAttack: ${groundOnly.length} ground units → ${targetBase.name}`);
 
-    // Find embark base (nearest friendly coastal base to the attackers' centroid)
-    const centroid = new THREE.Vector3();
-    for (const u of groundOnly) centroid.add(u.mesh.position);
-    centroid.divideScalar(groundOnly.length);
-    console.log(`[DEBUG TRANSPORT] Centroid: (${centroid.x.toFixed(0)}, ${centroid.z.toFixed(0)})`);
-
-    const embarkBase = findEmbarkBase(centroid);
-    if (!embarkBase) {
-      console.log(`[DEBUG TRANSPORT] FAIL: No embark base found for sea attack`);
-      return;
-    }
-    console.log(`[DEBUG TRANSPORT] Embark base: ${embarkBase.name} at (${embarkBase.mesh.position.x.toFixed(0)}, ${embarkBase.mesh.position.z.toFixed(0)})`);
-
-    // Find coast near embark base for transport spawn
-    const embarkCoast = findLandingZone(embarkBase.mesh.position);
-    if (!embarkCoast) {
-      console.log(`[DEBUG TRANSPORT] FAIL: No coast found near embark base ${embarkBase.name}`);
-      return;
-    }
-    console.log(`[DEBUG TRANSPORT] Embark coast: (${embarkCoast.x.toFixed(0)}, ${embarkCoast.z.toFixed(0)})`);
-
-    // Find landing zone near target
-    const targetCoast = findLandingZone(targetBase.mesh.position);
-    if (!targetCoast) {
-      console.log(`[DEBUG TRANSPORT] FAIL: No landing zone near target ${targetBase.name}`);
-      return;
-    }
-    console.log(`[DEBUG TRANSPORT] Target coast: (${targetCoast.x.toFixed(0)}, ${targetCoast.z.toFixed(0)})`);
+    const embarkPoint = pathResult.embarkPoint;
+    console.log(`[DEBUG TRANSPORT] Sea assault: ${groundOnly.length} units → ${targetBase.name}`);
+    console.log(`[DEBUG TRANSPORT] Embark: (${embarkPoint.x.toFixed(0)}, ${embarkPoint.z.toFixed(0)})`);
+    console.log(`[DEBUG TRANSPORT] Disembark: (${pathResult.disembarkPoint.x.toFixed(0)}, ${pathResult.disembarkPoint.z.toFixed(0)})`);
 
     // Calculate transports needed
     const numTransports = Math.ceil(groundOnly.length / transportCapacity);
@@ -276,7 +205,7 @@ export function initAI(game) {
     // Spawn transports near embark coast
     const transports = [];
     for (let i = 0; i < numTransports; i++) {
-      const spawnPos = game.findValidSpawn(embarkCoast, 'sea');
+      const spawnPos = game.findValidSpawn(embarkPoint, 'sea');
       if (!spawnPos) {
         console.log(`[DEBUG TRANSPORT] FAIL: findValidSpawn returned null for transport ${i}`);
         continue;
@@ -295,40 +224,15 @@ export function initAI(game) {
       console.log(`[DEBUG TRANSPORT] FAIL: No transports could be spawned`);
       return;
     }
-    console.log(`[DEBUG TRANSPORT] ${transports.length} transports spawned, assigning ${groundOnly.length} units`);
+    console.log(`[DEBUG TRANSPORT] ${transports.length} transports spawned`);
 
-    // Assign ground units to transports
-    const unitAssignments = []; // { unit, transport }
-    let tIdx = 0;
+    // Move ground units toward the embark point
+    // They will enter 'waitingForTransport' state when they arrive
     for (const u of groundOnly) {
-      // Find transport with space
-      let assigned = false;
-      for (let attempt = 0; attempt < transports.length; attempt++) {
-        const t = transports[tIdx % transports.length];
-        if (t.carriedUnits.length < transportCapacity) {
-          unitAssignments.push({ unit: u, transport: t });
-          // Move unit toward transport
-          u.moveTo(t.mesh.position.clone(), false);
-          assigned = true;
-          tIdx++;
-          break;
-        }
-        tIdx++;
-      }
-      if (!assigned) break; // all transports full
+      u.moveTo(embarkPoint.clone(), false);
+      // Store transport data so the unit knows what to do after boarding
+      u._transportData = pathResult;
     }
-
-    // Track this transport operation
-    const op = {
-      transports,
-      assignments: unitAssignments,
-      targetCoast,
-      targetBase,
-      phase: 'loading', // loading → sailing → unloading → done
-      loadCheckTimer: 0,
-      allLoaded: false,
-    };
-    activeTransports.push(op);
 
     // Air units go directly
     const airAttackers = groundAttackers.filter(u => u.domain === 'air');
@@ -336,7 +240,7 @@ export function initAI(game) {
       u.attack(targetBase);
     }
 
-    console.log(`[DEBUG AI] SEA ASSAULT: ${groundOnly.length} troops → ${transports.length} transports → ${targetBase.name}`);
+    console.log(`[DEBUG TRANSPORT] Units marching to embark point`);
     game.flashMessage(`⚠️ Enemy naval assault detected! ${transports.length} transport ships spotted`);
   }
 
