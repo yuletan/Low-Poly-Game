@@ -51,6 +51,7 @@ export class Unit {
     this.transportCapacity = this.stats.transportCapacity || 0;
     this._boardingTimer = 0;
     this._assignedEmbarkPoint = null;
+    this._claimedByShip = null;
 
     // Amphibious mode: land unit auto-converts to boat in water
     this._amphibious = false;
@@ -540,13 +541,13 @@ export class Unit {
   _updateTransport(dt) {
     if (!this.alive) return;
 
-    // Phase 1: Empty ship looking for troops
-    if (this.state === 'idle' && this.carriedUnits.length === 0 && !this._disembarkPoint) {
+    // Phase 1: Empty ship looking for unclaimed troops
+    if (this.carriedUnits.length === 0 && !this._disembarkPoint && !this._assignedEmbarkPoint) {
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       let bestDist = Infinity;
       let bestUnit = null;
       for (const u of allUnits) {
-        if (u.alive && u.state === 'waitingForTransport' && u._transportData) {
+        if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip) {
           const d = this.mesh.position.distanceTo(u.mesh.position);
           if (d < bestDist) {
             bestDist = d;
@@ -554,13 +555,15 @@ export class Unit {
           }
         }
       }
-      // If we found a waiting troop, sail to the water tile next to them
       if (bestUnit) {
         this.moveTo(bestUnit._transportData.shipEmbarkPoint.clone());
         this._assignedEmbarkPoint = bestUnit._transportData.shipEmbarkPoint.clone();
         this._transportData = bestUnit._transportData;
         this._boardingTimer = 0;
-        console.log(`[DEBUG TRANSPORT] Ship moving to pick up ${bestUnit.type}`);
+        bestUnit._claimedByShip = this;
+        console.log(`[DEBUG TRANSPORT] Ship moving to pick up ${bestUnit.type} at (${bestUnit._transportData.shipEmbarkPoint.x.toFixed(0)}, ${bestUnit._transportData.shipEmbarkPoint.z.toFixed(0)})`);
+      } else {
+        if (this.state === 'idle') this._retreatToFriendlyBase();
       }
       return;
     }
@@ -569,7 +572,6 @@ export class Unit {
     if (this._assignedEmbarkPoint && this.path.length === 0) {
       this._boardingTimer += dt;
 
-      // Set sail if full, OR if we've been waiting 15 seconds
       const isFull = this.carriedUnits.length >= this.transportCapacity;
       const timedOut = this._boardingTimer > 15;
 
@@ -578,9 +580,19 @@ export class Unit {
         this.moveTo(this._transportData.shipDisembarkPoint.clone());
         this._disembarkPoint = this._transportData.disembarkPoint.clone();
         this._assignedEmbarkPoint = null;
+
+        // Unclaim any troops that didn't make it
+        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allUnits) {
+          if (u._claimedByShip === this) u._claimedByShip = null;
+        }
       } else if (timedOut && this.carriedUnits.length === 0) {
-        // Nobody showed up, retreat to base
+        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allUnits) {
+          if (u._claimedByShip === this) u._claimedByShip = null;
+        }
         this._assignedEmbarkPoint = null;
+        this._transportData = null;
         this._retreatToFriendlyBase();
       }
       return;
@@ -1038,18 +1050,16 @@ export class Unit {
       if (t.carriedUnits.length >= t.transportCapacity) continue;
       const d = this.mesh.position.distanceTo(t.mesh.position);
       if (d <= 20) {
-        // Board the transport
         t.loadUnit(this);
-        // Give the ship the destination data, but DO NOT make it move yet!
         if (!t._transportData) {
           t._transportData = this._transportData;
         }
+        this._claimedByShip = null;
         console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${t.carriedUnits.length}/${t.transportCapacity})`);
         return;
       }
     }
 
-    // No transport nearby yet — keep waiting, bob on coast
     if (this.domain === 'sea') {
       this.mesh.userData.bobPhase = (this.mesh.userData.bobPhase || 0) + dt * 2;
       this.mesh.position.y = Math.sin(this.mesh.userData.bobPhase) * 0.15 + 0.3;
@@ -1962,15 +1972,24 @@ export class Game {
     for (const faction of ['player', 'enemy']) {
       const units = faction === 'player' ? this.playerUnits : this.enemyUnits;
 
+      // 1. Count unclaimed waiting troops
       let waitingCount = 0;
       for (const u of units) {
-        if (u.alive && u.state === 'waitingForTransport') waitingCount++;
+        if (u.alive && u.state === 'waitingForTransport' && !u._claimedByShip) waitingCount++;
       }
 
       if (waitingCount > 0) {
-        const hasAvailableTransport = units.some(u => u.alive && u.isTransport && u.carriedUnits.length < u.transportCapacity);
+        // 2. Count ships actively heading to pick up troops
+        let activeShips = 0;
+        for (const u of units) {
+          if (u.alive && u.isTransport && u._assignedEmbarkPoint && u.carriedUnits.length < u.transportCapacity) {
+            activeShips++;
+          }
+        }
 
-        if (!hasAvailableTransport) {
+        // 3. Spawn ships until we have enough (1 per 4 troops)
+        const neededShips = Math.ceil(waitingCount / 4);
+        if (activeShips < neededShips) {
           const cost = UNIT_TYPES.transport.cost;
           let money = faction === 'player' ? this.money : Infinity;
 
@@ -1978,19 +1997,13 @@ export class Game {
             const bases = this.bases.filter(b => b.faction === faction && b.alive);
             let spawnPos = null;
 
-            // 1. Try to find a valid water spawn near ANY friendly base
             for (const base of bases) {
               const pos = this.findValidSpawn(base.mesh.position, 'sea');
-              if (pos) {
-                spawnPos = pos;
-                break;
-              }
+              if (pos) { spawnPos = pos; break; }
             }
 
-            // 2. Fallback: use pathfinder to find nearest sea tile from any base
             if (!spawnPos && bases.length > 0) {
-              const refBase = bases[0];
-              const g = this.pathfinder.worldToGrid(refBase.mesh.position.x, refBase.mesh.position.z);
+              const g = this.pathfinder.worldToGrid(bases[0].mesh.position.x, bases[0].mesh.position.z);
               const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
               if (seaTile) {
                 const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
@@ -2000,11 +2013,8 @@ export class Game {
 
             if (spawnPos) {
               if (faction === 'player') this.money -= cost;
-              console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction} at (${spawnPos.x.toFixed(0)}, ${spawnPos.z.toFixed(0)})`);
+              console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction} (${activeShips+1}/${neededShips})`);
               this.spawn('transport', faction, spawnPos);
-              this.flashMessage(faction === 'player' ? `Transport ship deployed ($${cost})` : `Enemy transport ship spotted!`);
-            } else {
-              console.warn(`[DEBUG LOGISTICS] Could not find water spawn point for ${faction}!`);
             }
           }
         }
