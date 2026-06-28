@@ -13,10 +13,10 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 
 ### Core Gameplay
 - **3 Combat Domains** — Land, Sea, and Air units with distinct movement rules
-- **8 Unit Types** — Infantry, Tanks, Artillery, Destroyers, Battleships, Carriers, Fighters, Bombers
+- **25+ Unit Types** — Infantry, Tanks, Heavy Tanks, Artillery, MLRS, Missile Defense, Coastal Batteries, Destroyers, Frigates, Cruisers, Battleships, Carriers, Submarines, Transports, Fighters, Bombers, B2 Bombers, Helicopters, Gunships, Escort Jets, Escort Bombers, Healer Trucks
 - **7 Strategic Bases** — Capture all enemy bases (including the heavily defended Main Base) to win
 - **Terrain Bonuses** — Ships gain damage in open sea, tanks get defense in mountains
-- **RNG Combat** — Hit chance, critical hits (10% for 1.5×), and distance-based damage falloff
+- **RNG Combat** — Hit chance, splash damage with falloff, and distance-based damage modifiers
 - **Formations** — Line, Wedge, Square, and Column for coordinated movement
 
 ### Advanced Systems
@@ -27,8 +27,11 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 - ⬆️ **Upgrade System** — 3 tiers each for Armor, Firepower, and Engines (×2.0 max)
 - 🔊 **Synthesized Audio** — 8 procedural sound effects via Web Audio API (no asset files!)
 - ✈️ **Carrier Special Ability** — Launch fighter squadrons every 20 seconds
+- 🚢 **Naval Transport** — Transport ships carry land units across water with auto-embark/disembark
+- 🩹 **Healer Truck** — Auto-heals nearby damaged allied units
+- 🕵️ **Submarine Stealth** — Invisible until first attack, 5× first-strike damage
 - 💾 **Save / Load** — Full game state persistence via localStorage
-- 🤖 **3-Tier AI** — Easy (defensive), Normal (balanced), Hard (combined-arms aggression)
+- 🤖 **3-Tier AI** — Easy (defensive), Normal (balanced), Hard (combined-arms aggression, builds defenses)
 
 ---
 
@@ -91,15 +94,18 @@ Conquer all 6 enemy bases before the AI captures your Player HQ.
 | Toggle sound | 🔊 button |
 
 ### Economy
-- Passive income: $10/sec per owned base
-- Kill bounty: $25 per enemy unit destroyed
+- Passive income: $12/sec per owned base
+- Kill bounty: varies by unit (typically 30%–50% of build cost)
 - Capture reward: $200 per base conquered
 
 ### Combat Tips
-- Artillery outranges everything (range 70) but has slow fire rate
+- Artillery and MLRS outrange most units — use them to soften defenses from a distance
 - Battleships rule open sea — use them to bombard coastal bases
-- Bombers deal massive damage but are vulnerable to fighters
-- Carriers can launch fighter squadrons mid-battle for surprise air support
+- Bombers deal massive damage but are vulnerable to fighters and missile defense
+- Missile Defense shreds air units — protect your bases with them
+- Submarines ambush unsuspecting ships with 5× first-strike damage
+- Transport ships let you move land armies across water — escort them!
+- Healer trucks keep your assault force alive — protect them behind your front line
 - Upgrade Engines early to outmaneuver the enemy
 
 ---
@@ -140,11 +146,11 @@ rts-game/
 ---
 
 ## ⚖️ Difficulty Levels
-| Difficulty | AI Income | Aggression | Attack Interval | Composition |
-|------------|-----------|------------|-----------------|-------------|
-| Easy | 0.6× | 30% | 25s | Infantry spam, small groups |
-| Normal | 1.0× | 60% | 18s | Balanced with some fighters |
-| Hard | 1.5× | 100% | 12s | Combined arms, targets weak bases |
+| Difficulty | AI Income | Spawn Rate | Max Attack Group | HP Multiplier | Composition |
+|------------|-----------|------------|------------------|---------------|-------------|
+| Easy | 0.6× | 1/sec | 10 | 1.0× | Infantry + tanks |
+| Normal | 1.0× | 2/sec | 20 | 1.0× | Balanced + fighters + missile defense |
+| Hard | 1.5× | 4/sec | 50 | 2.0× | Combined arms, builds defenses, targets weak bases |
 
 ---
 
@@ -172,16 +178,30 @@ rts-game/
 ## 📊 Unit Reference
 
 ### Unit Stats
-| Unit | Domain | HP | DMG | Range | Speed | Cost |
-|------|--------|----|-----|-------|-------|------|
-| Infantry | Land | 50 | 8 | 18 | 14 | $50 |
-| Tank | Land | 200 | 35 | 35 | 10 | $200 |
-| Artillery | Land | 120 | 60 | 70 | 6 | $300 |
-| Destroyer | Sea | 250 | 30 | 50 | 12 | $250 |
-| Battleship | Sea | 600 | 80 | 80 | 7 | $600 |
-| Carrier ✈️ | Sea | 500 | 20 | 30 | 6 | $700 |
-| Fighter | Air | 80 | 25 | 40 | 30 | $300 |
-| Bomber | Air | 180 | 90 | 25 | 18 | $500 |
+| Unit | Domain | HP | DMG | Range | Speed | Cost | Special |
+|------|--------|----|-----|-------|-------|------|---------|
+| Infantry | Land | 50 | 8 | 18 | 14 | $50 | Captures bases |
+| Tank | Land | 200 | 50 | 50 | 10 | $200 | |
+| Heavy Tank | Land | 1000 | 1500 | 30 | 10 | $500 | Short-range devastation |
+| Artillery | Land | 120 | 128 | 96 | 6 | $300 | Creeping barrage |
+| MLRS | Land | 80 | 15×10 | 110 | 10 | $350 | Salvo rocket spread |
+| Missile Defense | Land | 500 | 300 | 85 | – | $500 | Air-only homing missiles |
+| Coastal Battery | Land | 400 | 100 | 120 | – | $400 | Sea-only defense |
+| Healer Truck | Land | 150 | – | 30 | 10 | $500 | Heals nearby allies |
+| Destroyer | Sea | 250 | 45 | 96 | 12 | $250 | Flak vs air every 3rd shot |
+| Frigate | Sea | 150 | 20 | 60 | 18 | $150 | Fast escort |
+| Cruiser | Sea | 200 | 40 | 100 | 16 | $300 | Air-only homing |
+| Battleship | Sea | 600 | 130 | 160 | 12 | $600 | Broadside mechanic |
+| Carrier ✈️ | Sea | 800 | 20 | 160 | 8 | $700 | Launches fighters |
+| Submarine | Sea | 100 | 150 | 50 | 10 | $350 | Stealth + 5× first strike |
+| Transport | Sea | 1000 | – | – | 15 | $400 | Carries 4 land units |
+| Fighter | Air | 80 | 35 | 45 | 30 | $300 | Dogfight bonus vs air |
+| Bomber | Air | 180 | 140 | 30 | 18 | $500 | Carpet bomb AOE |
+| Helicopter | Air | 120 | 25 | 40 | 25 | $350 | Burst fire |
+| Gunship | Air | 250 | 35 | 60 | 14 | $600 | Ground-only barrage |
+| B2 Bomber | Air | 800 | 1000 | 25 | 20 | $800 | Massive AOE, one-way |
+| Escort Jet | Air | 2000 | 10 | 10 | 25 | $800 | Intercepts air threats |
+| Escort Bomber | Air | 5000 | – | – | 22 | $500 | Decoy, one-way |
 
 ### Terrain Bonuses
 | Domain | Terrain | Damage | HP |
@@ -203,7 +223,6 @@ rts-game/
 - [ ] Replay system
 - [ ] Custom map editor
 - [ ] Unit veterancy (XP for kills)
-- [ ] Naval transport for land units
 
 ### Known Limitations
 - AI does not currently use carrier fighter-launch ability
