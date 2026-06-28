@@ -16,15 +16,19 @@ export function createUnitMesh(type, color, faction) {
     case 'tank':     return buildTank(g, tint);
     case 'artillery':return buildArtillery(g, tint);
     case 'missileDefense':return buildMissileDefense(g, tint);
+    case 'coastal':  return buildCoastal(g, tint);
     case 'mlrs':     return buildMLRS(g, tint);
     case 'destroyer':return buildShip(g, tint, 1.0);
     case 'frigate':  return buildFrigate(g, tint);
+    case 'cruiser':  return buildCruiser(g, tint);
+    case 'submarine':return buildSubmarine(g, tint);
     case 'battleship':return buildShip(g, tint, 1.6);
     case 'carrier':  return buildCarrier(g, tint);
     case 'transport':return buildTransport(g, tint);
     case 'fighter':  return buildJet(g, tint, 1.0);
     case 'bomber':   return buildJet(g, tint, 1.4);
     case 'heli':     return buildHeli(g, tint);
+    case 'gunship':  return buildGunship(g, tint);
   }
   return g;
 }

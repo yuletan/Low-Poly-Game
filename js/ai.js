@@ -8,6 +8,48 @@ export function initAI(game) {
   let economyTimer = 0;
   let aiMoney      = 200;
 
+  const SPAWN_RATES = { easy: 1, normal: 2, hard: 4 };
+  const maxSpawnsPerSecond = SPAWN_RATES[game.difficulty] || 1;
+
+  const recentSpawns = [];
+  const SPAWN_HISTORY_SECONDS = 2;
+
+  function recordSpawn(pos) {
+    recentSpawns.push({ pos, time: economyTimer });
+    const cutoff = economyTimer - SPAWN_HISTORY_SECONDS;
+    for (let i = recentSpawns.length - 1; i >= 0; i--) {
+      if (recentSpawns[i].time < cutoff) recentSpawns.splice(i, 1);
+    }
+  }
+
+  function isSpawnOverlapping(pos, minDist = 15) {
+    for (const s of recentSpawns) {
+      if (pos.distanceTo(s.pos) < minDist) return true;
+    }
+    return false;
+  }
+
+  function findNonOverlappingSpawn(base, domain) {
+    const validTerrains = domain === 'sea' ? [TERRAIN.SEA, TERRAIN.COAST] : [TERRAIN.LAND, TERRAIN.COAST];
+    for (let radius = 15; radius <= 200; radius += 8) {
+      for (let i = 0; i < 16; i++) {
+        const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.2;
+        const x = base.mesh.position.x + Math.cos(angle) * radius;
+        const z = base.mesh.position.z + Math.sin(angle) * radius;
+        const t = game.terrain.getTerrainAt(x, z);
+        if (!validTerrains.includes(t)) continue;
+        let blocked = false;
+        for (const mt of game.terrain.mountains) {
+          if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        const pos = new THREE.Vector3(x, domain === 'sea' ? 0.3 : game.terrain.LAND_HEIGHT + 0.5, z);
+        if (!isSpawnOverlapping(pos)) return pos;
+      }
+    }
+    return null;
+  }
+
   /** Pick the unit composition based on difficulty. */
   function chooseUnitToBuild() {
     if (game.difficulty === 'easy') {
@@ -26,16 +68,17 @@ export function initAI(game) {
     return owned[Math.floor(Math.random() * owned.length)];
   }
 
-  /** Spawn near an enemy base, with terrain-aware placement. */
+  /** Spawn near an enemy base, with terrain-aware placement and non-overlapping spawn points. */
   function spawnEnemyUnit(type) {
     const base = pickSpawnBase();
     if (!base) return false;
     const stats = UNIT_TYPES[type];
-    const pos = game.findValidSpawn(base.mesh.position, stats.domain);
+    const pos = findNonOverlappingSpawn(base, stats.domain);
     if (!pos) {
-      console.warn(`[DEBUG AI] Failed to find spawn for ${type} near ${base.name}`);
+      console.warn(`[DEBUG AI] Failed to find non-overlapping spawn for ${type} near ${base.name}`);
       return false;
     }
+    recordSpawn(pos);
     const u = game.spawn(type, 'enemy', pos);
     if (cfg.hpMultiplier > 1) {
       u.maxHp = Math.round(u.maxHp * cfg.hpMultiplier);
@@ -223,12 +266,18 @@ export function initAI(game) {
       if (Math.random() < attackChance) {
         launchAttack();
       } else {
-        // Spawn one unit
-        const desiredType = chooseUnitToBuild();
-        const cost = UNIT_TYPES[desiredType].cost;
-        if (aiMoney >= cost) {
-          if (spawnEnemyUnit(desiredType)) {
-            aiMoney -= cost;
+        // Spawn up to maxSpawnsPerSecond units this tick
+        for (let i = 0; i < maxSpawnsPerSecond; i++) {
+          const desiredType = chooseUnitToBuild();
+          const cost = UNIT_TYPES[desiredType].cost;
+          if (aiMoney >= cost) {
+            if (spawnEnemyUnit(desiredType)) {
+              aiMoney -= cost;
+            } else {
+              break;
+            }
+          } else {
+            break;
           }
         }
       }

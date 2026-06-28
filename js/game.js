@@ -888,8 +888,10 @@ export class Unit {
     for (const e of enemies) {
       if (!e.alive) continue;
 
-      // Missile defense: air only
+      // Specialized targeting rules
       if (airOnly && e.domain !== 'air') continue;
+      if (this.stats.seaOnly && e.domain !== 'sea') continue;
+      if (this.stats.groundOnly && e.domain === 'air') continue;
 
       // Land units cannot target air (except missile defense handled above)
       if (isLand && !airOnly && e.domain === 'air') continue;
