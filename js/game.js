@@ -1026,6 +1026,7 @@ export class Unit {
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     const airOnly = !!this.stats.airOnly;
     const baseOnly = !!this.stats.baseOnly;
+    const baseTarget = !!this.stats.baseTarget;
     const isLand = this.domain === 'land';
 
     // Base-only units (B2): only target bases
@@ -1041,6 +1042,26 @@ export class Unit {
           this.target = bestBase;
           this.state = 'attacking';
         } else if (this.stats.speed > 0) {
+          this._pursueTarget = bestBase;
+          this.state = 'pursuing';
+        }
+      }
+      return;
+    }
+
+    // Base-target units (crusher): only target bases, keeps pushing
+    if (baseTarget) {
+      const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
+      let bestBase = null, bestD = this.engageRange;
+      for (const b of bases) {
+        const d = this._dist2d(b.mesh.position);
+        if (d < bestD) { bestBase = b; bestD = d; }
+      }
+      if (bestBase) {
+        if (bestD <= this.stats.range) {
+          this.target = bestBase;
+          this.state = 'attacking';
+        } else {
           this._pursueTarget = bestBase;
           this.state = 'pursuing';
         }
