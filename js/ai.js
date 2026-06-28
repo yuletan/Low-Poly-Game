@@ -73,9 +73,9 @@ export function initAI(game) {
       return ['infantry', 'infantry', 'tank'][Math.floor(Math.random() * 3)];
     }
     if (game.difficulty === 'normal') {
-      return ['infantry', 'tank', 'tank', 'artillery', 'fighter', 'fighter', 'missileDefense', 'missileDefense', 'destroyer', 'frigate', 'battleship'][Math.floor(Math.random() * 11)];
+      return ['infantry', 'tank', 'tank', 'artillery', 'fighter', 'fighter', 'minigunner', 'missileDefense', 'missileDefense', 'destroyer', 'frigate', 'battleship'][Math.floor(Math.random() * 12)];
     }
-    return ['tank', 'tank', 'heavyTank', 'artillery', 'mlrs', 'fighter', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'missileDefense', 'missileDefense', 'missileDefense', 'coastal'][Math.floor(Math.random() * 21)];
+    return ['tank', 'tank', 'heavyTank', 'artillery', 'mlrs', 'minigunnerVehicle', 'megaMedic', 'fighter', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'missileDefense', 'missileDefense', 'missileDefense', 'coastal'][Math.floor(Math.random() * 23)];
   }
 
   /** Pick a random enemy-owned base to spawn from, weighted by proximity to player bases (front line). */
@@ -171,7 +171,8 @@ export function initAI(game) {
       u.domain !== 'sea' &&
       !u.isTransport &&
       u.state !== 'waitingForTransport' &&
-      !u.carried
+      !u.carried &&
+      u.stats.damage > 0
     );
   }
 
@@ -193,7 +194,7 @@ export function initAI(game) {
     if (playerBases.length === 0) return;
 
     const available = gatherAttackers();
-    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport).length;
+    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
 
     let attackSize;
     if (totalEnemy < 4) attackSize = totalEnemy;
@@ -355,7 +356,7 @@ export function initAI(game) {
       aiMoney += income;
 
       // Decision: attack probability = alive combat units / maxAttackGroup
-      const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport).length;
+      const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
       const attackChance = Math.min(1, totalCombat / cfg.maxAttackGroup);
 
       if (Math.random() < attackChance) {

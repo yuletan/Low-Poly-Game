@@ -216,6 +216,31 @@ function generateUnitIcon(type, color, size = 48) {
       ctx.lineTo(cx - s * 0.6, cy + s * 0.3); ctx.lineTo(cx - s * 1, cy + s * 0.3);
       ctx.closePath();
       break;
+    case 'minigunnerVehicle':
+      roundRect(ctx, cx - s * 1.1, cy - s * 0.7, s * 2.2, s * 1.4, 3);
+      ctx.moveTo(cx + s * 0.8, cy - s * 0.3);
+      ctx.lineTo(cx + s * 1.5, cy - s * 0.5);
+      ctx.lineTo(cx + s * 1.5, cy + s * 0.1);
+      ctx.lineTo(cx + s * 0.8, cy + s * 0.1);
+      ctx.closePath();
+      break;
+    case 'megaMedic':
+      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 2);
+      ctx.moveTo(cx - s * 0.4, cy); ctx.lineTo(cx + s * 0.4, cy);
+      ctx.moveTo(cx, cy - s * 0.4); ctx.lineTo(cx, cy + s * 0.4);
+      ctx.closePath();
+      break;
+    case 'minigunner':
+      ctx.moveTo(cx, cy - s);
+      ctx.lineTo(cx - s * 0.6, cy + s * 0.5);
+      ctx.lineTo(cx + s * 0.6, cy + s * 0.5);
+      ctx.closePath();
+      ctx.moveTo(cx + s * 0.1, cy + s * 0.3);
+      ctx.lineTo(cx + s * 0.8, cy);
+      ctx.lineTo(cx + s * 0.8, cy + s * 0.5);
+      ctx.lineTo(cx + s * 0.1, cy + s * 0.5);
+      ctx.closePath();
+      break;
   }
   ctx.fill();
   ctx.stroke();

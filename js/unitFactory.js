@@ -70,6 +70,9 @@ export function createUnitMesh(type, color, faction) {
     case 'escortJet':return buildEscortJet(g, tint);
     case 'b2':       return buildB2(g, tint);
     case 'escortBomber':return buildEscortBomber(g, tint);
+    case 'minigunnerVehicle':return buildMinigunnerVehicle(g, tint);
+    case 'megaMedic':return buildMegaMedic(g, tint);
+    case 'minigunner':return buildMinigunner(g, tint);
   }
   return g;
 }
@@ -1312,6 +1315,76 @@ export function createProjectileMesh(domain) {
     return g;
   }
   return new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), glowMat(0xffaa00, 2));
+}
+
+function buildMinigunnerVehicle(g, color) {
+  const bodyMat = matteMat(color);
+  const detailMat = metalMat(0x444444);
+  const gunMat = metalMat(0x666666);
+  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 5), detailMat));
+  chassis.position.y = 0.8;
+  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 2, 3), bodyMat));
+  body.position.set(0, 2, 0.5);
+  const turret = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 1, 8), detailMat));
+  turret.position.set(0, 2.8, 1.5);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 2.8, 3.5);
+  const barrel2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
+  barrel2.rotation.x = Math.PI / 2;
+  barrel2.position.set(0.6, 2.8, 3.5);
+  const barrel3 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
+  barrel3.rotation.x = Math.PI / 2;
+  barrel3.position.set(-0.6, 2.8, 3.5);
+  const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
+  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
+    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
+    w.position.set(p[0], p[1], p[2]); w.rotation.z = Math.PI / 2;
+  }
+  g.add(chassis, body, turret, barrel, barrel2, barrel3);
+  return g;
+}
+
+function buildMegaMedic(g, color) {
+  const bodyMat = matteMat(color);
+  const detailMat = metalMat(0x333333);
+  const crossMat = glowMat(0x44ff44, 1.5);
+  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 6), detailMat));
+  chassis.position.y = 0.8;
+  const cab = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2.5), bodyMat));
+  cab.position.set(0, 2, 2.5);
+  const medModule = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.5, 4), bodyMat));
+  medModule.position.set(0, 2.5, -1);
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.4, 0.1), crossMat);
+  crossH.position.set(0, 2.8, -1);
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.5, 0.1), crossMat);
+  crossV.position.set(0, 2.8, -1);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1, 0.1), glassMat(0x224422));
+  windshield.position.set(0, 2.8, 3.8);
+  const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
+  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
+    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
+    w.position.set(p[0], p[1], p[2]); w.rotation.z = Math.PI / 2;
+  }
+  g.add(chassis, cab, medModule, crossH, crossV, windshield);
+  return g;
+}
+
+function buildMinigunner(g, color) {
+  const bodyMat = matteMat(color);
+  const gunMat = metalMat(0x666666);
+  const body = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 1.5, 6), bodyMat));
+  body.position.y = 1;
+  const head = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 6), bodyMat));
+  head.position.y = 1.9;
+  const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 4), gunMat);
+  gun.rotation.x = Math.PI / 2;
+  gun.position.set(0.4, 1.3, 0.8);
+  const gun2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 4), gunMat);
+  gun2.rotation.x = Math.PI / 2;
+  gun2.position.set(0.6, 1.3, 0.8);
+  g.add(body, head, gun, gun2);
+  return g;
 }
 
 /** Marks newly-launched carrier fighters visually with a small green ring. */

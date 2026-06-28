@@ -63,6 +63,12 @@ export class Unit {
     this._pathLine = null;
     this._pathArrowHead = null;
 
+    // Aura system
+    this._dmgMult = 1;
+    this._hpMult = 1;
+    this._baseMaxHp = this.stats.hp;
+    this._auraTimer = 0;
+
     // Unique mechanics state
     this._destroyerShotCount = 0;        // For flak every 3rd shot
     this._battleshipBroadside = false;    // Broadside requirement
@@ -392,6 +398,13 @@ export class Unit {
       this._healNearby(dt);
     }
 
+    // AURA: Recalculate buffs from nearby friendly units every 1s
+    this._auraTimer += dt;
+    if (this._auraTimer >= 1) {
+      this._auraTimer = 0;
+      this._recalcAuras();
+    }
+
     // CARRIER: Auto-launch fighters every 20s if enemies in range
     if (this.type === 'carrier' && this.canLaunch && this.launchCooldown <= 0) {
       const enemiesNear = this._enemiesInRange(80); // launch range
@@ -484,6 +497,28 @@ export class Unit {
       if (e.alive && this.mesh.position.distanceTo(e.mesh.position) <= range) count++;
     }
     return count;
+  }
+
+  /** Recalculate auras from nearby friendly buffing units. */
+  _recalcAuras() {
+    this._dmgMult = 1;
+    this._hpMult = 1;
+    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    for (const u of allies) {
+      if (!u.alive || u === this) continue;
+      const d = this.mesh.position.distanceTo(u.mesh.position);
+      const range = u.stats.buffRange || 30;
+      if (d > range) continue;
+      if (u.stats.buffDamage) this._dmgMult *= (1 + u.stats.buffDamage);
+      if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
+      if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
+    }
+    const targetMax = this._baseMaxHp * this._hpMult;
+    if (targetMax !== this.maxHp) {
+      const ratio = this.hp / this.maxHp;
+      this.maxHp = targetMax;
+      this.hp = Math.min(this.maxHp, ratio * targetMax);
+    }
   }
 
   /** Healer: heal nearby friendly air and land units 5% HP/sec, follow lowest HP */
@@ -1452,6 +1487,9 @@ export class Unit {
     const { dmg } = applyTerrainBonus(this.domain, terrain, this.stats.damage, this.maxHp);
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     let finalDmg = dmg;
+
+    // Apply damage aura multiplier
+    finalDmg *= this._dmgMult;
 
     // Stealth break on first attack + 5x first strike damage
     if (this._stealthed) {

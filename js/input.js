@@ -271,6 +271,9 @@ export function initInput(game, camera, renderer) {
           case 'heli': ctx.moveTo(cx, cy); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.3); ctx.lineTo(cx, cy-s*0.2); ctx.lineTo(cx-s*0.8, cy-s*0.1); ctx.lineTo(cx-s*0.8, cy+s*0.1); ctx.closePath(); break;
           case 'gunship': ctx.roundRect(cx-s, cy-s*0.4, s*2, s*0.8, 2); ctx.moveTo(cx-s*1.5, cy); ctx.lineTo(cx+s*1.5, cy); ctx.lineTo(cx+s*1.5, cy+s*0.15); ctx.lineTo(cx-s*1.5, cy+s*0.15); ctx.closePath(); break;
           case 'transport': ctx.roundRect(cx-s, cy-s*0.5, s*2, s, 2); ctx.closePath(); break;
+          case 'minigunnerVehicle': ctx.roundRect(cx-s*1.1, cy-s*0.7, s*2.2, s*1.4, 2); ctx.closePath(); break;
+          case 'megaMedic': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
+          case 'minigunner': ctx.moveTo(cx, cy-s); ctx.lineTo(cx-s*0.6, cy+s*0.5); ctx.lineTo(cx+s*0.6, cy+s*0.5); ctx.closePath(); break;
         }
         ctx.fill(); ctx.stroke();
         iconCache[type] = canvas.toDataURL('image/png');
