@@ -59,19 +59,6 @@ export class Unit {
     // Transport path data (from findTransportPath)
     this._transportData = null;
 
-    // Stealth: invisible until first attack
-    this._stealthed = !!this.stats.stealth;
-    if (this._stealthed) {
-      this.mesh.traverse(c => {
-        if (c.material) {
-          c.material = c.material.clone();
-          c.userData.origOpacity = c.material.opacity;
-          c.material.transparent = true;
-          c.material.opacity = 0.15;
-        }
-      });
-    }
-
     // Path arrow line visualization
     this._pathLine = null;
     this._pathArrowHead = null;
@@ -84,6 +71,19 @@ export class Unit {
     this._infantryCaptureTarget = null;   // Base being captured
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
+
+    // Stealth: invisible until first attack (must be after mesh creation)
+    this._stealthed = !!this.stats.stealth;
+    if (this._stealthed) {
+      this.mesh.traverse(c => {
+        if (c.material) {
+          c.material = c.material.clone();
+          c.userData.origOpacity = c.material.opacity;
+          c.material.transparent = true;
+          c.material.opacity = 0.15;
+        }
+      });
+    }
     const y = this.domain === 'air' ? baseStats.altitude : (position.y ?? (this.domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5));
     this.mesh.position.set(position.x, y, position.z);
     this._labelHeight = this.domain === 'air' ? 4 : (this.domain === 'sea' ? 4 : 3.5);
