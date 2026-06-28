@@ -602,12 +602,12 @@ export class Unit {
       if ((isFull || timedOut) && this.carriedUnits.length > 0) {
         console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
         // Use the pre-calculated sea path directly (no recalc, no smoothing)
-        const sailPath = this._transportData.segments.sail;
+        const sailPath = this._transportData?.segments?.sail;
         if (sailPath && sailPath.length > 0) {
           this.path = sailPath.map(p => p.clone());
           this.moveTarget = this.path.shift();
           this.state = 'moving';
-        } else {
+        } else if (this._transportData?.shipDisembarkPoint) {
           this.moveTo(this._transportData.shipDisembarkPoint.clone());
         }
         this._disembarkPoint = this._transportData.disembarkPoint.clone();
