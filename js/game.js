@@ -514,11 +514,39 @@ export class Unit {
       }
     }
 
-    // Follow lowest HP troop if idle and not already close
-    if (lowestHp && this.state === 'idle') {
-      const d = this.mesh.position.distanceTo(lowestHp.mesh.position);
-      if (d > this.stats.range * 0.7) {
-        this.moveTo(lowestHp.mesh.position.clone());
+    // Follow behind tanks or between multiple tanks when idle
+    if (this.state === 'idle') {
+      const combat = allies.filter(u =>
+        u.alive && u !== this && u.domain === 'land' && !u.isTransport && u.stats.speed > 0 &&
+        u.state !== 'waitingForTransport' && !u.carried &&
+        this.mesh.position.distanceTo(u.mesh.position) < 60
+      );
+      if (combat.length > 0) {
+        const center = new THREE.Vector3();
+        for (const u of combat) center.add(u.mesh.position);
+        center.divideScalar(combat.length);
+        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+        let closestEnemy = null, closestDist = Infinity;
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          const d = this.mesh.position.distanceTo(e.mesh.position);
+          if (d < closestDist) { closestDist = d; closestEnemy = e; }
+        }
+        let targetPos;
+        if (closestEnemy) {
+          const behind = new THREE.Vector3().subVectors(center, closestEnemy.mesh.position).normalize();
+          targetPos = center.clone().add(behind.multiplyScalar(10));
+        } else {
+          targetPos = center.clone();
+        }
+        if (this.mesh.position.distanceTo(targetPos) > 5) {
+          this.moveTo(targetPos);
+        }
+      } else if (lowestHp) {
+        const d = this.mesh.position.distanceTo(lowestHp.mesh.position);
+        if (d > this.stats.range * 0.7) {
+          this.moveTo(lowestHp.mesh.position.clone());
+        }
       }
     }
   }
