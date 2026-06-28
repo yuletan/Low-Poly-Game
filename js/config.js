@@ -65,6 +65,10 @@ export const UNIT_TYPES = {
   gunship:  { domain:'air',   hp:250, damage:35, range:60, speed:14, fireRate:0.4, hitChance:0.8, cost:600, color:0x8899aa, altitude:20, canFireWhileMoving:true, bounty:200, projectile:'barrage', splashRadius:6, splashFalloff:0.5, groundOnly:true },
   bomber:   { domain:'air',   hp:180, damage:140, range:30, speed:18, fireRate:3.5, hitChance:0.75, cost:500, color:0x778899, altitude:30, canFireWhileMoving:true, bounty:160, projectile:'carpet', splashRadius:12, splashFalloff:0.5 },
   transport:{ domain:'sea',   hp:1000,damage:0,  range:0,  speed:15,  fireRate:99, hitChance:0,   cost:400, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:4 },
+  healer:      { domain:'land',  hp:150, damage:0,  range:30, speed:10, fireRate:1.0, hitChance:0,   cost:500, color:0x44aa44, canFireWhileMoving:false, bounty:100, projectile:'default', splashRadius:0, splashFalloff:1, healer:true },
+  escortJet:   { domain:'air',   hp:2000,damage:10, range:10, speed:25, fireRate:0.5, hitChance:0.9, cost:800, color:0x556677, altitude:25, canFireWhileMoving:true, bounty:200, projectile:'homing', splashRadius:0, splashFalloff:1 },
+  b2:          { domain:'air',   hp:800, damage:1000,range:60, speed:20, fireRate:3.0, hitChance:0.9, cost:800, color:0x333344, altitude:35, canFireWhileMoving:true, bounty:400, projectile:'carpet', splashRadius:25, splashFalloff:0.3, baseOnly:true },
+  escortBomber:{ domain:'air',   hp:5000,damage:0,  range:0,  speed:22, fireRate:99, hitChance:0,   cost:500, color:0x444455, altitude:30, canFireWhileMoving:true, bounty:0, projectile:'default', splashRadius:0, splashFalloff:1, escortBomber:true },
 };
 
 // ===== ECONOMY =====

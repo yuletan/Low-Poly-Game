@@ -168,6 +168,32 @@ function generateUnitIcon(type, color, size = 48) {
       ctx.lineTo(cx - s * 0.4, cy - s * 1);
       ctx.closePath();
       break;
+    case 'healer':
+      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 2);
+      ctx.moveTo(cx - s * 0.3, cy); ctx.lineTo(cx + s * 0.3, cy);
+      ctx.moveTo(cx, cy - s * 0.3); ctx.lineTo(cx, cy + s * 0.3);
+      ctx.closePath();
+      break;
+    case 'escortJet':
+      ctx.moveTo(cx, cy - s * 1.1); ctx.lineTo(cx + s * 0.7, cy + s * 0.2);
+      ctx.lineTo(cx + s * 0.4, cy + s * 0.2); ctx.lineTo(cx + s * 0.5, cy + s * 0.6);
+      ctx.lineTo(cx, cy + s * 0.4); ctx.lineTo(cx - s * 0.5, cy + s * 0.6);
+      ctx.lineTo(cx - s * 0.4, cy + s * 0.2); ctx.lineTo(cx - s * 0.7, cy + s * 0.2);
+      ctx.closePath();
+      break;
+    case 'b2':
+      ctx.moveTo(cx, cy - s * 0.4); ctx.lineTo(cx - s * 1.3, cy + s * 0.5);
+      ctx.lineTo(cx - s * 1.3, cy + s * 0.7); ctx.lineTo(cx + s * 1.3, cy + s * 0.7);
+      ctx.lineTo(cx + s * 1.3, cy + s * 0.5);
+      ctx.closePath();
+      break;
+    case 'escortBomber':
+      ctx.moveTo(cx, cy - s * 1.3); ctx.lineTo(cx + s * 1, cy + s * 0.3);
+      ctx.lineTo(cx + s * 0.6, cy + s * 0.3); ctx.lineTo(cx + s * 0.7, cy + s * 0.8);
+      ctx.lineTo(cx, cy + s * 0.6); ctx.lineTo(cx - s * 0.7, cy + s * 0.8);
+      ctx.lineTo(cx - s * 0.6, cy + s * 0.3); ctx.lineTo(cx - s * 1, cy + s * 0.3);
+      ctx.closePath();
+      break;
   }
   ctx.fill();
   ctx.stroke();

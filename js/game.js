@@ -329,6 +329,11 @@ export class Unit {
 
     // ===== UNIQUE MECHANICS PER UNIT =====
 
+    // HEALER: Heal nearby friendly air and land units
+    if (this.stats.healer) {
+      this._healNearby(dt);
+    }
+
     // CARRIER: Auto-launch fighters every 20s if enemies in range
     if (this.type === 'carrier' && this.canLaunch && this.launchCooldown <= 0) {
       const enemiesNear = this._enemiesInRange(80); // launch range
@@ -421,6 +426,22 @@ export class Unit {
       if (e.alive && this.mesh.position.distanceTo(e.mesh.position) <= range) count++;
     }
     return count;
+  }
+
+  /** Healer: heal nearby friendly air and land units 5% HP/sec */
+  _healNearby(dt) {
+    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    for (const u of allies) {
+      if (!u.alive || u === this) continue;
+      if (u.domain !== 'air' && u.domain !== 'land') continue;
+      if (u.hp >= u.maxHp) continue;
+      const d = this.mesh.position.distanceTo(u.mesh.position);
+      if (d <= this.stats.range) {
+        const heal = u.maxHp * 0.05 * dt;
+        u.hp = Math.min(u.maxHp, u.hp + heal);
+        u._displayHp = u.hp;
+      }
+    }
   }
 
   /** Infantry unique: Capture enemy/neutral bases at 1 HP/s when adjacent */
@@ -902,10 +923,33 @@ export class Unit {
   }
 
   findTarget() {
+    // Escort bomber: never auto-targets
+    if (this.stats.escortBomber) return;
+
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-    const airOnly = !!this.stats.airOnly; // missile defense only targets air
+    const airOnly = !!this.stats.airOnly;
+    const baseOnly = !!this.stats.baseOnly;
     const isLand = this.domain === 'land';
-    const isSea = this.domain === 'sea';
+
+    // Base-only units (B2): only target bases
+    if (baseOnly) {
+      const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
+      let bestBase = null, bestD = this.engageRange;
+      for (const b of bases) {
+        const d = this._dist2d(b.mesh.position);
+        if (d < bestD) { bestBase = b; bestD = d; }
+      }
+      if (bestBase) {
+        if (bestD <= this.stats.range) {
+          this.target = bestBase;
+          this.state = 'attacking';
+        } else if (this.stats.speed > 0) {
+          this._pursueTarget = bestBase;
+          this.state = 'pursuing';
+        }
+      }
+      return;
+    }
 
     let best = null, bestD = this.engageRange;
     let bestPriority = 99;
