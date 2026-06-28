@@ -59,6 +59,18 @@ export class Unit {
     // Transport path data (from findTransportPath)
     this._transportData = null;
 
+    // Stealth: invisible until first attack
+    this._stealthed = !!this.stats.stealth;
+    if (this._stealthed) {
+      this.mesh.traverse(c => {
+        if (c.material) {
+          c.material = c.material.clone();
+          c.material.transparent = true;
+          c.material.opacity = 0.15;
+        }
+      });
+    }
+
     // Path arrow line visualization
     this._pathLine = null;
     this._pathArrowHead = null;
@@ -490,6 +502,20 @@ export class Unit {
         this.moveTo(lowestHp.mesh.position.clone());
       }
     }
+  }
+
+  /** Hit confirm flash — red ring expanding on target */
+  _spawnHitConfirm(pos) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2, 4, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(pos.x, 1, pos.z);
+    ring.userData = { life: 0.6, maxLife: 0.6 };
+    this.game.scene.add(ring);
+    this.game.scene.userData.hitConfirms = this.game.scene.userData.hitConfirms || [];
+    this.game.scene.userData.hitConfirms.push(ring);
   }
 
   /** Infantry unique: Capture enemy/neutral bases at 1 HP/s when adjacent */
@@ -1310,7 +1336,24 @@ export class Unit {
     const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
     const { dmg } = applyTerrainBonus(this.domain, terrain, this.stats.damage, this.maxHp);
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
-    let finalDmg = dmg; // Flat damage (no distance falloff)
+    let finalDmg = dmg;
+
+    // Stealth break on first attack + 5x first strike damage
+    if (this._stealthed) {
+      this._stealthed = false;
+      finalDmg *= 5;
+      // Restore full visibility
+      this.mesh.traverse(c => {
+        if (c.material && c.material.opacity < 1) {
+          c.material.opacity = c.userData.origOpacity || 1;
+        }
+      });
+      // Hit confirm flash on target
+      if (this.target.mesh) {
+        this._spawnHitConfirm(this.target.mesh.position);
+      }
+      console.log(`[DEBUG SUB] Stealth break! First strike: ${finalDmg.toFixed(0)} damage`);
+    }
 
     // Compute muzzle position from turret offset or default
     let muzzlePos;
