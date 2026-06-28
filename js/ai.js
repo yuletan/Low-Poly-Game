@@ -16,7 +16,7 @@ export function initAI(game) {
     if (game.difficulty === 'normal') {
       return ['infantry', 'tank', 'tank', 'artillery', 'fighter'][Math.floor(Math.random() * 5)];
     }
-    return ['tank', 'tank', 'artillery', 'fighter', 'bomber', 'destroyer', 'battleship', 'carrier', 'missileDefense'][Math.floor(Math.random() * 9)];
+    return ['tank', 'tank', 'artillery', 'mlrs', 'fighter', 'bomber', 'heli', 'destroyer', 'frigate', 'battleship', 'carrier', 'missileDefense'][Math.floor(Math.random() * 12)];
   }
 
   /** Pick a random enemy-owned base to spawn from. */

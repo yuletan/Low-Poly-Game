@@ -16,12 +16,15 @@ export function createUnitMesh(type, color, faction) {
     case 'tank':     return buildTank(g, tint);
     case 'artillery':return buildArtillery(g, tint);
     case 'missileDefense':return buildMissileDefense(g, tint);
+    case 'mlrs':     return buildMLRS(g, tint);
     case 'destroyer':return buildShip(g, tint, 1.0);
+    case 'frigate':  return buildFrigate(g, tint);
     case 'battleship':return buildShip(g, tint, 1.6);
     case 'carrier':  return buildCarrier(g, tint);
     case 'transport':return buildTransport(g, tint);
     case 'fighter':  return buildJet(g, tint, 1.0);
     case 'bomber':   return buildJet(g, tint, 1.4);
+    case 'heli':     return buildHeli(g, tint);
   }
   return g;
 }
@@ -103,6 +106,64 @@ function buildMissileDefense(g, color){
   return g;
 }
 
+function buildFrigate(g, color){
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(3.5, 1.2, 10), mat(color));
+  hull.position.y = 0.5; hull.castShadow = true;
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(1.75, 3, 4), mat(color));
+  bow.position.set(0, 0.5, 6.5);
+  bow.rotation.x = -Math.PI / 2;
+  bow.rotation.y = Math.PI / 4;
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2, 2.5), mat(0xaaaaaa));
+  bridge.position.set(0, 2.0, -1.5);
+  const turret = new THREE.Group();
+  const tBase = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1, 0.6, 8), mat(color));
+  tBase.position.y = 1.4;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.5, 6), mat(0x333333));
+  barrel.rotation.x = Math.PI/2;
+  barrel.rotation.y = Math.PI/2;
+  barrel.position.set(0, 1.4, 1.5);
+  turret.add(tBase, barrel);
+  turret.position.z = 3;
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), mat(0x444444));
+  mast.position.set(0, 3.5, -1.5);
+  const radar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 0.5), mat(0x888888));
+  radar.position.set(0, 4.2, -1.5);
+  g.add(hull, bow, bridge, turret, mast, radar);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 1.4, 1.5);
+  g.userData.bobPhase = Math.random() * Math.PI * 2;
+  return g;
+}
+
+function buildMLRS(g, color){
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 7), mat(color));
+  chassis.position.y = 1; chassis.castShadow = true;
+  const wheelMat = mat(0x111111);
+  const wheelGeom = new THREE.CylinderGeometry(0.8, 0.8, 0.5, 8);
+  const wheelPos = [[-1.5,0.8,2.5],[1.5,0.8,2.5],[-1.5,0.8,-2.5],[1.5,0.8,-2.5]];
+  for (const p of wheelPos) {
+    const w = new THREE.Mesh(wheelGeom, wheelMat);
+    w.position.set(p[0], p[1], p[2]);
+    w.rotation.z = Math.PI / 2;
+    g.add(w);
+  }
+  const turret = new THREE.Group();
+  const turretBase = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 3), mat(color));
+  turretBase.position.y = 1.8;
+  const podMat = mat(0x444444);
+  const pod1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2, 2.5), podMat);
+  pod1.position.set(-0.7, 2.8, 0);
+  pod1.rotation.x = -0.3;
+  const pod2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2, 2.5), podMat);
+  pod2.position.set(0.7, 2.8, 0);
+  pod2.rotation.x = -0.3;
+  turret.add(turretBase, pod1, pod2);
+  g.add(chassis, turret);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 3.5, 1.5);
+  return g;
+}
+
 // ---------- SEA ----------
 function buildShip(g, color, scale){
   const w = 5 * scale;
@@ -175,6 +236,34 @@ function buildTransport(g, color) {
   g.add(hull, deck, ramp, cabin);
   g.userData.bobPhase = Math.random() * Math.PI * 2;
   g.userData.muzzleOffset = null;
+  return g;
+}
+
+function buildHeli(g, color){
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 2.5, 4, 8), mat(color));
+  body.rotation.z = Math.PI / 2; body.castShadow = true;
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(0.6, 6, 6), mat(0x113311));
+  glass.position.set(1.5, 0.2, 0);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.4, 3, 6), mat(color));
+  tail.rotation.z = Math.PI / 2;
+  tail.position.set(-2.5, 0.2, 0);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1, 0.2), mat(color));
+  fin.position.set(-3.8, 0.7, 0);
+  const skidMat = mat(0x222222);
+  const skid1 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.5, 4), skidMat);
+  skid1.rotation.x = Math.PI / 2;
+  skid1.position.set(0, -1, 0.8);
+  const skid2 = skid1.clone();
+  skid2.position.z = -0.8;
+  const rotorMat = mat(0x111111);
+  const rotorHub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5, 6), rotorMat);
+  rotorHub.position.set(0, 1.2, 0);
+  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(6, 0.1, 0.4), rotorMat);
+  blade1.position.set(0, 1.5, 0);
+  const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 6), rotorMat);
+  blade2.position.set(0, 1.5, 0);
+  g.add(body, glass, tail, fin, skid1, skid2, rotorHub, blade1, blade2);
+  g.userData.muzzleOffset = new THREE.Vector3(0, -0.5, 1);
   return g;
 }
 

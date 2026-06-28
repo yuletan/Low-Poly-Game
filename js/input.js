@@ -252,10 +252,13 @@ export function initInput(game, camera, renderer) {
           case 'tank': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
           case 'artillery': ctx.roundRect(cx-s, cy-s*0.6, s*2, s*1.2, 1.5); ctx.closePath(); break;
           case 'missileDefense': ctx.roundRect(cx-s*0.8, cy-s*0.6, s*1.6, s*1.2, 1); ctx.moveTo(cx, cy-s*0.6); ctx.lineTo(cx, cy-s*1.3); ctx.closePath(); break;
+          case 'mlrs': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.4, cy-s*1); ctx.lineTo(cx-s*0.4, cy-s*1); ctx.closePath(); break;
           case 'destroyer': case 'battleship': ctx.moveTo(cx-s*1.2, cy+s*0.3); ctx.lineTo(cx+s*1.2, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.4); ctx.lineTo(cx-s*0.8, cy-s*0.4); ctx.closePath(); break;
+          case 'frigate': ctx.moveTo(cx-s*0.9, cy+s*0.3); ctx.lineTo(cx+s*1.2, cy+s*0.3); ctx.lineTo(cx+s*0.9, cy-s*0.3); ctx.lineTo(cx-s*0.6, cy-s*0.3); ctx.closePath(); break;
           case 'carrier': ctx.moveTo(cx-s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy-s*0.3); ctx.lineTo(cx-s*1.3, cy-s*0.3); ctx.closePath(); break;
           case 'fighter': ctx.moveTo(cx, cy-s*1.1); ctx.lineTo(cx+s*0.6, cy+s*0.2); ctx.lineTo(cx+s*0.3, cy+s*0.2); ctx.lineTo(cx+s*0.4, cy+s*0.6); ctx.lineTo(cx, cy+s*0.4); ctx.lineTo(cx-s*0.4, cy+s*0.6); ctx.lineTo(cx-s*0.3, cy+s*0.2); ctx.lineTo(cx-s*0.6, cy+s*0.2); ctx.closePath(); break;
           case 'bomber': ctx.moveTo(cx, cy-s*1.2); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.4, cy+s*0.3); ctx.lineTo(cx+s*0.5, cy+s*0.7); ctx.lineTo(cx, cy+s*0.5); ctx.lineTo(cx-s*0.5, cy+s*0.7); ctx.lineTo(cx-s*0.4, cy+s*0.3); ctx.lineTo(cx-s*0.8, cy+s*0.3); ctx.closePath(); break;
+          case 'heli': ctx.moveTo(cx, cy); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.3); ctx.lineTo(cx, cy-s*0.2); ctx.lineTo(cx-s*0.8, cy-s*0.1); ctx.lineTo(cx-s*0.8, cy+s*0.1); ctx.closePath(); break;
           case 'transport': ctx.roundRect(cx-s, cy-s*0.5, s*2, s, 2); ctx.closePath(); break;
         }
         ctx.fill(); ctx.stroke();
