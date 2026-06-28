@@ -1709,6 +1709,7 @@ export class Base {
     this.hp -= d;
     this._displayHp = this.hp;
     if (this.hp <= 0) this.capture();
+    else if (this.game.onBaseUnderAttack) this.game.onBaseUnderAttack(this);
   }
 
   capture() {

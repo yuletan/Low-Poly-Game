@@ -289,6 +289,38 @@ export function initAI(game) {
     }
   }
 
+  /** Reinforce a base under attack: send idle troops from other bases via transport. */
+  function reinforceBase(attackedBase) {
+    const otherBases = game.bases.filter(b => b.faction === 'enemy' && b.alive && b !== attackedBase);
+    if (otherBases.length === 0) return;
+    // Gather idle land troops near other bases
+    const troops = game.enemyUnits.filter(u =>
+      u.alive && u.domain === 'land' && !u.isTransport && u.state === 'idle' && !u.carried && u.stats.speed > 0
+    );
+    let sent = 0;
+    for (const u of troops) {
+      if (sent >= 4) break;
+      for (const base of otherBases) {
+        if (u.mesh.position.distanceTo(base.mesh.position) < 100) {
+          u.moveTo(attackedBase.mesh.position.clone());
+          sent++;
+          break;
+        }
+      }
+    }
+    if (sent > 0) console.log(`[DEBUG AI] Reinforcing ${attackedBase.name} with ${sent} troops via transport`);
+  }
+
+  /** Hook: react to base taking damage by sending reinforcements. */
+  let _lastReinforceTime = 0;
+  game.onBaseUnderAttack = function (base) {
+    // Throttle: max one reinforcement wave per 6 seconds
+    const now = Date.now();
+    if (now - _lastReinforceTime < 6000) return;
+    _lastReinforceTime = now;
+    reinforceBase(base);
+  };
+
   // ===== Hook the AI into the game's update loop =====
   game.onAITick = function (dt) {
     if (game.ended) return;
