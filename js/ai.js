@@ -32,9 +32,9 @@ export function initAI(game) {
 
   function findNonOverlappingSpawn(base, domain) {
     const validTerrains = domain === 'sea' ? [TERRAIN.SEA, TERRAIN.COAST] : [TERRAIN.LAND, TERRAIN.COAST];
-    for (let radius = 15; radius <= 200; radius += 8) {
-      for (let i = 0; i < 16; i++) {
-        const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.2;
+    for (let radius = 15; radius <= 400; radius += 8) {
+      for (let i = 0; i < 24; i++) {
+        const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
         const x = base.mesh.position.x + Math.cos(angle) * radius;
         const z = base.mesh.position.z + Math.sin(angle) * radius;
         const t = game.terrain.getTerrainAt(x, z);
@@ -46,6 +46,22 @@ export function initAI(game) {
         if (blocked) continue;
         const pos = new THREE.Vector3(x, domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5, z);
         if (!isSpawnOverlapping(pos)) return pos;
+      }
+    }
+    // Last resort: accept any valid terrain, ignore overlap
+    for (let radius = 15; radius <= 400; radius += 8) {
+      for (let i = 0; i < 24; i++) {
+        const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
+        const x = base.mesh.position.x + Math.cos(angle) * radius;
+        const z = base.mesh.position.z + Math.sin(angle) * radius;
+        const t = game.terrain.getTerrainAt(x, z);
+        if (!validTerrains.includes(t)) continue;
+        let blocked = false;
+        for (const mt of game.terrain.mountains) {
+          if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        return new THREE.Vector3(x, domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5, z);
       }
     }
     return null;
