@@ -328,8 +328,8 @@ export class Unit {
     this.state = 'dead';
     console.log(`[DEBUG UNIT] ${this.type} (${this.faction}) DIED at (${this.mesh.position.x.toFixed(0)}, ${this.mesh.position.z.toFixed(0)})`);
     Sound.play('explosion');
-    // Award bounty if killed by player
-    const bounty = this.stats.bounty || 0;
+    // Award bounty if killed by player (2x cash)
+    const bounty = (this.stats.bounty || 0) * 2;
     if (this.faction === 'enemy' && bounty > 0) {
       this.game.money += bounty;
       this.game.flashMessage(`+${bounty}$ bounty`);
