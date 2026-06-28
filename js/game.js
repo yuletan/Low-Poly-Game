@@ -1124,6 +1124,13 @@ export class Unit {
     if (best) {
       const dist = bestD;
       if (dist <= this.stats.range) {
+        // Save movement state so we can resume after attacking
+        if (this.state === 'moving' && this.moveTarget) {
+          this._resumePath = this.path.slice();
+          this._resumeTarget = this.moveTarget.clone();
+          this._resumeAttackMove = this.attackMove;
+          this._resumeAttackMoveDest = this.attackMoveDest ? this.attackMoveDest.clone() : null;
+        }
         // Within attack range — attack directly
         this.target = best;
         this.state = 'attacking';
@@ -1142,7 +1149,24 @@ export class Unit {
   updateAttack(dt) {
     if (!this.target || !this.target.alive) {
       this.target = null;
-      if (this.attackMove && this.attackMoveDest) {
+      // Resume original movement if we had one
+      if (this._resumePath || this._resumeTarget) {
+        this.path = this._resumePath || [];
+        this.moveTarget = this._resumeTarget || null;
+        this.attackMove = this._resumeAttackMove || false;
+        this.attackMoveDest = this._resumeAttackMoveDest || null;
+        this._resumePath = null;
+        this._resumeTarget = null;
+        this._resumeAttackMove = null;
+        this._resumeAttackMoveDest = null;
+        if (this.moveTarget) {
+          this.state = 'moving';
+        } else if (this.attackMove && this.attackMoveDest) {
+          this.moveTo(this.attackMoveDest, true);
+        } else {
+          this.state = 'idle';
+        }
+      } else if (this.attackMove && this.attackMoveDest) {
         this.moveTo(this.attackMoveDest, true);
       } else {
         this.state = 'idle';
@@ -1152,7 +1176,24 @@ export class Unit {
     // Base captured (faction changed) — release target
     if (this.target.faction && this.target.faction === this.faction) {
       this.target = null;
-      if (this.attackMove && this.attackMoveDest) {
+      // Resume original movement
+      if (this._resumePath || this._resumeTarget) {
+        this.path = this._resumePath || [];
+        this.moveTarget = this._resumeTarget || null;
+        this.attackMove = this._resumeAttackMove || false;
+        this.attackMoveDest = this._resumeAttackMoveDest || null;
+        this._resumePath = null;
+        this._resumeTarget = null;
+        this._resumeAttackMove = null;
+        this._resumeAttackMoveDest = null;
+        if (this.moveTarget) {
+          this.state = 'moving';
+        } else if (this.attackMove && this.attackMoveDest) {
+          this.moveTo(this.attackMoveDest, true);
+        } else {
+          this.state = 'idle';
+        }
+      } else if (this.attackMove && this.attackMoveDest) {
         this.moveTo(this.attackMoveDest, true);
       } else {
         this.state = 'idle';
