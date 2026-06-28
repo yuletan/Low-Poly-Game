@@ -8,10 +8,23 @@ export class Pathfinder {
     this.size    = GRID_SIZE;
     this.cell    = GRID_CELL;
     this.terrainGrid = new Array(this.size * this.size);
+
+    // Bake terrain and mountains into the grid once for fast lookup
     for (let gy = 0; gy < this.size; gy++) {
       for (let gx = 0; gx < this.size; gx++) {
         const { x, z } = this.gridToWorld(gx, gy);
-        this.terrainGrid[gy * this.size + gx] = terrain.getTerrainAt(x, z);
+        let t = terrain.getTerrainAt(x, z);
+
+        // Bake mountains into the grid as blocking terrain
+        if (terrain.mountains) {
+          for (const mt of terrain.mountains) {
+            if (Math.hypot(x - mt.x, z - mt.z) < mt.r) {
+              t = TERRAIN.MOUNTAIN;
+              break;
+            }
+          }
+        }
+        this.terrainGrid[gy * this.size + gx] = t;
       }
     }
   }
@@ -182,22 +195,26 @@ export class Pathfinder {
     return out;
   }
 
+  // Strict grid-based Bresenham Line of Sight
+  // Prevents the path smoother from cutting corners through land masses.
   hasLineOfSight(a, b, domain) {
     if (domain === 'air') return true;
-    const steps = Math.ceil(a.distanceTo(b) / (this.cell / 2));
-    for (let s = 1; s < steps; s++) {
-      const t = s / steps;
-      const x = a.x + (b.x - a.x) * t;
-      const z = a.z + (b.z - a.z) * t;
-      const terrain = this.terrain.getTerrainAt(x, z);
 
-      if (domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) return false;
-      if (domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) return false;
+    const start = this.worldToGrid(a.x, a.z);
+    const end = this.worldToGrid(b.x, b.z);
 
-      // Check mountains for all ground domains
-      for (const mt of this.terrain.mountains) {
-        if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 2) return false;
-      }
+    let x0 = start.gx, y0 = start.gy;
+    const x1 = end.gx, y1 = end.gy;
+    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy, e2;
+
+    while (true) {
+      if (!this.walkable(x0, y0, domain)) return false;
+      if (x0 === x1 && y0 === y1) break;
+      e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
     }
     return true;
   }
