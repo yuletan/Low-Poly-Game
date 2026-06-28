@@ -643,7 +643,12 @@ export class Unit {
   }
 
   _updatePathLine() {
-    // Show path arrow for any unit that has a path
+    // Only show path arrows for transport ships
+    if (!this.isTransport) {
+      this._removePathLine();
+      return;
+    }
+
     const hasPath = this.path.length > 0 || this.moveTarget;
     if (!hasPath || this.state === 'dead' || this.state === 'idle') {
       this._removePathLine();
