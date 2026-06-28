@@ -59,6 +59,10 @@ export class Unit {
     // Transport path data (from findTransportPath)
     this._transportData = null;
 
+    // Path arrow line visualization
+    this._pathLine = null;
+    this._pathArrowHead = null;
+
     // Unique mechanics state
     this._destroyerShotCount = 0;        // For flak every 3rd shot
     this._battleshipBroadside = false;    // Broadside requirement
@@ -389,6 +393,9 @@ export class Unit {
       this.target = null;
     }
 
+    // Update path arrow line for ships (and any moving unit)
+    this._updatePathLine();
+
     // Terrain enforcement: push to valid terrain (skip amphibious boats)
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
@@ -633,6 +640,70 @@ export class Unit {
       return new THREE.Vector3(w.x, 0, w.z);
     }
     return null;
+  }
+
+  _updatePathLine() {
+    // Show path arrow for any unit that has a path
+    const hasPath = this.path.length > 0 || this.moveTarget;
+    if (!hasPath || this.state === 'dead' || this.state === 'idle') {
+      this._removePathLine();
+      return;
+    }
+
+    const color = this.faction === 'player' ? 0x44ff88 : 0xff4444;
+    const points = [];
+    // Start from current position
+    points.push(new THREE.Vector3(this.mesh.position.x, 0.5, this.mesh.position.z));
+    // Add remaining waypoints
+    if (this.moveTarget) points.push(new THREE.Vector3(this.moveTarget.x, 0.5, this.moveTarget.z));
+    for (const wp of this.path) {
+      points.push(new THREE.Vector3(wp.x, 0.5, wp.z));
+    }
+
+    if (points.length < 2) { this._removePathLine(); return; }
+
+    // Remove old line
+    this._removePathLine();
+
+    // Create line geometry
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6, depthTest: false });
+    this._pathLine = new THREE.Line(geometry, material);
+    this._pathLine.renderOrder = 890;
+    this.game.scene.add(this._pathLine);
+
+    // Arrow head at the end pointing forward
+    const tip = points[points.length - 1];
+    const prev = points[points.length - 2];
+    const angle = Math.atan2(tip.x - prev.x, tip.z - prev.z);
+    const arrowShape = new THREE.Shape();
+    arrowShape.moveTo(0, 0);
+    arrowShape.lineTo(-1.5, -3);
+    arrowShape.lineTo(1.5, -3);
+    arrowShape.closePath();
+    const arrowGeom = new THREE.ShapeGeometry(arrowShape);
+    const arrowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthTest: false });
+    this._pathArrowHead = new THREE.Mesh(arrowGeom, arrowMat);
+    this._pathArrowHead.position.set(tip.x, 0.5, tip.z);
+    this._pathArrowHead.rotation.x = -Math.PI / 2;
+    this._pathArrowHead.rotation.z = -angle;
+    this._pathArrowHead.renderOrder = 891;
+    this.game.scene.add(this._pathArrowHead);
+  }
+
+  _removePathLine() {
+    if (this._pathLine) {
+      this.game.scene.remove(this._pathLine);
+      this._pathLine.geometry.dispose();
+      this._pathLine.material.dispose();
+      this._pathLine = null;
+    }
+    if (this._pathArrowHead) {
+      this.game.scene.remove(this._pathArrowHead);
+      this._pathArrowHead.geometry.dispose();
+      this._pathArrowHead.material.dispose();
+      this._pathArrowHead = null;
+    }
   }
 
   _retreatToFriendlyBase() {
@@ -1244,6 +1315,7 @@ export class Unit {
     if (this._cleaned) return;
     this._cleaned = true;
     this.game.scene.remove(this.mesh);
+    this._removePathLine();
     if (this._deathLabel) {
       this._deathLabel.remove();
       this._deathLabel = null;
