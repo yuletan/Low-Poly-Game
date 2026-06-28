@@ -522,25 +522,22 @@ export class Unit {
         this.mesh.position.distanceTo(u.mesh.position) < 60
       );
       if (combat.length > 0) {
-        const center = new THREE.Vector3();
-        for (const u of combat) center.add(u.mesh.position);
-        center.divideScalar(combat.length);
+        // Pick the most expensive unit as priority target
+        const priority = combat.reduce((a, b) => a.stats.cost > b.stats.cost ? a : b);
         const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
         let closestEnemy = null, closestDist = Infinity;
         for (const e of enemies) {
           if (!e.alive) continue;
-          const d = this.mesh.position.distanceTo(e.mesh.position);
+          const d = priority.mesh.position.distanceTo(e.mesh.position);
           if (d < closestDist) { closestDist = d; closestEnemy = e; }
         }
-        let targetPos;
+        const followPos = priority.mesh.position.clone();
         if (closestEnemy) {
-          const behind = new THREE.Vector3().subVectors(center, closestEnemy.mesh.position).normalize();
-          targetPos = center.clone().add(behind.multiplyScalar(10));
-        } else {
-          targetPos = center.clone();
+          const behind = new THREE.Vector3().subVectors(followPos, closestEnemy.mesh.position).normalize();
+          followPos.add(behind.multiplyScalar(12));
         }
-        if (this.mesh.position.distanceTo(targetPos) > 5) {
-          this.moveTo(targetPos);
+        if (this.mesh.position.distanceTo(followPos) > 5) {
+          this.moveTo(followPos);
         }
       } else if (lowestHp) {
         const d = this.mesh.position.distanceTo(lowestHp.mesh.position);
