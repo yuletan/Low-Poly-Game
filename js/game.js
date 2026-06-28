@@ -472,7 +472,7 @@ export class Unit {
     if (unit.domain !== 'land') return false;
     if (this.carriedUnits.length >= this.transportCapacity) return false;
     const d = this.mesh.position.distanceTo(unit.mesh.position);
-    return d <= 12;
+    return d <= 14;
   }
 
   loadUnit(unit) {
@@ -567,8 +567,16 @@ export class Unit {
         this._assignedEmbarkPoint = bestUnit._transportData.shipEmbarkPoint.clone();
         this._transportData = bestUnit._transportData;
         this._boardingTimer = 0;
-        bestUnit._claimedByShip = this;
-        console.log(`[DEBUG TRANSPORT] Ship moving to pick up ${bestUnit.type} at (${bestUnit._transportData.shipEmbarkPoint.x.toFixed(0)}, ${bestUnit._transportData.shipEmbarkPoint.z.toFixed(0)})`);
+        // Claim ALL units waiting at this embark point
+        for (const u of allUnits) {
+          if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip) {
+            const embarkDist = u._transportData.shipEmbarkPoint.distanceTo(this._assignedEmbarkPoint);
+            if (embarkDist < 5) { // same embark point
+              u._claimedByShip = this;
+            }
+          }
+        }
+        console.log(`[DEBUG TRANSPORT] Ship moving to pick up troops at (${this._assignedEmbarkPoint.x.toFixed(0)}, ${this._assignedEmbarkPoint.z.toFixed(0)})`);
       } else {
         if (this.state === 'idle') this._retreatToFriendlyBase();
       }
@@ -1120,20 +1128,46 @@ export class Unit {
       return;
     }
 
-    // Scan for a nearby friendly transport with space
-    const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-    for (const t of allUnits) {
-      if (!t.alive || !t.isTransport) continue;
-      if (t.faction !== this.faction) continue;
-      if (t.carriedUnits.length >= t.transportCapacity) continue;
-      const d = this.mesh.position.distanceTo(t.mesh.position);
-      if (d <= 20) {
-        t.loadUnit(this);
-        if (!t._transportData) {
-          t._transportData = this._transportData;
+    // First priority: the transport that claimed us
+    let targetTransport = this._claimedByShip;
+    
+    // Fallback: any nearby friendly transport with space
+    if (!targetTransport || !targetTransport.alive || targetTransport.carriedUnits.length >= targetTransport.transportCapacity) {
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const t of allUnits) {
+        if (!t.alive || !t.isTransport) continue;
+        if (t.faction !== this.faction) continue;
+        if (t.carriedUnits.length >= t.transportCapacity) continue;
+        // Prefer the one assigned to our embark point
+        if (t._assignedEmbarkPoint && this._transportData && 
+            t._assignedEmbarkPoint.distanceTo(this._transportData.shipEmbarkPoint) < 5) {
+          targetTransport = t;
+          break;
+        }
+        if (!targetTransport) targetTransport = t;
+      }
+    }
+
+    if (targetTransport) {
+      const d = this.mesh.position.distanceTo(targetTransport.mesh.position);
+      const loadRange = 14; // slightly more than canLoadUnit's 12 to account for positioning
+      
+      if (d <= loadRange) {
+        // Close enough to board
+        targetTransport.loadUnit(this);
+        if (!targetTransport._transportData) {
+          targetTransport._transportData = this._transportData;
         }
         this._claimedByShip = null;
-        console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${t.carriedUnits.length}/${t.transportCapacity})`);
+        console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${targetTransport.carriedUnits.length}/${targetTransport.transportCapacity})`);
+        return;
+      } else {
+        // Move toward the transport's embark point
+        if (targetTransport._assignedEmbarkPoint) {
+          this.moveTo(targetTransport._assignedEmbarkPoint.clone());
+        } else if (this._transportData && this._transportData.shipEmbarkPoint) {
+          this.moveTo(this._transportData.shipEmbarkPoint.clone());
+        }
         return;
       }
     }
