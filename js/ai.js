@@ -62,16 +62,49 @@ export function initAI(game) {
     return ['tank', 'tank', 'artillery', 'mlrs', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'coastal'][Math.floor(Math.random() * 16)];
   }
 
-  /** Pick a random enemy-owned base to spawn from. */
-  function pickSpawnBase() {
+  /** Pick a random enemy-owned base to spawn from, weighted by proximity to player bases (front line). */
+  function pickSpawnBase(targetBase = null) {
     const owned = game.bases.filter(b => b.faction === 'enemy');
     if (owned.length === 0) return null;
+    
+    // If we have a specific target, prefer bases closest to it
+    if (targetBase) {
+      return owned.reduce((closest, b) => 
+        b.mesh.position.distanceTo(targetBase.mesh.position) < 
+        closest.mesh.position.distanceTo(targetBase.mesh.position) ? b : closest
+      );
+    }
+    
+    // Otherwise weight by proximity to any player base
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (playerBases.length === 0) return owned[Math.floor(Math.random() * owned.length)];
+    
+    let bestBase = owned[0];
+    let bestScore = -1;
+    
+    for (const b of owned) {
+      // Score = inverse of average distance to player bases (closer = higher score)
+      let totalDist = 0;
+      for (const pb of playerBases) {
+        totalDist += b.mesh.position.distanceTo(pb.mesh.position);
+      }
+      const avgDist = totalDist / playerBases.length;
+      const score = 1 / (avgDist + 1); // +1 to avoid division by zero
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestBase = b;
+      }
+    }
+    
+    // Add some randomness: 70% chance to pick best, 30% random
+    if (Math.random() < 0.7) return bestBase;
     return owned[Math.floor(Math.random() * owned.length)];
   }
 
   /** Spawn near an enemy base, with terrain-aware placement and non-overlapping spawn points. */
-  function spawnEnemyUnit(type) {
-    const base = pickSpawnBase();
+  function spawnEnemyUnit(type, targetBase = null) {
+    const base = pickSpawnBase(targetBase);
     if (!base) return false;
     const stats = UNIT_TYPES[type];
     const pos = findNonOverlappingSpawn(base, stats.domain);
@@ -158,6 +191,19 @@ export function initAI(game) {
     const multiTarget = Math.random() < 0.3;
     const targets = multiTarget ? playerBases : [pickPlayerTarget()];
     if (!targets.length) return;
+
+    // Spawn additional units near the attack target(s) so they're visible massing
+    const spawnCount = Math.min(3, maxSpawnsPerSecond); // spawn up to 3 units per attack
+    for (let i = 0; i < spawnCount; i++) {
+      const desiredType = chooseUnitToBuild();
+      const cost = UNIT_TYPES[desiredType].cost;
+      if (aiMoney >= cost) {
+        // Pick the first target for spawning
+        if (spawnEnemyUnit(desiredType, targets[0])) {
+          aiMoney -= cost;
+        }
+      }
+    }
 
     const sorted = [...available].sort((a, b) => {
       const aD = targets.reduce((m, t) => Math.min(m, a.mesh.position.distanceTo(t.mesh.position)), Infinity);
