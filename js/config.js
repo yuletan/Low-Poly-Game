@@ -77,7 +77,7 @@ export const UNIT_TYPES = {
 };
 
 // ===== ECONOMY =====
-export const STARTING_MONEY = 500;
+export const STARTING_MONEY = 100000;
 export const PASSIVE_INCOME = 20;
 
 // ===== DIFFICULTY =====
