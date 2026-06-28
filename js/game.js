@@ -522,32 +522,16 @@ export class Unit {
         this.mesh.position.distanceTo(u.mesh.position) < 60
       );
       if (combat.length > 0) {
-        // Pick the most expensive unit as priority target
-        const priority = combat.reduce((a, b) => a.stats.cost > b.stats.cost ? a : b);
+        // Follow the unit with least % HP remaining (12 units behind)
+        const lowest = combat.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
         const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
         let closestEnemy = null, closestDist = Infinity;
         for (const e of enemies) {
           if (!e.alive) continue;
-          const d = priority.mesh.position.distanceTo(e.mesh.position);
+          const d = lowest.mesh.position.distanceTo(e.mesh.position);
           if (d < closestDist) { closestDist = d; closestEnemy = e; }
         }
-
-        // Med heli: move to low-HP vehicle directly instead of staying behind
-        if (this.type === 'medHeli') {
-          let lowTarget = null;
-          for (const u of combat) {
-            if (u.hp / u.maxHp < 0.5) { lowTarget = u; break; }
-          }
-          if (lowTarget) {
-            const d = this.mesh.position.distanceTo(lowTarget.mesh.position);
-            if (d > this.stats.range * 0.5) {
-              this.moveTo(lowTarget.mesh.position.clone());
-            }
-            return;
-          }
-        }
-
-        const followPos = priority.mesh.position.clone();
+        const followPos = lowest.mesh.position.clone();
         if (closestEnemy) {
           const behind = new THREE.Vector3().subVectors(followPos, closestEnemy.mesh.position).normalize();
           followPos.add(behind.multiplyScalar(12));
