@@ -531,6 +531,22 @@ export class Unit {
           const d = priority.mesh.position.distanceTo(e.mesh.position);
           if (d < closestDist) { closestDist = d; closestEnemy = e; }
         }
+
+        // Med heli: move to low-HP vehicle directly instead of staying behind
+        if (this.type === 'medHeli') {
+          let lowTarget = null;
+          for (const u of combat) {
+            if (u.hp / u.maxHp < 0.5) { lowTarget = u; break; }
+          }
+          if (lowTarget) {
+            const d = this.mesh.position.distanceTo(lowTarget.mesh.position);
+            if (d > this.stats.range * 0.5) {
+              this.moveTo(lowTarget.mesh.position.clone());
+            }
+            return;
+          }
+        }
+
         const followPos = priority.mesh.position.clone();
         if (closestEnemy) {
           const behind = new THREE.Vector3().subVectors(followPos, closestEnemy.mesh.position).normalize();
