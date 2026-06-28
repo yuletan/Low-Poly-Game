@@ -176,69 +176,161 @@ function createTooltip(content) {
   return tip;
 }
 
+// Create a unit button with icon, name, cost, hotkey, tooltip
+function createUnitButton(key, hotkey, game) {
+  const stats = UNIT_TYPES[key];
+  const iconDataUrl = generateUnitIcon(key, stats.color);
+  
+  const b = document.createElement('button');
+  b.className = 'unitBtn';
+  b.dataset.unitType = key;
+  b.dataset.hotkey = hotkey;
+  b.innerHTML = `
+    <img class="unit-icon" src="${iconDataUrl}" alt="${key}" loading="lazy">
+    <div class="unit-info">
+      <span class="unit-name">${key.toUpperCase()}</span>
+      <span class="unit-domain">${stats.domain.toUpperCase()}</span>
+    </div>
+    <div class="unit-cost">$${stats.cost}</div>
+    <span class="unit-hotkey">${hotkey}</span>
+  `;
+  b.title = '';
+  b.addEventListener('click', () => game.enterPlacementMode(key));
+  
+  // Tooltip with stats
+  let tooltip = null;
+  b.addEventListener('mouseenter', (e) => {
+    tooltip = createTooltip(`
+      <strong>${key.toUpperCase()}</strong> <span class="domain-badge ${stats.domain}">${stats.domain}</span><br>
+      <span class="stat">❤ HP:</span> ${stats.hp} | 
+      <span class="stat">⚔ DMG:</span> ${stats.damage} | 
+      <span class="stat">🎯 RNG:</span> ${stats.range}<br>
+      <span class="stat">⚡ SPD:</span> ${stats.speed} | 
+      <span class="stat">🔥 FR:</span> ${stats.fireRate}s | 
+      <span class="stat">% HIT:</span> ${Math.round(stats.hitChance * 100)}%
+    `);
+    const rect = b.getBoundingClientRect();
+    tooltip.style.left = (rect.right + 8) + 'px';
+    tooltip.style.top = (rect.top + window.scrollY) + 'px';
+    tooltip.classList.add('visible');
+  });
+  b.addEventListener('mouseleave', () => {
+    if (tooltip) {
+      tooltip.classList.remove('visible');
+      setTimeout(() => tooltip.remove(), 150);
+    }
+  });
+  b.addEventListener('mousemove', (e) => {
+    if (tooltip) {
+      tooltip.style.left = (e.clientX + 16) + 'px';
+      tooltip.style.top = (e.clientY + 16) + 'px';
+    }
+  });
+  
+  return b;
+}
+
+// Create an upgrade button
+function createUpgradeButton(stat, game, upgradeDiv) {
+  const def = UPGRADES[stat];
+  const row = document.createElement('button');
+  row.className = 'unitBtn upgradeBtn';
+  row.dataset.stat = stat;
+  upgradeDiv.appendChild(row);
+  row.addEventListener('click', () => {
+    if (game.upgrades.upgrade(stat)) refreshUpgradeButtons();
+  });
+  return row;
+}
+
+function refreshUpgradeButtons(game, upgradeDiv) {
+  for (const stat of Object.keys(UPGRADES)) {
+    const btn = upgradeDiv.querySelector(`[data-stat="${stat}"]`);
+    const tier = game.upgrades.tiers[stat];
+    const maxTier = UPGRADES[stat].tiers.length - 1;
+    const cost = game.upgrades.nextCost(stat);
+    const mult = UPGRADES[stat].tiers[tier];
+    btn.innerHTML = `<span>${UPGRADES[stat].icon} ${UPGRADES[stat].name} T${tier} (×${mult.toFixed(2)})</span>` +
+                    `<span>${cost === null ? 'MAX' : '$' + cost}</span>`;
+    btn.disabled = cost === null || game.money < cost;
+  }
+}
+
 export function initUI(game) {
-  // === Build menu (Armory) ===
-  const buildDiv = document.getElementById('buildButtons');
-  buildDiv.innerHTML = '';
+  // === Build menu (Armory) with Tabs ===
+  const armoryTabs = document.querySelectorAll('.tab-btn');
+  const armoryContent = document.getElementById('armoryContent');
+  
+  // Group units by domain
+  const unitsByDomain = {
+    land: [],
+    sea: [],
+    air: []
+  };
   
   const unitKeys = Object.keys(UNIT_TYPES);
   unitKeys.forEach((key, index) => {
     const stats = UNIT_TYPES[key];
-    const hotkey = index + 1; // 1-9
-    const iconDataUrl = generateUnitIcon(key, stats.color);
-    
-    const b = document.createElement('button');
-    b.className = 'unitBtn';
-    b.dataset.unitType = key;
-    b.dataset.hotkey = hotkey;
-    b.innerHTML = `
-      <img class="unit-icon" src="${iconDataUrl}" alt="${key}" loading="lazy">
-      <div class="unit-info">
-        <span class="unit-name">${key.toUpperCase()}</span>
-        <span class="unit-domain">${stats.domain.toUpperCase()}</span>
-      </div>
-      <div class="unit-cost">$${stats.cost}</div>
-      <span class="unit-hotkey">${hotkey}</span>
-    `;
-    b.title = ''; // Disable native tooltip
-    b.addEventListener('click', () => game.enterPlacementMode(key));
-    buildDiv.appendChild(b);
-    
-    // Tooltip with stats
-    let tooltip = null;
-    b.addEventListener('mouseenter', (e) => {
-      tooltip = createTooltip(`
-        <strong>${key.toUpperCase()}</strong> <span class="domain-badge ${stats.domain}">${stats.domain}</span><br>
-        <span class="stat">❤ HP:</span> ${stats.hp} | 
-        <span class="stat">⚔ DMG:</span> ${stats.damage} | 
-        <span class="stat">🎯 RNG:</span> ${stats.range}<br>
-        <span class="stat">⚡ SPD:</span> ${stats.speed} | 
-        <span class="stat">🔥 FR:</span> ${stats.fireRate}s | 
-        <span class="stat">% HIT:</span> ${Math.round(stats.hitChance * 100)}%
-      `);
-      const rect = b.getBoundingClientRect();
-      tooltip.style.left = (rect.right + 8) + 'px';
-      tooltip.style.top = (rect.top + window.scrollY) + 'px';
-      tooltip.classList.add('visible');
-    });
-    b.addEventListener('mouseleave', () => {
-      if (tooltip) {
-        tooltip.classList.remove('visible');
-        setTimeout(() => tooltip.remove(), 150);
-      }
-    });
-    b.addEventListener('mousemove', (e) => {
-      if (tooltip) {
-        tooltip.style.left = (e.clientX + 16) + 'px';
-        tooltip.style.top = (e.clientY + 16) + 'px';
-      }
+    unitsByDomain[stats.domain].push({ key, index: index + 1 });
+  });
+  
+  // Create tab panels
+  const tabPanels = {};
+  
+  // Land tab
+  const landPanel = document.createElement('div');
+  landPanel.className = 'armory-tab-panel active';
+  landPanel.dataset.tab = 'land';
+  unitsByDomain.land.forEach(({ key, index }) => {
+    landPanel.appendChild(createUnitButton(key, index, game));
+  });
+  tabPanels.land = landPanel;
+  
+  // Sea tab
+  const seaPanel = document.createElement('div');
+  seaPanel.className = 'armory-tab-panel';
+  seaPanel.dataset.tab = 'sea';
+  unitsByDomain.sea.forEach(({ key, index }) => {
+    seaPanel.appendChild(createUnitButton(key, index, game));
+  });
+  tabPanels.sea = seaPanel;
+  
+  // Air tab
+  const airPanel = document.createElement('div');
+  airPanel.className = 'armory-tab-panel';
+  airPanel.dataset.tab = 'air';
+  unitsByDomain.air.forEach(({ key, index }) => {
+    airPanel.appendChild(createUnitButton(key, index, game));
+  });
+  tabPanels.air = airPanel;
+  
+  // Upgrades tab
+  const upgradesPanel = document.createElement('div');
+  upgradesPanel.className = 'armory-tab-panel upgrades';
+  upgradesPanel.dataset.tab = 'upgrades';
+  for (const [stat, def] of Object.entries(UPGRADES)) {
+    createUpgradeButton(stat, game, upgradesPanel);
+  }
+  tabPanels.upgrades = upgradesPanel;
+  
+  // Append all panels to content
+  Object.values(tabPanels).forEach(panel => armoryContent.appendChild(panel));
+  
+  // Tab switching
+  armoryTabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      armoryTabs.forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.armory-tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      tabPanels[tab].classList.add('active');
     });
   });
-
+  
   // Periodic affordability & context check for armory buttons
   setInterval(() => {
     const selectedBuilding = game.selectedBuilding;
-    buildDiv.querySelectorAll('.unitBtn').forEach(b => {
+    document.querySelectorAll('.unitBtn[data-unit-type]').forEach(b => {
       const key = b.dataset.unitType;
       const cost = UNIT_TYPES[key].cost;
       const canAfford = game.money >= cost;
@@ -262,37 +354,18 @@ export function initUI(game) {
       b.classList.toggle('context-disabled', isContextDisabled);
       b.disabled = !canAfford || isContextDisabled;
     });
-  }, 200);
-
-  // === Upgrades section ===
-  const upgradeDiv = document.createElement('div');
-  upgradeDiv.id = 'upgradePanel';
-  upgradeDiv.innerHTML = '<h3 style="margin-top:10px;border-top:1px solid #4af;padding-top:8px;">Upgrades</h3>';
-  buildDiv.parentElement.appendChild(upgradeDiv);
-  for (const [stat, def] of Object.entries(UPGRADES)) {
-    const row = document.createElement('button');
-    row.className = 'unitBtn upgradeBtn';
-    row.dataset.stat = stat;
-    upgradeDiv.appendChild(row);
-    row.addEventListener('click', () => {
-      if (game.upgrades.upgrade(stat)) refreshUpgradeButtons();
-    });
-  }
-
-  function refreshUpgradeButtons() {
-    for (const stat of Object.keys(UPGRADES)) {
-      const btn = upgradeDiv.querySelector(`[data-stat="${stat}"]`);
-      const tier = game.upgrades.tiers[stat];
-      const maxTier = UPGRADES[stat].tiers.length - 1;
+    
+    // Upgrade buttons affordability
+    document.querySelectorAll('.upgradeBtn').forEach(btn => {
+      const stat = btn.dataset.stat;
       const cost = game.upgrades.nextCost(stat);
-      const mult = UPGRADES[stat].tiers[tier];
-      btn.innerHTML = `<span>${UPGRADES[stat].icon} ${UPGRADES[stat].name} T${tier} (×${mult.toFixed(2)})</span>` +
-                      `<span>${cost === null ? 'MAX' : '$' + cost}</span>`;
       btn.disabled = cost === null || game.money < cost;
-    }
-  }
-  refreshUpgradeButtons();
-  setInterval(refreshUpgradeButtons, 500);  // periodic affordability check
+    });
+  }, 200);
+  
+  // Initial upgrade button refresh
+  refreshUpgradeButtons(game, upgradesPanel);
+  setInterval(() => refreshUpgradeButtons(game, upgradesPanel), 500);
 
   // === Formation (visual buttons in merged Selection Panel) ===
   const formationSelect = document.getElementById('formationSelect');

@@ -77,8 +77,18 @@
 
     <!-- Bottom-right: Build / Armory menu -->
     <div id="buildPanel" class="panel small">
-      <h3>Armory</h3>
-      <div id="buildButtons"></div>
+      <div class="panel-header">
+        <h3>Armory</h3>
+      </div>
+      <div class="armory-tabs">
+        <button class="tab-btn active" data-tab="land">Land</button>
+        <button class="tab-btn" data-tab="sea">Sea</button>
+        <button class="tab-btn" data-tab="air">Air</button>
+        <button class="tab-btn" data-tab="upgrades">Upgrades</button>
+      </div>
+      <div id="armoryContent" class="armory-grid">
+        <!-- Tabs content injected by ui.js -->
+      </div>
     </div>
 
     <!-- Selection box (drawn during drag) -->

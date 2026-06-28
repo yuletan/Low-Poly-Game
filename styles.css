@@ -206,6 +206,77 @@ select {
 /* Build panel with scroll for upgrade section */
 #buildPanel { max-height: 65vh; overflow-y: auto; }
 
+/* Armory Tabs */
+.armory-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #334;
+  padding-bottom: 4px;
+}
+.tab-btn {
+  flex: 1;
+  background: #1a2a3a;
+  border: 1px solid #2a4;
+  color: #888;
+  padding: 6px 8px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover:not(.active) {
+  background: #234;
+  border-color: #4af;
+  color: #4af;
+}
+.tab-btn.active {
+  background: #1a3a5a;
+  border-color: #4af;
+  color: #4af;
+  box-shadow: 0 -2px 8px rgba(70,170,255,0.2);
+}
+
+/* Armory Grid Content */
+.armory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 4px 0;
+}
+.armory-grid .unitBtn {
+  width: 100%;
+  min-height: 80px;
+}
+
+/* Tab panels */
+.armory-tab-panel {
+  display: none;
+}
+.armory-tab-panel.active {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+/* Upgrade buttons in tab */
+.armory-tab-panel.upgrades {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.armory-tab-panel.upgrades .upgradeBtn {
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
 /* Panel header with title and action button */
 .panel-header {
   display: flex;

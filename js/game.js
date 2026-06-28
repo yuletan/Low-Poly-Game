@@ -1888,7 +1888,7 @@ export class Game {
   }
 
   _setBuyButtonsDisabled(disabled) {
-    const btns = document.querySelectorAll('#buildButtons .unitBtn');
+    const btns = document.querySelectorAll('#armoryContent .unitBtn[data-unit-type]');
     btns.forEach(b => { b.disabled = disabled; });
   }
 
