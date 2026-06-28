@@ -209,6 +209,33 @@ export class Unit {
       const result = this.game.pathfinder.findTransportPath(this.mesh.position, targetPos);
       if (result) {
         if (result.needsTransport) {
+          // Override disembark: use nearest friendly base coast instead of enemy base coast
+          const friendlyBases = this.game.bases.filter(b => b.faction === this.faction && b.alive);
+          if (friendlyBases.length > 0) {
+            // Find nearest friendly base to the TARGET destination
+            let nearestFriendly = friendlyBases[0];
+            let nearestDist = Infinity;
+            for (const fb of friendlyBases) {
+              const d = Math.hypot(fb.mesh.position.x - targetPos.x, fb.mesh.position.z - targetPos.z);
+              if (d < nearestDist) { nearestDist = d; nearestFriendly = fb; }
+            }
+            // Find coast near friendly base
+            const g = this.game.pathfinder.worldToGrid(nearestFriendly.mesh.position.x, nearestFriendly.mesh.position.z);
+            const coastResult = this.game.pathfinder.findNearestCoast(g.gx, g.gy, 'land');
+            if (coastResult) {
+              const groundW = this.game.pathfinder.gridToWorld(coastResult.groundTile.gx, coastResult.groundTile.gy);
+              const seaW = this.game.pathfinder.gridToWorld(coastResult.seaTile.gx, coastResult.seaTile.gy);
+              result.disembarkPoint = new THREE.Vector3(groundW.x, 0, groundW.z);
+              result.shipDisembarkPoint = new THREE.Vector3(seaW.x, 0, seaW.z);
+              // Re-calculate the walk-to-target segment from friendly base coast
+              const newWalkPath = this.game.pathfinder.findPath(
+                result.disembarkPoint, targetPos, 'land'
+              );
+              if (newWalkPath && newWalkPath.length > 0) {
+                result.segments.walkToTarget = newWalkPath;
+              }
+            }
+          }
           // Store transport plan, walk to embark point first
           this._transportData = result;
           this.path = result.segments.walkToShip;
@@ -911,7 +938,8 @@ export class Unit {
   smoothRotate(target, dt) {
     let cur = this.mesh.rotation.y;
     let diff = ((target - cur + Math.PI*3) % (Math.PI*2)) - Math.PI;
-    cur += diff * Math.min(1, dt*6);
+    const rotSpeed = this.domain === 'air' ? dt * 10 : dt * 6;
+    cur += diff * Math.min(1, rotSpeed);
     this.mesh.rotation.y = cur;
   }
 
@@ -925,6 +953,9 @@ export class Unit {
   findTarget() {
     // Escort bomber: never auto-targets
     if (this.stats.escortBomber) return;
+
+    // Don't override a valid active attack
+    if (this.target && this.target.alive && this.state === 'attacking') return;
 
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     const airOnly = !!this.stats.airOnly;
@@ -1175,6 +1206,13 @@ export class Unit {
     const targetAngle = Math.atan2(dx, dz);
     this.smoothRotate(targetAngle, dt);
 
+    // Air units: maintain altitude and bank on turns
+    if (this.domain === 'air') {
+      const delta = ((targetAngle - this.mesh.rotation.y + Math.PI*3) % (Math.PI*2)) - Math.PI;
+      this.mesh.rotation.z = THREE.MathUtils.clamp(-delta, -0.5, 0.5);
+      this.mesh.position.y = this.stats.altitude;
+    }
+
     // Keep bobbing for ships
     if (this.domain === 'sea') {
       this.mesh.userData.bobPhase += dt * 2;
@@ -1317,6 +1355,9 @@ export class Unit {
         splashRadius,
         splashFalloff
       );
+      if (this.stats.baseOnly) {
+        console.log(`[DEBUG B2] Hitscan fired: ${finalDmg} dmg → ${this.target.name || 'base'} HP: ${this.target.hp?.toFixed(0)}`);
+      }
     } else {
       // Land units: projectile system (flat damage)
       const projType = 'land';
