@@ -48,6 +48,7 @@ export function createUnitMesh(type, color, faction) {
   switch (type) {
     case 'infantry': return buildInfantry(g, tint);
     case 'tank':     return buildTank(g, tint);
+    case 'heavyTank':return buildHeavyTank(g, tint);
     case 'artillery':return buildArtillery(g, tint);
     case 'missileDefense':return buildMissileDefense(g, tint);
     case 'coastal':  return buildCoastal(g, tint);
@@ -171,6 +172,104 @@ function buildTank(g, color) {
   g.add(lowerHull, upperHull, frontArmor, tL, tR, turret);
   g.userData.turret = turret;
   g.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 6);
+  return g;
+}
+
+function buildHeavyTank(g, color) {
+  const hullMat = matteMat(color);
+  const detailMat = metalMat(0x333333, 0.7, 0.5);
+
+  // Lower hull — wider and taller
+  const lowerHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 1.4, 9), hullMat));
+  lowerHull.position.y = 1;
+
+  // Upper hull
+  const upperHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5.5, 1, 7), hullMat));
+  upperHull.position.set(0, 2.2, -0.5);
+
+  // Sloped front armor — extra thick
+  const frontArmor = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.4, 2.5), hullMat));
+  frontArmor.position.set(0, 2, 4);
+  frontArmor.rotation.x = -0.35;
+
+  // Side skirts
+  const skirtMat = metalMat(0x444444, 0.6, 0.3);
+  const skirtL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 8), skirtMat));
+  skirtL.position.set(-3.2, 1, 0);
+  const skirtR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 8), skirtMat));
+  skirtR.position.set(3.2, 1, 0);
+
+  // Tracks — thicker
+  const trackGeom = new THREE.BoxGeometry(1, 1.5, 9.5);
+  const tL = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
+  tL.position.set(-2.8, 0.7, 0);
+  const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
+  tR.position.set(2.8, 0.7, 0);
+
+  // Road wheels
+  const wheelGeom = new THREE.CylinderGeometry(0.5, 0.5, 1.1, 8);
+  for (let i = -4; i <= 4; i++) {
+    const wL = new THREE.Mesh(wheelGeom, detailMat);
+    wL.rotation.z = Math.PI / 2;
+    wL.position.set(-2.8, 0.7, i * 1.1);
+    g.add(wL);
+    const wR = wL.clone();
+    wR.position.x = 2.8;
+    g.add(wR);
+  }
+
+  // Turret — larger, boxy with sloped sides
+  const turret = new THREE.Group();
+  const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 4.5), hullMat));
+  turretBase.position.y = 3.1;
+
+  const turretFront = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 2), hullMat));
+  turretFront.position.set(0, 3.1, 2.5);
+  turretFront.rotation.x = -0.25;
+
+  // Commander cupola
+  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8), detailMat));
+  cupola.position.set(-1, 3.9, -1);
+
+  // Loader hatch
+  const hatch = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8), detailMat));
+  hatch.position.set(1, 3.8, -0.5);
+
+  // Main gun — massive barrel
+  const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 6, 8), detailMat));
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 3.2, 5.5);
+
+  // Muzzle brake
+  const muzzle = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.8, 8), detailMat));
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 3.2, 8.5);
+
+  // Reactive armor blocks on turret
+  const raGeom = new THREE.BoxGeometry(0.5, 0.5, 0.15);
+  for (let i = 0; i < 4; i++) {
+    const ra = new THREE.Mesh(raGeom, detailMat);
+    ra.position.set(-1.5 + i * 1, 3.1, 2.2);
+    ra.rotation.x = -0.25;
+    turret.add(ra);
+  }
+
+  turret.add(turretBase, turretFront, cupola, hatch, barrel, muzzle);
+
+  // Antenna
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.5, 4), detailMat);
+  antenna.position.set(1.5, 4.5, -1.5);
+  turret.add(antenna);
+
+  // IR searchlight
+  const light = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.3, 8), glassMat(0xff4400));
+  light.rotation.x = Math.PI / 2;
+  light.position.set(-1.8, 3.5, 2.5);
+  turret.add(light);
+
+  g.add(lowerHull, upperHull, frontArmor, skirtL, skirtR, tL, tR, turret);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 9);
   return g;
 }
 

@@ -59,7 +59,7 @@ export function initAI(game) {
     if (game.difficulty === 'normal') {
       return ['infantry', 'tank', 'tank', 'artillery', 'fighter'][Math.floor(Math.random() * 5)];
     }
-    return ['tank', 'tank', 'artillery', 'mlrs', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'coastal'][Math.floor(Math.random() * 16)];
+    return ['tank', 'tank', 'heavyTank', 'artillery', 'mlrs', 'fighter', 'bomber', 'heli', 'gunship', 'destroyer', 'frigate', 'cruiser', 'submarine', 'battleship', 'carrier', 'missileDefense', 'coastal'][Math.floor(Math.random() * 17)];
   }
 
   /** Pick a random enemy-owned base to spawn from, weighted by proximity to player bases (front line). */

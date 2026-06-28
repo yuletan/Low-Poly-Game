@@ -50,6 +50,14 @@ function generateUnitIcon(type, color, size = 48) {
       ctx.lineTo(cx - s * 0.3, cy - s * 1.2);
       ctx.closePath();
       break;
+    case 'heavyTank':
+      roundRect(ctx, cx - s * 1.2, cy - s * 0.8, s * 2.4, s * 1.6, 3);
+      ctx.moveTo(cx - s * 0.35, cy - s * 0.8);
+      ctx.lineTo(cx + s * 0.35, cy - s * 0.8);
+      ctx.lineTo(cx + s * 0.35, cy - s * 1.4);
+      ctx.lineTo(cx - s * 0.35, cy - s * 1.4);
+      ctx.closePath();
+      break;
     case 'artillery':
       roundRect(ctx, cx - s, cy - s * 0.6, s * 2, s * 1.2, 2);
       ctx.moveTo(cx + s * 0.1, cy);

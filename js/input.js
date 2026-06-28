@@ -250,6 +250,7 @@ export function initInput(game, camera, renderer) {
         switch (type) {
           case 'infantry': ctx.moveTo(cx, cy-s); ctx.lineTo(cx-s*0.6, cy+s*0.5); ctx.lineTo(cx+s*0.6, cy+s*0.5); ctx.closePath(); break;
           case 'tank': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
+          case 'heavyTank': ctx.roundRect(cx-s*1.2, cy-s*0.8, s*2.4, s*1.6, 2); ctx.closePath(); break;
           case 'artillery': ctx.roundRect(cx-s, cy-s*0.6, s*2, s*1.2, 1.5); ctx.closePath(); break;
           case 'missileDefense': ctx.roundRect(cx-s*0.8, cy-s*0.6, s*1.6, s*1.2, 1); ctx.moveTo(cx, cy-s*0.6); ctx.lineTo(cx, cy-s*1.3); ctx.closePath(); break;
           case 'mlrs': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.4, cy-s*1); ctx.lineTo(cx-s*0.4, cy-s*1); ctx.closePath(); break;
