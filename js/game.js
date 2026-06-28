@@ -1175,6 +1175,13 @@ export class Unit {
     const targetPos = this._pursueTarget.mesh ? this._pursueTarget.mesh.position : this._pursueTarget.position;
     const dist = this._dist2d(targetPos);
 
+    // One-way units (escort bomber): die when reaching the target
+    if (this.stats.oneWay && this.stats.range === 0 && dist < 20) {
+      this.hp = 0;
+      this.die();
+      return;
+    }
+
     // If within attack range, switch to attacking
     if (dist <= this.stats.range) {
       this.target = this._pursueTarget;
@@ -1357,6 +1364,12 @@ export class Unit {
       );
       if (this.stats.baseOnly) {
         console.log(`[DEBUG B2] Hitscan fired: ${finalDmg} dmg → ${this.target.name || 'base'} HP: ${this.target.hp?.toFixed(0)}`);
+      }
+      // One-way units (B2, escort bomber): die after dropping bomb / reaching target
+      if (this.stats.oneWay) {
+        this.hp = 0;
+        this.die();
+        return;
       }
     } else {
       // Land units: projectile system (flat damage)
