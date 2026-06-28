@@ -1415,13 +1415,6 @@ export class Unit {
       this._artilleryBarrageIndex = 0;
     }
 
-    // MISSILE DEFENSE: difficulty-based accuracy multiplier
-    let effectiveHitChance = this.stats.hitChance;
-    if (this.type === 'missileDefense' && this.faction === 'enemy') {
-      if (this.game.difficulty === 'normal') effectiveHitChance = Math.min(1, effectiveHitChance * 2);
-      else if (this.game.difficulty === 'hard') effectiveHitChance = Math.min(1, effectiveHitChance * 4);
-    }
-
     // ===== HITSCAN (sea/air) vs PROJECTILE (land) =====
     if (this.domain === 'sea' || this.domain === 'air') {
       // Hitscan: instant damage application
@@ -1430,7 +1423,7 @@ export class Unit {
         muzzlePos,
         this.target,
         finalDmg,
-        effectiveHitChance,
+        this.stats.hitChance,
         splashRadius,
         splashFalloff
       );
@@ -1455,7 +1448,7 @@ export class Unit {
         muzzlePos,
         this.target,
         finalDmg,
-        effectiveHitChance,
+        this.stats.hitChance,
         projType,
         pattern,
         splashRadius,
