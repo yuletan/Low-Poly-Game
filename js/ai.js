@@ -71,10 +71,14 @@ export function initAI(game) {
   let lastKnownEnemyCount = 0;
   let buildUpWarningShown = false;
 
-  /** Gather available attacking units (exclude ships and transports). */
+  /** Gather available attacking units (exclude ships, transports, and units waiting for/riding transports). */
   function gatherAttackers() {
     return game.enemyUnits.filter(u =>
-      u.alive && u.domain !== 'sea' && !u.isTransport
+      u.alive &&
+      u.domain !== 'sea' &&
+      !u.isTransport &&
+      u.state !== 'waitingForTransport' &&
+      !u.carried
     );
   }
 
