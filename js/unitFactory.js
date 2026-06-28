@@ -168,6 +168,61 @@ function buildMLRS(g, color){
   return g;
 }
 
+function buildCruiser(g, color){
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.5, 16), mat(color));
+  hull.position.y = 0.5; hull.castShadow = true;
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 4), mat(0xaaaaaa));
+  bridge.position.set(0, 2.5, -3);
+  const turret = new THREE.Group();
+  const tBase = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 0.8, 8), mat(color));
+  tBase.position.y = 1.6;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3, 6), mat(0x333333));
+  barrel.rotation.x = Math.PI/2; barrel.rotation.y = Math.PI/2;
+  barrel.position.set(0, 1.6, 2);
+  turret.add(tBase, barrel);
+  turret.position.z = 4;
+  // AA radar dome
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), mat(0x888888));
+  dome.position.set(0, 4.5, -3);
+  g.add(hull, bridge, turret, dome);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 1.6, 2);
+  g.userData.bobPhase = Math.random() * Math.PI * 2;
+  return g;
+}
+
+function buildSubmarine(g, color){
+  const hull = new THREE.Mesh(new THREE.CapsuleGeometry(1.2, 8, 4, 8), mat(color));
+  hull.rotation.z = Math.PI / 2; hull.castShadow = true;
+  hull.position.y = 0.2;
+  const conningTower = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2, 2), mat(0x334455));
+  conningTower.position.set(0, 1.5, -1);
+  // Periscope
+  const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1, 4), mat(0x444444));
+  scope.position.set(0, 2.5, -1);
+  g.add(hull, conningTower, scope);
+  g.userData.bobPhase = Math.random() * Math.PI * 2;
+  return g;
+}
+
+function buildCoastal(g, color){
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5, 0.8, 5), mat(color));
+  base.position.y = 0.6; base.castShadow = true;
+  const turret = new THREE.Group();
+  const tBase = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 1, 8), mat(color));
+  tBase.position.y = 1.4;
+  const barrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 4, 6), mat(0x333333));
+  barrel1.rotation.x = Math.PI/2; barrel1.rotation.y = Math.PI/2;
+  barrel1.position.set(-0.5, 1.4, 2.5);
+  const barrel2 = barrel1.clone();
+  barrel2.position.x = 0.5;
+  turret.add(tBase, barrel1, barrel2);
+  g.add(base, turret);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 1.4, 3);
+  return g;
+}
+
 // ---------- SEA ----------
 function buildShip(g, color, scale){
   const w = 5 * scale;
@@ -268,6 +323,30 @@ function buildHeli(g, color){
   blade2.position.set(0, 1.5, 0);
   g.add(body, glass, tail, fin, skid1, skid2, rotorHub, blade1, blade2);
   g.userData.muzzleOffset = new THREE.Vector3(0, -0.5, 1);
+  return g;
+}
+
+function buildGunship(g, color){
+  // Wide fuselage (AC-130 style)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3, 1.5, 7), mat(color));
+  body.position.y = 0; body.castShadow = true;
+  // Wings
+  const wings = new THREE.Mesh(new THREE.BoxGeometry(10, 0.2, 2), mat(color));
+  wings.position.y = 0.2;
+  // Tail
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2, 1.5), mat(color));
+  tail.position.set(0, 1, -3.5);
+  // Side guns (visible protrusions)
+  const gunMat = mat(0x333333);
+  const gun1 = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2, 4), gunMat);
+  gun1.rotation.x = Math.PI/2; gun1.position.set(-1.8, -0.3, 1);
+  const gun2 = gun1.clone();
+  gun2.position.x = 1.8;
+  // Cockpit
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(0.7, 6, 6), mat(0x113311));
+  glass.position.set(0, 0.3, 3.5);
+  g.add(body, wings, tail, gun1, gun2, glass);
+  g.userData.muzzleOffset = new THREE.Vector3(-1.8, -0.3, 2);
   return g;
 }
 
