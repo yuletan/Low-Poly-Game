@@ -469,6 +469,11 @@ export class Unit {
       this.target = null;
     }
 
+    // Crusher & escort jet: provoke nearby enemies to attack when moving
+    if ((this.type === 'crusher' || this.type === 'escortJet') && (this.state === 'moving' || this.state === 'pursuing')) {
+      this._provokeEnemies();
+    }
+
     // Update path arrow line for ships (and any moving unit)
     this._updatePathLine();
 
@@ -486,6 +491,25 @@ export class Unit {
     // Range ring follows unit
     if (this.selected && this._rangeRing) {
       this._rangeRing.position.set(this.mesh.position.x, 0.3, this.mesh.position.z);
+    }
+  }
+
+  /** Provoke nearby enemies to attack this unit (crusher / escort jet). */
+  _provokeEnemies() {
+    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+    for (const e of enemies) {
+      if (!e.alive || e.state === 'dead') continue;
+      if (e.target && e.target.alive && e.state === 'attacking') continue;
+      // Enemy must be able to target this unit's domain
+      const isLand = e.domain === 'land';
+      if (isLand && !e.stats.airOnly && this.domain === 'air') continue;
+      if (e.stats.airOnly && this.domain !== 'air') continue;
+      if (e.stats.seaOnly && this.domain !== 'sea') continue;
+      if (e.stats.groundOnly && this.domain === 'air') continue;
+      const d = this._dist2d(e.mesh.position);
+      if (d <= e.engageRange) {
+        e.attack(this);
+      }
     }
   }
 
