@@ -1639,6 +1639,21 @@ export class Unit {
       for (const p of projectiles) {
         this.game.projectiles.push(p);
       }
+
+      // Crusher: knockback enemies near the impact point
+      if (this.type === 'crusher') {
+        const impact = targetPos;
+        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+        for (const e of enemies) {
+          if (!e.alive || e === this) continue;
+          const d = e.mesh.position.distanceTo(impact);
+          if (d > 100) continue;
+          const dir = new THREE.Vector3().subVectors(e.mesh.position, impact).normalize();
+          const force = (1 - d / 100) * 20;
+          e.mesh.position.x += dir.x * force;
+          e.mesh.position.z += dir.z * force;
+        }
+      }
     }
   }
 
