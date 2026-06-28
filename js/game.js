@@ -1847,6 +1847,9 @@ export class Game {
     for (const u of this.enemyUnits)  u.update(dt);
     for (const b of this.bases) b.update(dt);
 
+    // Auto-spawn transports for troops waiting on beach
+    this._updateTransportLogistics(dt);
+
     // Soft unit collision (gentle nudge)
     this._applySoftCollision(this.playerUnits);
     this._applySoftCollision(this.enemyUnits);
@@ -1953,6 +1956,39 @@ export class Game {
     document.getElementById('enemyCount').textContent = enemyAlive.length;
     // Live refresh of selection HP/status
     this.updateSelectionUI?.();
+  }
+
+  _updateTransportLogistics(dt) {
+    for (const faction of ['player', 'enemy']) {
+      const units = faction === 'player' ? this.playerUnits : this.enemyUnits;
+
+      let waitingCount = 0;
+      for (const u of units) {
+        if (u.alive && u.state === 'waitingForTransport') waitingCount++;
+      }
+
+      if (waitingCount > 0) {
+        const hasAvailableTransport = units.some(u => u.alive && u.isTransport && u.carriedUnits.length < u.transportCapacity);
+
+        if (!hasAvailableTransport) {
+          const cost = UNIT_TYPES.transport.cost;
+          let money = faction === 'player' ? this.money : Infinity;
+
+          if (money >= cost) {
+            const hq = this.bases.find(b => b.faction === faction && b.alive);
+            if (hq) {
+              const spawnPos = this.findValidSpawn(hq.mesh.position, 'sea');
+              if (spawnPos) {
+                if (faction === 'player') this.money -= cost;
+                console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction}!`);
+                this.spawn('transport', faction, spawnPos);
+                this.flashMessage(faction === 'player' ? `Transport ship deployed ($${cost})` : `Enemy transport ship spotted!`);
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   checkWinCondition() {
