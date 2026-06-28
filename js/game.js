@@ -1975,15 +1975,36 @@ export class Game {
           let money = faction === 'player' ? this.money : Infinity;
 
           if (money >= cost) {
-            const hq = this.bases.find(b => b.faction === faction && b.alive);
-            if (hq) {
-              const spawnPos = this.findValidSpawn(hq.mesh.position, 'sea');
-              if (spawnPos) {
-                if (faction === 'player') this.money -= cost;
-                console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction}!`);
-                this.spawn('transport', faction, spawnPos);
-                this.flashMessage(faction === 'player' ? `Transport ship deployed ($${cost})` : `Enemy transport ship spotted!`);
+            const bases = this.bases.filter(b => b.faction === faction && b.alive);
+            let spawnPos = null;
+
+            // 1. Try to find a valid water spawn near ANY friendly base
+            for (const base of bases) {
+              const pos = this.findValidSpawn(base.mesh.position, 'sea');
+              if (pos) {
+                spawnPos = pos;
+                break;
               }
+            }
+
+            // 2. Fallback: use pathfinder to find nearest sea tile from any base
+            if (!spawnPos && bases.length > 0) {
+              const refBase = bases[0];
+              const g = this.pathfinder.worldToGrid(refBase.mesh.position.x, refBase.mesh.position.z);
+              const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+              if (seaTile) {
+                const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
+                spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
+              }
+            }
+
+            if (spawnPos) {
+              if (faction === 'player') this.money -= cost;
+              console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction} at (${spawnPos.x.toFixed(0)}, ${spawnPos.z.toFixed(0)})`);
+              this.spawn('transport', faction, spawnPos);
+              this.flashMessage(faction === 'player' ? `Transport ship deployed ($${cost})` : `Enemy transport ship spotted!`);
+            } else {
+              console.warn(`[DEBUG LOGISTICS] Could not find water spawn point for ${faction}!`);
             }
           }
         }
