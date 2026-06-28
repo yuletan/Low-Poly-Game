@@ -455,18 +455,39 @@ export class Unit {
     return count;
   }
 
-  /** Healer: heal nearby friendly air and land units 5% HP/sec */
+  /** Healer: heal nearby friendly air and land units 5% HP/sec, follow lowest HP */
   _healNearby(dt) {
     const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    let lowestHp = null;
+    let lowestRatio = 1;
+
     for (const u of allies) {
       if (!u.alive || u === this) continue;
       if (u.domain !== 'air' && u.domain !== 'land') continue;
-      if (u.hp >= u.maxHp) continue;
-      const d = this.mesh.position.distanceTo(u.mesh.position);
-      if (d <= this.stats.range) {
-        const heal = u.maxHp * 0.05 * dt;
-        u.hp = Math.min(u.maxHp, u.hp + heal);
-        u._displayHp = u.hp;
+      const ratio = u.hp / u.maxHp;
+
+      // Heal if in range
+      if (u.hp < u.maxHp) {
+        const d = this.mesh.position.distanceTo(u.mesh.position);
+        if (d <= this.stats.range) {
+          const heal = u.maxHp * 0.05 * dt;
+          u.hp = Math.min(u.maxHp, u.hp + heal);
+          u._displayHp = u.hp;
+        }
+      }
+
+      // Track lowest HP ally not at full health
+      if (ratio < lowestRatio && u.hp < u.maxHp) {
+        lowestRatio = ratio;
+        lowestHp = u;
+      }
+    }
+
+    // Follow lowest HP troop if idle and not already close
+    if (lowestHp && this.state === 'idle') {
+      const d = this.mesh.position.distanceTo(lowestHp.mesh.position);
+      if (d > this.stats.range * 0.7) {
+        this.moveTo(lowestHp.mesh.position.clone());
       }
     }
   }
