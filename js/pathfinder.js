@@ -53,48 +53,49 @@ export class Pathfinder {
     return false;
   }
 
-  // --- Amphibious Pathfinding for Troop Transports ---
-  // Returns a segmented path so game logic knows when to board/disembark.
+  // Amphibious Pathfinding for Troop Transports
   findTransportPath(startWorld, endWorld) {
-    // 1. Try standard land path first
     const landPath = this.findPath(startWorld, endWorld, 'land');
     if (landPath) {
       return { needsTransport: false, path: landPath };
     }
 
-    // 2. Water is in the way! Find the nearest walkable coast for start and end.
     const s = this.worldToGrid(startWorld.x, startWorld.z);
     const g = this.worldToGrid(endWorld.x, endWorld.z);
 
-    const embarkCell = this.findNearestCoast(s.gx, s.gy, 'land');
-    const disembarkCell = this.findNearestCoast(g.gx, g.gy, 'land');
+    const embarkCoast = this.findNearestCoast(s.gx, s.gy, 'land');
+    const disembarkCoast = this.findNearestCoast(g.gx, g.gy, 'land');
 
-    if (!embarkCell || !disembarkCell) return null;
+    if (!embarkCoast || !disembarkCoast) return null;
 
-    const embarkWorld = this.gridToWorld(embarkCell.gx, embarkCell.gy);
-    const disembarkWorld = this.gridToWorld(disembarkCell.gx, disembarkCell.gy);
+    const embarkWorld = this.gridToWorld(embarkCoast.groundTile.gx, embarkCoast.groundTile.gy);
+    const disembarkWorld = this.gridToWorld(disembarkCoast.groundTile.gx, disembarkCoast.groundTile.gy);
+    const shipEmbarkWorld = this.gridToWorld(embarkCoast.seaTile.gx, embarkCoast.seaTile.gy);
+    const shipDisembarkWorld = this.gridToWorld(disembarkCoast.seaTile.gx, disembarkCoast.seaTile.gy);
 
     const vEmbark = new THREE.Vector3(embarkWorld.x, 0, embarkWorld.z);
     const vDisembark = new THREE.Vector3(disembarkWorld.x, 0, disembarkWorld.z);
+    const vShipEmbark = new THREE.Vector3(shipEmbarkWorld.x, 0, shipEmbarkWorld.z);
+    const vShipDisembark = new THREE.Vector3(shipDisembarkWorld.x, 0, shipDisembarkWorld.z);
 
-    // 3. Calculate the 3 segmented paths
+    // Segmented paths: walk to coast, sail on water, walk to target
     const pathToShip = this.findPath(startWorld, vEmbark, 'land');
-    const seaPath = this.findPath(vEmbark, vDisembark, 'sea');
+    const seaPath = this.findPath(vShipEmbark, vShipDisembark, 'sea');
     const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
 
     if (!pathToShip || !seaPath || !pathToTarget) return null;
 
-    // 4. Merge into a single visual path
     const fullPath = [...pathToShip];
     for (let i = 1; i < seaPath.length; i++) fullPath.push(seaPath[i]);
     for (let i = 1; i < pathToTarget.length; i++) fullPath.push(pathToTarget[i]);
 
-    // Return structural data for game manager to handle boarding logic
     return {
       needsTransport: true,
       path: fullPath,
       embarkPoint: vEmbark,
       disembarkPoint: vDisembark,
+      shipEmbarkPoint: vShipEmbark,
+      shipDisembarkPoint: vShipDisembark,
       segments: {
         walkToShip: pathToShip,
         sail: seaPath,
@@ -242,7 +243,7 @@ export class Pathfinder {
   }
 
   // BFS specifically for finding the coastline
-  // Only traverses land, guarantees we find a beach connected by ground.
+  // Returns { groundTile, seaTile } — coast tile + adjacent water tile
   findNearestCoast(gx, gy, domain) {
     if (!this.walkable(gx, gy, domain)) {
       const nearest = this.findNearestWalkable(gx, gy, domain);
@@ -258,7 +259,20 @@ export class Pathfinder {
       const cur = queue.shift();
       const t = this.terrainGrid[cur.gy * this.size + cur.gx];
 
-      if (t === TERRAIN.COAST) return cur;
+      if (t === TERRAIN.COAST) {
+        // Found a coast tile — now find an adjacent sea tile for ships
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (const [dx, dy] of dirs) {
+          const nx = cur.gx + dx, ny = cur.gy + dy;
+          if (!this.inBounds(nx, ny)) continue;
+          const nt = this.terrainGrid[ny * this.size + nx];
+          if (nt === TERRAIN.SEA) {
+            return { groundTile: cur, seaTile: { gx: nx, gy: ny } };
+          }
+        }
+        // Coast found but no adjacent sea (interior coast) — still return it
+        return { groundTile: cur, seaTile: cur };
+      }
 
       const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
       for (const [dx, dy] of dirs) {

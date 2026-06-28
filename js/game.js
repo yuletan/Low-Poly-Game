@@ -541,8 +541,8 @@ export class Unit {
     // Check if transport has reached its disembark point (from findTransportPath)
     if (this._disembarkPoint && this.carriedUnits.length > 0) {
       const d = this.mesh.position.distanceTo(this._disembarkPoint);
-      const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
-      if (d < 20 || terrain === TERRAIN.COAST || terrain === TERRAIN.LAND) {
+      // If close to the land tile OR basically at the end of its sea path
+      if (d < 25 || this.path.length === 0) {
         // Unload and give units their walk-to-target segment
         const units = [...this.carriedUnits];
         this.unloadAll();
@@ -589,9 +589,10 @@ export class Unit {
   }
 
   _findNearestCoast(gx, gy) {
+    // Pathfinder returns { groundTile, seaTile }
     const result = this.game.pathfinder.findNearestCoast(gx, gy, 'land');
-    if (result) {
-      const w = this.game.pathfinder.gridToWorld(result.gx, result.gy);
+    if (result && result.groundTile) {
+      const w = this.game.pathfinder.gridToWorld(result.groundTile.gx, result.groundTile.gy);
       return new THREE.Vector3(w.x, 0, w.z);
     }
     return null;
@@ -1011,14 +1012,15 @@ export class Unit {
       if (t.faction !== this.faction) continue;
       if (t.carriedUnits.length >= t.transportCapacity) continue;
       const d = this.mesh.position.distanceTo(t.mesh.position);
-      if (d <= 15) {
+      if (d <= 20) {
         // Board the transport
         t.loadUnit(this);
         // If this transport doesn't have a sail target yet, give it one
-        if (t.state === 'idle' && this._transportData.disembarkPoint) {
-          t.moveTo(this._transportData.disembarkPoint.clone(), false);
-          t._disembarkPoint = this._transportData.disembarkPoint.clone();
-          t._transportOwner = this; // track who initiated the transport
+        if (t.state === 'idle' && this._transportData.shipDisembarkPoint) {
+          // Tell the ship to sail to the water tile near the disembark coast
+          t.moveTo(this._transportData.shipDisembarkPoint.clone(), false);
+          t._disembarkPoint = this._transportData.disembarkPoint.clone(); // Troop disembarks here
+          t._transportOwner = this;
         }
         console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport`);
         return;
