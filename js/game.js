@@ -563,8 +563,17 @@ export class Unit {
         }
       }
       if (bestUnit) {
-        this.moveTo(bestUnit._transportData.shipEmbarkPoint.clone());
-        this._assignedEmbarkPoint = bestUnit._transportData.shipEmbarkPoint.clone();
+        // Use no-smooth sea path to reach embark point
+        const embarkTarget = bestUnit._transportData.shipEmbarkPoint.clone();
+        const rawSeaPath = this.game.pathfinder.findPath(this.mesh.position, embarkTarget, 'sea', false);
+        if (rawSeaPath && rawSeaPath.length > 0) {
+          this.path = rawSeaPath;
+          this.moveTarget = this.path.shift();
+          this.state = 'moving';
+        } else {
+          this.moveTo(embarkTarget);
+        }
+        this._assignedEmbarkPoint = embarkTarget;
         this._transportData = bestUnit._transportData;
         this._boardingTimer = 0;
         // Claim ALL units waiting at this embark point
@@ -592,7 +601,15 @@ export class Unit {
 
       if ((isFull || timedOut) && this.carriedUnits.length > 0) {
         console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
-        this.moveTo(this._transportData.shipDisembarkPoint.clone());
+        // Use the pre-calculated sea path directly (no recalc, no smoothing)
+        const sailPath = this._transportData.segments.sail;
+        if (sailPath && sailPath.length > 0) {
+          this.path = sailPath.map(p => p.clone());
+          this.moveTarget = this.path.shift();
+          this.state = 'moving';
+        } else {
+          this.moveTo(this._transportData.shipDisembarkPoint.clone());
+        }
         this._disembarkPoint = this._transportData.disembarkPoint.clone();
         this._assignedEmbarkPoint = null;
 

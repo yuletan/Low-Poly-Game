@@ -1,6 +1,7 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
 import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js?v=5';
+import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
   const cfg = DIFFICULTY[game.difficulty];
@@ -43,7 +44,7 @@ export function initAI(game) {
           if (Math.hypot(x - mt.x, z - mt.z) < mt.r + 3) { blocked = true; break; }
         }
         if (blocked) continue;
-        const pos = new THREE.Vector3(x, domain === 'sea' ? 0.3 : game.terrain.LAND_HEIGHT + 0.5, z);
+        const pos = new THREE.Vector3(x, domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5, z);
         if (!isSpawnOverlapping(pos)) return pos;
       }
     }

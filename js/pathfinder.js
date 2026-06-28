@@ -78,9 +78,9 @@ export class Pathfinder {
     const vShipEmbark = new THREE.Vector3(shipEmbarkWorld.x, 0, shipEmbarkWorld.z);
     const vShipDisembark = new THREE.Vector3(shipDisembarkWorld.x, 0, shipDisembarkWorld.z);
 
-    // Segmented paths: walk to coast, sail on water, walk to target
+    // Segmented paths: walk to coast, sail on water (NO SMOOTHING), walk to target
     const pathToShip = this.findPath(startWorld, vEmbark, 'land');
-    const seaPath = this.findPath(vShipEmbark, vShipDisembark, 'sea');
+    const seaPath = this.findPath(vShipEmbark, vShipDisembark, 'sea', false);
     const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
 
     if (!pathToShip || !seaPath || !pathToTarget) return null;
@@ -104,7 +104,7 @@ export class Pathfinder {
     };
   }
 
-  findPath(startWorld, endWorld, domain) {
+  findPath(startWorld, endWorld, domain, smooth = true) {
     if (domain === 'air') return [endWorld.clone()];
 
     const s = this.worldToGrid(startWorld.x, startWorld.z);
@@ -136,7 +136,7 @@ export class Pathfinder {
     while (!open.isEmpty() && iterations++ < MAX_ITER) {
       const cur = open.pop();
       if (cur.gx === g.gx && cur.gy === g.gy) {
-        return this.reconstruct(cameFrom, cur.key, endWorld, domain);
+        return this.reconstruct(cameFrom, cur.key, endWorld, domain, smooth);
       }
       closed.add(cur.key);
       for (const [dx, dy, cost] of NEIGHBORS) {
@@ -165,7 +165,7 @@ export class Pathfinder {
     return (dx + dy) + (1.414 - 2) * Math.min(dx, dy);
   }
 
-  reconstruct(cameFrom, endKey, endWorld, domain) {
+  reconstruct(cameFrom, endKey, endWorld, domain, smooth) {
     const path = [];
     let k = endKey;
     while (k !== undefined) {
@@ -177,7 +177,8 @@ export class Pathfinder {
     }
     path.reverse();
     if (path.length > 0) path[path.length - 1] = endWorld.clone();
-    return this.smoothPath(path, domain);
+    if (smooth) return this.smoothPath(path, domain);
+    return path;
   }
 
   smoothPath(path, domain) {
