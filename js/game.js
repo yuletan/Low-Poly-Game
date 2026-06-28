@@ -703,7 +703,7 @@ export class Unit {
       }
       if (bestUnit) {
         // Use no-smooth sea path to reach embark point
-        const embarkTarget = bestUnit._transportData.shipEmbarkPoint.clone();
+        const embarkTarget = bestUnit._transportData?.shipEmbarkPoint?.clone();
         const rawSeaPath = this.game.pathfinder.findPath(this.mesh.position, embarkTarget, 'sea', false);
         if (rawSeaPath && rawSeaPath.length > 0) {
           this.path = rawSeaPath;
@@ -718,7 +718,7 @@ export class Unit {
         // Claim ALL units waiting at this embark point
         for (const u of allUnits) {
           if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip) {
-            const embarkDist = u._transportData.shipEmbarkPoint.distanceTo(this._assignedEmbarkPoint);
+            const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
             if (embarkDist < 5) { // same embark point
               u._claimedByShip = this;
             }
@@ -749,7 +749,7 @@ export class Unit {
         } else if (this._transportData?.shipDisembarkPoint) {
           this.moveTo(this._transportData.shipDisembarkPoint.clone());
         }
-        this._disembarkPoint = this._transportData.disembarkPoint.clone();
+        this._disembarkPoint = this._transportData?.disembarkPoint?.clone();
         this._assignedEmbarkPoint = null;
 
         // Unclaim any troops that didn't make it
