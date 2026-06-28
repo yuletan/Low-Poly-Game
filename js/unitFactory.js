@@ -49,11 +49,13 @@ export function createUnitMesh(type, color, faction) {
     case 'infantry': return buildInfantry(g, tint);
     case 'tank':     return buildTank(g, tint);
     case 'heavyTank':return buildHeavyTank(g, tint);
+    case 'crusher': return buildCrusher(g, tint);
     case 'artillery':return buildArtillery(g, tint);
     case 'missileDefense':return buildMissileDefense(g, tint);
     case 'coastal':  return buildCoastal(g, tint);
     case 'mlrs':     return buildMLRS(g, tint);
     case 'healer':   return buildHealer(g, tint);
+    case 'medHeli':  return buildMedHeli(g, tint);
     case 'destroyer':return buildShip(g, tint, 1.0);
     case 'frigate':  return buildFrigate(g, tint);
     case 'cruiser':  return buildCruiser(g, tint);
@@ -274,6 +276,70 @@ function buildHeavyTank(g, color) {
   g.add(lowerHull, upperHull, frontArmor, skirtL, skirtR, tL, tR, turret);
   g.userData.turret = turret;
   g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 9);
+  return g;
+}
+
+function buildCrusher(g, color) {
+  const hullMat = matteMat(color);
+  const detailMat = metalMat(0x444444, 0.6, 0.5);
+
+  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(7, 1.8, 10), hullMat));
+  hull.position.y = 1.2;
+
+  const frontPlate = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(7, 2, 3), hullMat));
+  frontPlate.position.set(0, 2, 4.5);
+  frontPlate.rotation.x = -0.3;
+
+  const slabMat = metalMat(0x444444, 0.7, 0.6);
+  const slabL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 9), slabMat));
+  slabL.position.set(-3.7, 1.5, 0);
+  const slabR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 9), slabMat));
+  slabR.position.set(3.7, 1.5, 0);
+
+  const trackGeom = new THREE.BoxGeometry(1.2, 1.8, 10.5);
+  const tL = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
+  tL.position.set(-3.2, 0.9, 0);
+  const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
+  tR.position.set(3.2, 0.9, 0);
+
+  const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 1.3, 8);
+  for (let i = -4; i <= 4; i++) {
+    const wL = new THREE.Mesh(wheelGeom, detailMat);
+    wL.rotation.z = Math.PI / 2;
+    wL.position.set(-3.2, 0.9, i * 1.2);
+    g.add(wL);
+    const wR = wL.clone();
+    wR.position.x = 3.2;
+    g.add(wR);
+  }
+
+  const turret = new THREE.Group();
+  const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.5, 5), hullMat));
+  turretBase.position.y = 3;
+  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8), detailMat));
+  cupola.position.set(-1, 3.9, -1);
+  const barrelGeom = new THREE.CylinderGeometry(0.25, 0.25, 5, 8);
+  const barrel1 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
+  barrel1.rotation.x = Math.PI / 2;
+  barrel1.position.set(-0.6, 3.2, 4);
+  const barrel2 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
+  barrel2.rotation.x = Math.PI / 2;
+  barrel2.position.set(0.6, 3.2, 4);
+  turret.add(turretBase, cupola, barrel1, barrel2);
+
+  const shieldRing = new THREE.Mesh(
+    new THREE.RingGeometry(38, 42, 48),
+    new THREE.MeshBasicMaterial({ color: 0x4466ff, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthTest: false })
+  );
+  shieldRing.rotation.x = -Math.PI / 2;
+  shieldRing.position.y = 0.3;
+  shieldRing.renderOrder = 894;
+  g.add(shieldRing);
+  g.userData.shieldRing = shieldRing;
+
+  g.add(hull, frontPlate, slabL, slabR, tL, tR, turret);
+  g.userData.turret = turret;
+  g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 6.5);
   return g;
 }
 
@@ -937,6 +1003,58 @@ function buildHeli(g, color) {
 
   g.add(body, cockpitFront, cockpitBack, tail, fin, wingL, wingR, sensor, rotorHub, blade1, blade2, tailRotor);
   g.userData.muzzleOffset = new THREE.Vector3(1.6, -0.4, 0);
+  return g;
+}
+
+function buildMedHeli(g, color) {
+  const bodyMat = matteMat(color);
+  const detailMat = metalMat(0x222222);
+  const glowGreen = glowMat(0x44ff44, 1.5);
+
+  const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 2.5, 4, 8), bodyMat));
+  body.rotation.z = Math.PI / 2;
+
+  const cockpitFront = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113322)));
+  cockpitFront.position.set(1.2, 0.2, 0);
+  cockpitFront.rotation.z = -Math.PI / 2;
+
+  const tail = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 3.5, 6), bodyMat));
+  tail.rotation.z = Math.PI / 2;
+  tail.position.set(-2.8, 0.2, 0);
+
+  const fin = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.1), bodyMat));
+  fin.position.set(-4.2, 0.8, 0);
+
+  // Medical cross on side
+  const cross1 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.1), glowGreen);
+  cross1.position.set(0, 0.5, 0.75);
+  const cross2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 0.1), glowGreen);
+  cross2.position.set(0, 0.5, 0.75);
+
+  // Stub wings
+  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.5), detailMat));
+  wingL.position.set(-0.5, -0.2, 1);
+  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.5), detailMat));
+  wingR.position.set(-0.5, -0.2, -1);
+
+  // Sensor dish on bottom
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 8), glowGreen);
+  dish.position.set(0, -0.5, 0);
+
+  // Main rotor
+  const rotorHub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4, 6), detailMat);
+  rotorHub.position.set(0, 1.1, 0);
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.5, transparent: true, opacity: 0.6 });
+  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(7, 0.05, 0.3), bladeMat);
+  blade1.position.set(0, 1.3, 0);
+  const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 7), bladeMat);
+  blade2.position.set(0, 1.3, 0);
+
+  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.5, 0.2), bladeMat);
+  tailRotor.position.set(-4.2, 0.8, 0.2);
+
+  g.add(body, cockpitFront, tail, fin, cross1, cross2, wingL, wingR, dish, rotorHub, blade1, blade2, tailRotor);
+  g.userData.muzzleOffset = null;
   return g;
 }
 

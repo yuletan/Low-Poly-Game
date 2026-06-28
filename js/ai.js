@@ -334,7 +334,8 @@ export function initAI(game) {
               u.alive && u.stats.speed === 0 &&
               u.mesh.position.distanceTo(base.mesh.position) < 80
             ).length;
-            if (existing >= 3) continue;
+            const maxDef = game.difficulty === 'hard' ? 10 : 5;
+            if (existing >= maxDef) continue;
             const defType = Math.random() < 0.5 ? 'missileDefense' : 'coastal';
             spawnEnemyUnit(defType, base);
           }
