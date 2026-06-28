@@ -316,22 +316,27 @@ export function initAI(game) {
         // Spawn up to maxSpawnsPerSecond units this tick
         for (let i = 0; i < maxSpawnsPerSecond; i++) {
           const desiredType = chooseUnitToBuild();
-          const cost = UNIT_TYPES[desiredType].cost;
-          if (aiMoney < cost) continue; // skip unaffordable, don't break
+          const stats = UNIT_TYPES[desiredType];
+          // Stationary defenses (speed===0) are free for AI
+          const cost = stats.speed === 0 ? 0 : stats.cost;
+          if (aiMoney < cost) continue;
           if (spawnEnemyUnit(desiredType)) {
             aiMoney -= cost;
           }
         }
 
-        // Periodically place stationary defenses near each base
-        if (aiMoney >= 400 && Math.random() < 0.15) {
-          const base = pickSpawnBase();
-          if (base) {
+        // Place stationary defenses near each base (free, capped per base)
+        if (Math.random() < 0.2) {
+          const owned = game.bases.filter(b => b.faction === 'enemy');
+          for (const base of owned) {
+            // Count existing defenses near this base
+            const existing = game.enemyUnits.filter(u =>
+              u.alive && u.stats.speed === 0 &&
+              u.mesh.position.distanceTo(base.mesh.position) < 80
+            ).length;
+            if (existing >= 3) continue;
             const defType = Math.random() < 0.5 ? 'missileDefense' : 'coastal';
-            const cost = UNIT_TYPES[defType].cost;
-            if (aiMoney >= cost && spawnEnemyUnit(defType)) {
-              aiMoney -= cost;
-            }
+            spawnEnemyUnit(defType, base);
           }
         }
       }
