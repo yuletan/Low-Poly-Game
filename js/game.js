@@ -562,6 +562,22 @@ export class Unit {
       }
     }
 
+    // CARRIER FIGHTER: check return-after-move (must run AFTER state machine moves the fighter)
+    if (this.type === 'fighter' && this.mesh.userData.returning && this.mesh.userData.launchedFrom) {
+      const carrier = this.mesh.userData.launchedFrom;
+      if (carrier && carrier.alive) {
+        const dx = this.mesh.position.x - carrier.mesh.position.x;
+        const dz = this.mesh.position.z - carrier.mesh.position.z;
+        if (Math.hypot(dx, dz) < 15) {
+          this.alive = false;
+          this.state = 'dead';
+          this.cleanup();
+          this.game.selectedUnits = this.game.selectedUnits.filter(u => u.alive);
+          console.log(`[DEBUG FIGHTER] Returned to carrier, removed`);
+        }
+      }
+    }
+
     // Range ring follows unit
     if (this.selected && this._rangeRing) {
       this._rangeRing.position.set(this.mesh.position.x, 0.3, this.mesh.position.z);
@@ -790,14 +806,6 @@ export class Unit {
       // Continuously track carrier's live position
       this.moveTarget = carrier.mesh.position.clone();
       this.path = [];
-      const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
-      if (dToCarrier < 10) {
-        this.alive = false;
-        this.state = 'dead';
-        this.cleanup();
-        this.game.selectedUnits = this.game.selectedUnits.filter(u => u.alive);
-        console.log(`[DEBUG FIGHTER] Returned to carrier, removed`);
-      }
       return;
     }
   }
