@@ -789,14 +789,8 @@ export class Unit {
       const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
       if (dToCarrier < 10) {
         this.alive = false;
-        this.game.scene.remove(this.mesh);
-        this._removePathLine();
-        if (this._rangeRing) {
-          this.game.scene.remove(this._rangeRing);
-          this._rangeRing.geometry.dispose();
-          this._rangeRing.material.dispose();
-          this._rangeRing = null;
-        }
+        this.state = 'dead';
+        this.cleanup();
         this.game.selectedUnits = this.game.selectedUnits.filter(u => u.alive);
         console.log(`[DEBUG FIGHTER] Returned to carrier, removed`);
       }
