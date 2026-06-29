@@ -199,7 +199,8 @@ const UNIT_BUILDERS = {
 
 /** Returns a THREE.Group representing the unit. */
 export function createUnitMesh(type, color, faction) {
-  const tint = faction === 'enemy' ? mixColor(color, 0xaa3333, 0.4) : color;
+  const teamColor = faction === 'player' ? 0x3366cc : 0xcc3333;
+  const tint = mixColor(color, teamColor, 0.5);
 
   const g = new THREE.Group();
   g.userData.turret = null;
