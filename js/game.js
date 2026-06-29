@@ -1404,6 +1404,14 @@ export class Unit {
     if (!this.target || !this.target.alive) {
       this.target = null;
       this._manualTarget = false;
+      // Carrier fighter: return to carrier when target dies
+      if (this.mesh.userData.launchedFrom) {
+        this.mesh.userData.fighterState = 'returning';
+        this.mesh.userData.returning = true;
+        this._pursueTarget = null;
+        this.moveTo(this.mesh.userData.launchedFrom.mesh.position.clone());
+        return;
+      }
       // Resume original movement if we had one
       if (this._resumePath || this._resumeTarget) {
         this.path = this._resumePath || [];
@@ -1551,6 +1559,13 @@ export class Unit {
     if (!this._pursueTarget || !this._pursueTarget.alive) {
       this._pursueTarget = null;
       this.target = null;
+      // Carrier fighter: return to carrier when target dies
+      if (this.mesh.userData.launchedFrom) {
+        this.mesh.userData.fighterState = 'returning';
+        this.mesh.userData.returning = true;
+        this.moveTo(this.mesh.userData.launchedFrom.mesh.position.clone());
+        return;
+      }
       if (this.attackMove && this.attackMoveDest) {
         this.moveTo(this.attackMoveDest, true);
       } else {
