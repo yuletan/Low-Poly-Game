@@ -1322,7 +1322,8 @@ export class Unit {
       return;
     }
 
-    let best = null, bestD = this.engageRange;
+    const isCarrierFighter = !!this.mesh.userData.launchedFrom;
+    let best = null, bestD = isCarrierFighter ? Infinity : this.engageRange;
     let bestPriority = 99;
 
     for (const e of enemies) {
@@ -1387,8 +1388,8 @@ export class Unit {
         // Within attack range — attack directly
         this.target = best;
         this.state = 'attacking';
-      } else if (dist <= this.engageRange && this.stats.speed > 0) {
-        // Within engage range but not attack range — pursue
+      } else if (isCarrierFighter || (dist <= this.engageRange && this.stats.speed > 0)) {
+        // Within engage range (or carrier fighter: unlimited range) — pursue
         this._pursueTarget = best;
         this.state = 'pursuing';
       }
@@ -1567,8 +1568,8 @@ export class Unit {
     const targetPos = this._pursueTarget.mesh ? this._pursueTarget.mesh.position : this._pursueTarget.position;
     const dist = this._dist2d(targetPos);
 
-    // Disengage if target moved beyond engage range (prevents infinite chase)
-    if (dist > this.engageRange * 1.5) {
+    // Disengage if target moved beyond engage range (carrier fighters never disengage)
+    if (!this.mesh.userData.launchedFrom && dist > this.engageRange * 1.5) {
       this._pursueTarget = null;
       this.target = null;
       if (this.mesh.userData.launchedFrom) {
