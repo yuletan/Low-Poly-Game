@@ -355,6 +355,7 @@ export function initInput(game, camera, renderer) {
 
   // ----- Hover HP tooltip -----
   let hoverTooltip = null;
+  let hoveredEnemyUnit = null;
 
   function updateHoverTooltip(e) {
     const u = getUnitUnderMouse(e);
@@ -363,12 +364,27 @@ export function initInput(game, camera, renderer) {
     // Prefer unit over base
     const target = u || base;
 
+    // Hover ring for enemy units
+    const enemyUnit = u && u.faction !== 'player' ? u : null;
+    if (enemyUnit !== hoveredEnemyUnit) {
+      if (hoveredEnemyUnit) {
+        hoveredEnemyUnit.ring.material.opacity = hoveredEnemyUnit.selected ? 1.0 : 0;
+        if (hoveredEnemyUnit._ringFill) hoveredEnemyUnit._ringFill.material.opacity = hoveredEnemyUnit.selected ? 0.2 : 0;
+      }
+      hoveredEnemyUnit = enemyUnit;
+      if (hoveredEnemyUnit) {
+        hoveredEnemyUnit.ring.material.opacity = 0.5;
+        if (hoveredEnemyUnit._ringFill) hoveredEnemyUnit._ringFill.material.opacity = 0.1;
+      }
+    }
+
     if (target && target.alive !== false) {
       if (!hoverTooltip) {
         hoverTooltip = document.createElement('div');
         hoverTooltip.className = 'unit-tooltip';
         document.body.appendChild(hoverTooltip);
       }
+      hoverTooltip.classList.toggle('enemy', target.faction && target.faction !== 'player');
       const hp = Math.ceil(target.hp || target._displayHp || 0);
       const maxHp = Math.ceil(target.maxHp || 0);
       const pct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0;
@@ -379,7 +395,7 @@ export function initInput(game, camera, renderer) {
       hoverTooltip.classList.add('visible');
     } else {
       if (hoverTooltip) {
-        hoverTooltip.classList.remove('visible');
+        hoverTooltip.classList.remove('visible', 'enemy');
         hoverTooltip.remove();
         hoverTooltip = null;
       }
@@ -501,9 +517,14 @@ export function initInput(game, camera, renderer) {
   // Cleanup hover tooltip when mouse leaves canvas
   canvas.addEventListener('mouseleave', () => {
     if (hoverTooltip) {
-      hoverTooltip.classList.remove('visible');
+      hoverTooltip.classList.remove('visible', 'enemy');
       hoverTooltip.remove();
       hoverTooltip = null;
+    }
+    if (hoveredEnemyUnit) {
+      hoveredEnemyUnit.ring.material.opacity = hoveredEnemyUnit.selected ? 1.0 : 0;
+      if (hoveredEnemyUnit._ringFill) hoveredEnemyUnit._ringFill.material.opacity = hoveredEnemyUnit.selected ? 0.2 : 0;
+      hoveredEnemyUnit = null;
     }
   });
 

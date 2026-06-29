@@ -52,7 +52,7 @@ export class Pathfinder {
     if (!this.inBounds(gx, gy)) return false;
     const t = this.terrainGrid[gy * this.size + gx];
     if (domain === 'air') return true;
-    if (domain === 'sea') return t === TERRAIN.SEA || t === TERRAIN.COAST;
+    if (domain === 'sea') return t === TERRAIN.SEA;
     if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST || t === TERRAIN.MOUNTAIN;
     return false;
   }

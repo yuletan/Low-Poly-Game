@@ -97,31 +97,35 @@ export class Projectile {
       console.log(`[DEBUG COMBAT] MISS — no damage dealt`);
     }
 
-    // Splash damage
-    if (this.splashRadius > 0) {
-      this.applySplash(impactPos);
+    if (hit) {
+      // Splash damage (only on hit)
+      if (this.splashRadius > 0) {
+        this.applySplash(impactPos);
+      }
+      spawnExplosion(this.scene, impactPos, this.splashRadius);
     }
-
-    spawnExplosion(this.scene, impactPos, this.splashRadius);
     this.destroy();
   }
 
   applySplash(center) {
+    const attackerFaction = this.target?.faction;
     const allUnits = [...this.scene.userData.game?.playerUnits || [], ...this.scene.userData.game?.enemyUnits || []];
     for (const unit of allUnits) {
-      if (!unit.alive) continue;
+      if (!unit.alive || unit === this.target) continue;
+      if (attackerFaction && unit.faction === attackerFaction) continue;
       const d = Math.hypot(unit.mesh.position.x - center.x, unit.mesh.position.z - center.z);
-      if (d <= this.splashRadius && unit !== this.target) {
+      if (d <= this.splashRadius) {
         const falloff = THREE.MathUtils.lerp(1, this.splashFalloff, d / this.splashRadius);
         const splashDmg = this.damage * falloff;
         unit.takeDamage(splashDmg);
         console.log(`[DEBUG COMBAT] SPLASH — ${splashDmg.toFixed(1)} to ${unit.type} (dist: ${d.toFixed(1)})`);
       }
     }
-    // Also splash bases
+    // Also splash bases (only enemy bases)
     const bases = this.scene.userData.game?.bases || [];
     for (const base of bases) {
       if (!base.alive) continue;
+      if (attackerFaction && base.faction === attackerFaction) continue;
       const d = Math.hypot(base.mesh.position.x - center.x, base.mesh.position.z - center.z);
       if (d <= this.splashRadius) {
         const falloff = THREE.MathUtils.lerp(1, this.splashFalloff, d / this.splashRadius);
@@ -280,9 +284,11 @@ export function applyHitscanDamage(scene, attackerPos, target, damage, hitChance
   }
 
   if (splashRadius > 0) {
+    const attackerFaction = target?.faction;
     const allUnits = [...scene.userData.game?.playerUnits || [], ...scene.userData.game?.enemyUnits || []];
     for (const unit of allUnits) {
       if (!unit.alive || unit === target) continue;
+      if (attackerFaction && unit.faction === attackerFaction) continue;
       const d = Math.hypot(unit.mesh.position.x - impactPos.x, unit.mesh.position.z - impactPos.z);
       if (d <= splashRadius) {
         const falloff = THREE.MathUtils.lerp(1, splashFalloff, d / splashRadius);
@@ -292,6 +298,7 @@ export function applyHitscanDamage(scene, attackerPos, target, damage, hitChance
     const bases = scene.userData.game?.bases || [];
     for (const base of bases) {
       if (!base.alive) continue;
+      if (attackerFaction && base.faction === attackerFaction) continue;
       const d = Math.hypot(base.mesh.position.x - impactPos.x, base.mesh.position.z - impactPos.z);
       if (d <= splashRadius) {
         const falloff = THREE.MathUtils.lerp(1, splashFalloff, d / splashRadius);

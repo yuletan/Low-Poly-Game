@@ -314,11 +314,13 @@ export class Unit {
     if (this.hp <= 0) this.hp = 0;
     this._displayHp = this.hp;
 
-    // Hit flash
+    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE
     if (!this._hitFlashOrig) {
       this.mesh.traverse(c => {
-        if (c.material?.color && c.userData.origColor === undefined)
+        if (c.material?.color && c.userData.origColor === undefined) {
           c.userData.origColor = c.material.color.getHex();
+          c.material = c.material.clone();
+        }
       });
       this._hitFlashOrig = true;
     }
@@ -481,7 +483,7 @@ export class Unit {
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
-      if (this.domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) {
+      if (this.domain === 'sea' && terrain !== TERRAIN.SEA) {
         this._pushToValidTerrain('sea');
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
         this._pushToValidTerrain('land');
@@ -799,6 +801,8 @@ export class Unit {
 
       if ((isFull || timedOut) && this.carriedUnits.length > 0) {
         console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
+        // Save disembark data before any moveTo() might clear _transportData
+        const disembarkPt = this._transportData?.disembarkPoint?.clone();
         // Use the pre-calculated sea path directly (no recalc, no smoothing)
         const sailPath = this._transportData?.segments?.sail;
         if (sailPath && sailPath.length > 0) {
@@ -808,7 +812,7 @@ export class Unit {
         } else if (this._transportData?.shipDisembarkPoint) {
           this.moveTo(this._transportData.shipDisembarkPoint.clone());
         }
-        this._disembarkPoint = this._transportData?.disembarkPoint?.clone();
+        this._disembarkPoint = disembarkPt;
         this._assignedEmbarkPoint = null;
 
         // Unclaim any troops that didn't make it
@@ -1061,8 +1065,8 @@ export class Unit {
     if (dist < 2) {
       this.moveTarget = this.path.length > 0 ? this.path.shift() : null;
       if (!this.moveTarget) {
-        // Check if we finished walking to embark point — need transport
-        if (this._transportData && this._transportData.needsTransport && this._transportData.segments) {
+        // Check if we finished walking to embark point — need transport (land units only, not ships)
+        if (!this.isTransport && this._transportData && this._transportData.needsTransport && this._transportData.segments) {
           this.state = 'waitingForTransport';
           this._transportData._phase = 'waiting';
           console.log(`[DEBUG TRANSPORT] ${this.type} reached embark point, waiting for transport`);
@@ -1095,7 +1099,7 @@ export class Unit {
 
   canEnter(terrain) {
     if (this.domain === 'air')  return true;
-    if (this.domain === 'sea')  return terrain === TERRAIN.SEA || terrain === TERRAIN.COAST;
+    if (this.domain === 'sea')  return terrain === TERRAIN.SEA;
     if (this.domain === 'land') return terrain === TERRAIN.LAND || terrain === TERRAIN.COAST;
     return true;
   }
@@ -1489,12 +1493,14 @@ export class Unit {
         console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${targetTransport.carriedUnits.length}/${targetTransport.transportCapacity})`);
         return;
       } else {
-        // Move toward the transport's embark point
+        // Move toward the ship without clearing _transportData
+        const saved = this._transportData;
         if (targetTransport._assignedEmbarkPoint) {
           this.moveTo(targetTransport._assignedEmbarkPoint.clone());
-        } else if (this._transportData && this._transportData.shipEmbarkPoint) {
-          this.moveTo(this._transportData.shipEmbarkPoint.clone());
+        } else if (saved && saved.shipEmbarkPoint) {
+          this.moveTo(saved.shipEmbarkPoint.clone());
         }
+        this._transportData = saved;
         return;
       }
     }
@@ -1657,11 +1663,11 @@ export class Unit {
     }
   }
 
-  /** Destroyer unique: Flak cloud vs air units in radius */
+  /** Destroyer unique: Flak cloud vs enemy air units in radius */
   _fireFlak(muzzlePos) {
     const flakRadius = 25;
-    const allUnits = [...this.game.playerUnits, ...this.game.enemyUnits];
-    for (const unit of allUnits) {
+    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+    for (const unit of enemies) {
       if (!unit.alive || unit.domain !== 'air') continue;
       const d = unit.mesh.position.distanceTo(this.mesh.position);
       if (d <= flakRadius) {
@@ -2071,7 +2077,7 @@ export class Game {
       );
     }
     const validTerrains = domain === 'sea'
-      ? [TERRAIN.SEA, TERRAIN.COAST]
+      ? [TERRAIN.SEA]
       : [TERRAIN.LAND, TERRAIN.COAST];
     for (let radius = 15; radius <= 200; radius += 8) {
       for (let i = 0; i < 16; i++) {
@@ -2278,7 +2284,7 @@ export class Game {
     if (domain !== 'air') {
       const terrain = this.terrain.getTerrainAt(x, z);
       const validTerrains = domain === 'sea'
-        ? [TERRAIN.SEA, TERRAIN.COAST]
+        ? [TERRAIN.SEA]
         : [TERRAIN.LAND, TERRAIN.COAST];
       if (!validTerrains.includes(terrain)) {
         console.log(`[DEBUG] isValidPlacement: WRONG TERRAIN "${terrain}" at (${x.toFixed(1)}, ${z.toFixed(1)}) for domain "${domain}"`);
@@ -2518,10 +2524,10 @@ export class Game {
     for (const faction of ['player', 'enemy']) {
       const units = faction === 'player' ? this.playerUnits : this.enemyUnits;
 
-      // 1. Count unclaimed waiting troops
+      // 1. Count unclaimed waiting troops (exclude transports)
       let waitingCount = 0;
       for (const u of units) {
-        if (u.alive && u.state === 'waitingForTransport' && !u._claimedByShip) waitingCount++;
+        if (u.alive && !u.isTransport && u.domain === 'land' && u.state === 'waitingForTransport' && !u._claimedByShip) waitingCount++;
       }
 
       if (waitingCount > 0) {
@@ -2634,6 +2640,21 @@ export class Game {
         a.mesh.position.z -= nz * push;
         b.mesh.position.x += nx * push;
         b.mesh.position.z += nz * push;
+      }
+    }
+    // Validate sea units didn't get pushed onto land by collision
+    for (const u of units) {
+      if (!u.alive || u.domain !== 'sea' || u._amphibious) continue;
+      const t = this.terrain.getTerrainAt(u.mesh.position.x, u.mesh.position.z);
+      if (t !== TERRAIN.SEA) {
+        const gx = Math.floor((u.mesh.position.x + MAP_SIZE / 2) / 12);
+        const gy = Math.floor((u.mesh.position.z + MAP_SIZE / 2) / 12);
+        const nearest = this.pathfinder.findNearestWalkable(gx, gy, 'sea');
+        if (nearest) {
+          const w = this.pathfinder.gridToWorld(nearest.gx, nearest.gy);
+          u.mesh.position.x = w.x;
+          u.mesh.position.z = w.z;
+        }
       }
     }
   }

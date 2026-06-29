@@ -177,6 +177,8 @@ canvas { display:block; }
   max-width: 280px;
 }
 .unit-tooltip.visible { opacity: 1; transform: translateY(0); }
+.unit-tooltip.enemy { border-color: #f44; }
+.unit-tooltip.enemy strong { color: #f66; }
 .unit-tooltip strong { color: #4af; font-size: 12px; }
 .unit-tooltip .domain-badge {
   display: inline-block;

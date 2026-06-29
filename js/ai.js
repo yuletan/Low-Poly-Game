@@ -31,7 +31,7 @@ export function initAI(game) {
   }
 
   function findNonOverlappingSpawn(base, domain) {
-    const validTerrains = domain === 'sea' ? [TERRAIN.SEA, TERRAIN.COAST] : [TERRAIN.LAND, TERRAIN.COAST];
+    const validTerrains = domain === 'sea' ? [TERRAIN.SEA] : [TERRAIN.LAND, TERRAIN.COAST];
     for (let radius = 15; radius <= 400; radius += 8) {
       for (let i = 0; i < 24; i++) {
         const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
@@ -355,40 +355,38 @@ export function initAI(game) {
       const income = 12 * ownedBases * cfg.aiIncome;
       aiMoney += income;
 
-      // Decision: attack probability = alive combat units / maxAttackGroup
+      // Always spawn units every tick so the army keeps growing
+      for (let i = 0; i < maxSpawnsPerSecond; i++) {
+        const desiredType = chooseUnitToBuild();
+        const stats = UNIT_TYPES[desiredType];
+        // Stationary defenses (speed===0) are free for AI
+        const cost = stats.speed === 0 ? 0 : stats.cost;
+        if (aiMoney < cost) continue;
+        if (spawnEnemyUnit(desiredType)) {
+          aiMoney -= cost;
+        }
+      }
+
+      // Place stationary defenses near each base (free, capped per base)
+      if (Math.random() < 0.2) {
+        const owned = game.bases.filter(b => b.faction === 'enemy');
+        for (const base of owned) {
+          const existing = game.enemyUnits.filter(u =>
+            u.alive && u.stats.speed === 0 &&
+            u.mesh.position.distanceTo(base.mesh.position) < 80
+          ).length;
+          const maxDef = game.difficulty === 'hard' ? 10 : 5;
+          if (existing >= maxDef) continue;
+          const defType = Math.random() < 0.5 ? 'missileDefense' : 'coastal';
+          spawnEnemyUnit(defType, base);
+        }
+      }
+
+      // Separately decide whether to launch an attack
       const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
       const attackChance = Math.min(1, totalCombat / cfg.maxAttackGroup);
-
       if (Math.random() < attackChance) {
         launchAttack();
-      } else {
-        // Spawn up to maxSpawnsPerSecond units this tick
-        for (let i = 0; i < maxSpawnsPerSecond; i++) {
-          const desiredType = chooseUnitToBuild();
-          const stats = UNIT_TYPES[desiredType];
-          // Stationary defenses (speed===0) are free for AI
-          const cost = stats.speed === 0 ? 0 : stats.cost;
-          if (aiMoney < cost) continue;
-          if (spawnEnemyUnit(desiredType)) {
-            aiMoney -= cost;
-          }
-        }
-
-        // Place stationary defenses near each base (free, capped per base)
-        if (Math.random() < 0.2) {
-          const owned = game.bases.filter(b => b.faction === 'enemy');
-          for (const base of owned) {
-            // Count existing defenses near this base
-            const existing = game.enemyUnits.filter(u =>
-              u.alive && u.stats.speed === 0 &&
-              u.mesh.position.distanceTo(base.mesh.position) < 80
-            ).length;
-            const maxDef = game.difficulty === 'hard' ? 10 : 5;
-            if (existing >= maxDef) continue;
-            const defType = Math.random() < 0.5 ? 'missileDefense' : 'coastal';
-            spawnEnemyUnit(defType, base);
-          }
-        }
       }
 
       // Build-up warning check
