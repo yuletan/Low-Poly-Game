@@ -783,19 +783,22 @@ export class Unit {
       return;
     }
 
-    // Returning: fly back to carrier
+    // Returning: fly back to carrier and disappear
     if (state === 'returning' || this.mesh.userData.returning) {
       this.mesh.userData.returning = true;
       const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
       if (dToCarrier < 10) {
-        this.hp = this.maxHp;
-        this._displayHp = this.hp;
-        this.mesh.userData.returning = false;
-        this.mesh.userData.fighterState = 'deploying';
-        this.target = null;
-        this._pursueTarget = null;
-        this.state = 'idle';
-        console.log(`[DEBUG FIGHTER] Returned to carrier, fully repaired`);
+        this.alive = false;
+        this.game.scene.remove(this.mesh);
+        this._removePathLine();
+        if (this._rangeRing) {
+          this.game.scene.remove(this._rangeRing);
+          this._rangeRing.geometry.dispose();
+          this._rangeRing.material.dispose();
+          this._rangeRing = null;
+        }
+        this.game.selectedUnits = this.game.selectedUnits.filter(u => u.alive);
+        console.log(`[DEBUG FIGHTER] Returned to carrier, removed`);
       }
       return;
     }
