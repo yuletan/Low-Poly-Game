@@ -2606,7 +2606,7 @@ export class Game {
         }
 
         // 3. Spawn ships until we have enough (1 per 4 troops)
-        const neededShips = Math.ceil(waitingCount / 4);
+        const neededShips = Math.ceil(waitingCount / UNIT_TYPES.transport.transportCapacity);
         if (activeShips < neededShips) {
           const cost = UNIT_TYPES.transport.cost;
           let money = faction === 'player' ? this.money : Infinity;

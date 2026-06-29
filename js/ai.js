@@ -9,7 +9,7 @@ export function initAI(game) {
   let economyTimer = 0;
   let aiMoney      = 200;
 
-  const SPAWN_RATES = { easy: 1, normal: 2, hard: 4 };
+  const SPAWN_RATES = { easy: 2, normal: 3, hard: 6 };
   const maxSpawnsPerSecond = SPAWN_RATES[game.difficulty] || 1;
 
   const recentSpawns = [];
@@ -136,6 +136,27 @@ export function initAI(game) {
       u._displayHp = u.hp;
     }
     console.log(`[DEBUG AI] Spawned ${type} near ${base.name} at (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})`);
+
+    // Carrier escort: spawn 2 destroyers alongside if affordable
+    if (type === 'carrier') {
+      for (let i = 0; i < 2; i++) {
+        if (aiMoney >= UNIT_TYPES.destroyer.cost) {
+          const escPos = findNonOverlappingSpawn(base, 'sea');
+          if (escPos) {
+            recordSpawn(escPos);
+            const esc = game.spawn('destroyer', 'enemy', escPos);
+            if (cfg.hpMultiplier > 1) {
+              esc.maxHp = Math.round(esc.maxHp * cfg.hpMultiplier);
+              esc.hp = esc.maxHp;
+              esc._displayHp = esc.hp;
+            }
+            aiMoney -= UNIT_TYPES.destroyer.cost;
+            console.log(`[DEBUG AI] Spawned destroyer escort near ${base.name}`);
+          }
+        }
+      }
+    }
+
     return true;
   }
 
@@ -339,13 +360,17 @@ export function initAI(game) {
   };
 
   // ===== Hook the AI into the game's update loop =====
+  const ATTACK_GROUP_TARGET = { easy: 8, normal: 15, hard: 30 };
+  const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
+  let attackCooldown = 0;
+
   game.onAITick = function (dt) {
     if (game.ended) return;
 
     // --- Defense ticks every frame (cheap) ---
     defenseTick();
 
-    // --- Unified 1-second tick: income + spawn-vs-attack ---
+    // --- Unified 1-second tick: income + spawn + attack ---
     economyTimer += dt;
     if (economyTimer >= 1) {
       economyTimer = 0;
@@ -382,11 +407,26 @@ export function initAI(game) {
         }
       }
 
-      // Separately decide whether to launch an attack
+      // Rally-then-attack: build up to groupTarget before launching a wave
       const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
-      const attackChance = Math.min(1, totalCombat / cfg.maxAttackGroup);
-      if (Math.random() < attackChance) {
+      attackCooldown += 1;
+
+      const shouldAttack = totalCombat >= groupTarget || (totalCombat >= 4 && attackCooldown >= 10);
+      if (shouldAttack && totalCombat >= 1) {
         launchAttack();
+        attackCooldown = 0;
+      }
+
+      // Proactive transport: ensure at least 1 transport exists when AI has 2+ bases
+      const aiTransports = game.enemyUnits.filter(u => u.alive && u.isTransport);
+      if (aiTransports.length === 0 && ownedBases > 1) {
+        const bases = game.bases.filter(b => b.faction === 'enemy' && b.alive);
+        const base = bases[Math.floor(Math.random() * bases.length)];
+        const pos = game.findValidSpawn(base.mesh.position, 'sea');
+        if (pos) {
+          game.spawn('transport', 'enemy', pos);
+          console.log(`[DEBUG AI] Proactive transport spawn at ${base.name}`);
+        }
       }
 
       // Build-up warning check
