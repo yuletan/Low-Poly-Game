@@ -747,27 +747,20 @@ export class Unit {
     // Deploying: fly toward nearest enemy on the map
     if (state === 'deploying') {
       if (nearestEnemy) {
-        // Move toward the nearest enemy (will enter pursue/attack via standard system)
-        if (nearestDist > this.stats.range) {
-          this.mesh.userData.returning = false;
-          this.target = nearestEnemy;
-          this.state = 'pursuing';
-        } else {
-          this.target = nearestEnemy;
-          this.state = 'attacking';
-        }
+        this.mesh.userData.returning = false;
+        this.target = nearestEnemy;
+        this._pursueTarget = nearestEnemy;
+        this.state = 'pursuing';
       } else {
-        // No enemies on map — just idle near carrier
         this.state = 'idle';
       }
       return;
     }
 
-    // Engaging: standard combat is handling this via findTarget/pursue/attack
+    // Engaging: standard combat handles this via findTarget/pursue/attack
     // Just check if we should return (no more enemies)
     if (state === 'engaging') {
       if (!nearestEnemy) {
-        // All enemies dead — return to carrier
         this.mesh.userData.fighterState = 'returning';
         this.mesh.userData.returning = true;
         this.target = null;
@@ -775,7 +768,6 @@ export class Unit {
         this.moveTo(carrier.mesh.position.clone());
         return;
       }
-      // If target died and findTarget hasn't picked a new one, return
       if (!this.target || !this.target.alive) {
         this.target = null;
         this._pursueTarget = null;
@@ -791,7 +783,6 @@ export class Unit {
       this.mesh.userData.returning = true;
       const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
       if (dToCarrier < 10) {
-        // Arrived — fully repair and go back to deploying
         this.hp = this.maxHp;
         this._displayHp = this.hp;
         this.mesh.userData.returning = false;
