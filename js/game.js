@@ -1775,10 +1775,9 @@ export class Unit {
 
     if (targetTransport) {
       const d = this.mesh.position.distanceTo(targetTransport.mesh.position);
-      const loadRange = 14; // slightly more than canLoadUnit's 12 to account for positioning
+      const loadRange = 14;
       
       if (d <= loadRange) {
-        // Close enough to board
         targetTransport.loadUnit(this);
         if (!targetTransport._transportData) {
           targetTransport._transportData = this._transportData;
@@ -1787,14 +1786,17 @@ export class Unit {
         console.log(`[DEBUG TRANSPORT] ${this.type} boarded transport (${targetTransport.carriedUnits.length}/${targetTransport.transportCapacity})`);
         return;
       } else {
-        // Move toward the ship without clearing _transportData
-        const saved = this._transportData;
-        if (targetTransport._assignedEmbarkPoint) {
-          this.moveTo(targetTransport._assignedEmbarkPoint.clone());
-        } else if (saved && saved.shipEmbarkPoint) {
-          this.moveTo(saved.shipEmbarkPoint.clone());
+        // Only move if not already near the embark point
+        const embarkPos = targetTransport._assignedEmbarkPoint || this._transportData?.shipEmbarkPoint;
+        if (embarkPos) {
+          const distToEmbark = this._dist2d(embarkPos);
+          if (distToEmbark > 5) {
+            const saved = this._transportData;
+            this.moveTo(embarkPos.clone());
+            this._transportData = saved;
+            this.state = 'waitingForTransport';
+          }
         }
-        this._transportData = saved;
         return;
       }
     }
