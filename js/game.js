@@ -867,20 +867,50 @@ export class Unit {
 
     // Phase 3: Arrived at disembark point, unloading troops
     if (this._disembarkPoint && this.carriedUnits.length > 0 && this.path.length === 0) {
+      // Find nearest land tile for landing zone
+      const g = this.game.pathfinder.worldToGrid(this._disembarkPoint.x, this._disembarkPoint.z);
+      const landing = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
+      let landingPos;
+      if (landing) {
+        const w = this.game.pathfinder.gridToWorld(landing.gx, landing.gy);
+        landingPos = new THREE.Vector3(w.x, 0, w.z);
+      } else {
+        landingPos = this._disembarkPoint.clone();
+      }
+
+      // Manually unload each unit
       const units = [...this.carriedUnits];
-      this.unloadAll();
-      for (const u of units) {
-        if (u.alive && u._transportData && u._transportData.segments) {
+      this.carriedUnits = [];
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        if (!u.alive) continue;
+        u.carried = false;
+        u.mesh.visible = true;
+        // Fan units around landing zone
+        const angle = (i / units.length) * Math.PI * 2;
+        const dist = 4 + Math.floor(i / 4) * 4;
+        u.mesh.position.set(
+          landingPos.x + Math.cos(angle) * dist,
+          LAND_HEIGHT + 0.5,
+          landingPos.z + Math.sin(angle) * dist
+        );
+        // Give units their walk-to-target path
+        if (u._transportData && u._transportData.segments && u._transportData.segments.walkToTarget) {
           u.path = u._transportData.segments.walkToTarget;
           if (u.path.length > 0) {
             u.moveTarget = u.path.shift();
             u.state = 'moving';
+          } else {
+            u.state = 'idle';
           }
-          u._transportData = null;
+        } else {
+          u.state = 'idle';
         }
+        u._transportData = null;
       }
       this._disembarkPoint = null;
       this._transportData = null;
+      this._assignedEmbarkPoint = null;
       this._retreatToFriendlyBase();
       return;
     }
