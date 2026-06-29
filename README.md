@@ -5,7 +5,7 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 ![Status](https://img.shields.io/badge/status-playable-brightgreen)
 ![Engine](https://img.shields.io/badge/engine-Three.js-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-![No Build Tools](https://img.shields.io/badge/build-none_required-success)
+![Mobile Ready](https://img.shields.io/badge/mobile-Android_ready-success)
 
 ---
 
@@ -37,24 +37,16 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- A modern browser (Chrome, Firefox, Edge, Safari)
-- A local web server (because ES modules require HTTP)
+### Web Browser (Development)
 
-### Run the Game
-
-**Option 1 — VS Code Live Server (recommended)**
-1. Install the **Live Server** extension
-2. Open the project folder
-3. Right-click `index.html` → **Open with Live Server**
-
-**Option 2 — Python (start script)**
+**Option 1 — Vite Dev Server (recommended)**
 ```bash
-python start
+npm install
+npm run dev
+# Opens http://localhost:5173 automatically
 ```
-Opens `http://localhost:8000` automatically in your browser.
 
-**Option 2b — Python (manual)**
+**Option 2 — Python (manual)**
 ```bash
 python -m http.server 8000
 # Open http://localhost:8000
@@ -64,7 +56,10 @@ python -m http.server 8000
 ```bash
 npx serve
 ```
-That's it — no build step, no npm install, no bundler. Three.js loads via an import map from a CDN.
+
+### Mobile (Android)
+
+See the [Mobile Build](#-mobile-build-android) section below.
 
 ---
 
@@ -114,15 +109,21 @@ Conquer all 6 enemy bases before the AI captures your Player HQ.
 ```
 rts-game/
 ├── index.html              # UI overlays & Three.js mount point
-├── styles.css              # All styling
+├── styles.css              # All styling (mobile touch-action, safe areas)
+├── package.json            # npm project + Vite + Capacitor dependencies
+├── vite.config.js          # Bundles Three.js locally for mobile
+├── capacitor.config.ts     # Capacitor Android configuration
+├── dist/                   # Built web assets (served to Capacitor)
+│   ├── index.html
+│   └── assets/
 ├── js/
-│   ├── main.js             # Bootstrap, render loop, camera
+│   ├── main.js             # Bootstrap, render loop, camera (mobile DPR handling)
 │   ├── game.js             # Game class, Unit class, Base class
 │   ├── config.js           # All balance numbers & constants
 │   ├── terrain.js          # Map generation
-│   ├── unitFactory.js      # Low-poly 3D mesh builders
+│   ├── unitFactory.js      # Low-poly 3D mesh builders (cached geometries/materials)
 │   ├── combat.js           # Projectiles, RNG, explosions
-│   ├── input.js            # Mouse selection & commands
+│   ├── input.js            # Mouse + Touch controls (tap/drag/pinch/long-press)
 │   ├── ai.js               # Enemy AI controller
 │   ├── ui.js               # HTML overlay binding
 │   ├── minimap.js          # 2D tactical map
@@ -131,8 +132,50 @@ rts-game/
 │   ├── sound.js            # Web Audio synthesis
 │   ├── pathfinder.js       # A* pathfinding
 │   └── saveLoad.js         # localStorage persistence
+├── android/                # Capacitor Android project (auto-generated)
 └── README.md
 ```
+
+---
+
+## 📱 Mobile Build (Android)
+
+### Prerequisites
+- Node.js 18+
+- Android Studio with Android SDK
+- Java JDK 17+
+
+### Setup Commands
+```bash
+# Install dependencies
+npm install
+
+# Initialize Capacitor (if not already done)
+npx cap init
+
+# Add Android platform
+npx cap add android
+
+# Build and sync to Android
+npm run cap:sync
+
+# Open in Android Studio
+npx cap open android
+```
+
+### Development Mode
+```bash
+# Run Vite dev server
+npm run dev
+
+# In another terminal, watch for changes and sync
+npx cap sync android
+```
+
+### Building APK
+1. Open `android/` in Android Studio
+2. Build → Build Bundle(s) / APK(s) → Build APK(s)
+3. APK located at `android/app/build/outputs/apk/debug/app-debug.apk`
 
 ---
 
@@ -155,6 +198,11 @@ rts-game/
 ---
 
 ## 🛠️ Technical Highlights
+
+### Build System
+- **Vite** — Fast ESBuild-based bundler for development and production
+- **Capacitor** — Native Android wrapper with WebView
+- **Three.js** — Loaded as npm dependency (no CDN imports)
 
 ### Performance
 - Single A* grid (100×100 cells) precomputed at game start
@@ -247,4 +295,6 @@ MIT License — free to use, modify, and distribute.
 
 ## 🙏 Credits
 - Three.js — 3D rendering engine (threejs.org)
-- Built entirely with vanilla JavaScript ES Modules — no React, no Vue, no bundler
+- Vite — Build tool and dev server (vitejs.dev)
+- Capacitor — Cross-platform native runtime (capacitorjs.com)
+- Built with vanilla JavaScript ES Modules — no React, no Vue
