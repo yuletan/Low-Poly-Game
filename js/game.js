@@ -34,6 +34,7 @@ export class Unit {
     this.cooldown = 0;
     this.alive    = true;
     this.selected = false;
+    this._manualTarget = false;
 
     // Engagement range: invisible awareness range beyond attack range
     this.engageRange = this.stats.range * ENGAGE_RANGE_MULT;
@@ -267,9 +268,24 @@ export class Unit {
           else { this.state = 'idle'; return; }
         }
       } else {
-        // No path at all — try direct movement
-        this.path = [];
-        this.moveTarget = targetPos.clone();
+        // No path — try to find nearest walkable point near target and path to that
+        const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+        const near = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
+        if (near) {
+          const w = this.game.pathfinder.gridToWorld(near.gx, near.gy);
+          const fallback = new THREE.Vector3(w.x, 0, w.z);
+          const retry = this.game.pathfinder.findPath(this.mesh.position, fallback, 'land');
+          if (retry && retry.length > 0) {
+            this.path = retry;
+            this.moveTarget = this.path.shift();
+          } else {
+            this.path = [];
+            this.moveTarget = fallback;
+          }
+        } else {
+          this.path = [];
+          this.moveTarget = targetPos.clone();
+        }
       }
     } else {
       // Sea units: standard pathfinding
@@ -278,8 +294,24 @@ export class Unit {
         this.path = path;
         this.moveTarget = this.path.shift();
       } else {
-        this.path = [];
-        this.moveTarget = targetPos.clone();
+        // No path — try nearest walkable sea cell near target
+        const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
+        const near = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+        if (near) {
+          const w = this.game.pathfinder.gridToWorld(near.gx, near.gy);
+          const fallback = new THREE.Vector3(w.x, 0, w.z);
+          const retry = this.game.pathfinder.findPath(this.mesh.position, fallback, 'sea');
+          if (retry && retry.length > 0) {
+            this.path = retry;
+            this.moveTarget = this.path.shift();
+          } else {
+            this.path = [];
+            this.moveTarget = fallback;
+          }
+        } else {
+          this.path = [];
+          this.moveTarget = targetPos.clone();
+        }
       }
     }
     this.state = 'moving';
@@ -288,6 +320,7 @@ export class Unit {
   attack(enemy) {
     console.log(`[DEBUG UNIT] ${this.type} (${this.faction}) attacking ${enemy.type || 'base'}`);
     this.target = enemy;
+    this._manualTarget = true;
     this.state  = 'attacking';
   }
 
@@ -1111,6 +1144,9 @@ export class Unit {
     // Don't override a valid active attack
     if (this.target && this.target.alive && this.state === 'attacking') return;
 
+    // Don't override a manually-issued attack command
+    if (this._manualTarget && this.target && this.target.alive) return;
+
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     const airOnly = !!this.stats.airOnly;
     const baseOnly = !!this.stats.baseOnly;
@@ -1237,6 +1273,7 @@ export class Unit {
   updateAttack(dt) {
     if (!this.target || !this.target.alive) {
       this.target = null;
+      this._manualTarget = false;
       // Resume original movement if we had one
       if (this._resumePath || this._resumeTarget) {
         this.path = this._resumePath || [];
@@ -1264,6 +1301,7 @@ export class Unit {
     // Base captured (faction changed) — release target
     if (this.target.faction && this.target.faction === this.faction) {
       this.target = null;
+      this._manualTarget = false;
       // Resume original movement
       if (this._resumePath || this._resumeTarget) {
         this.path = this._resumePath || [];
@@ -1427,15 +1465,43 @@ export class Unit {
       if (this.cooldown <= 0) this.fire();
     }
 
-    // Move toward target
+    // Move toward target — use pathfinding for ground units, straight line for air
     const dx = targetPos.x - this.mesh.position.x;
     const dz = targetPos.z - this.mesh.position.z;
-    const step = this.stats.speed * dt;
-    if (dist > step) {
-      this.mesh.position.x += (dx / dist) * step;
-      this.mesh.position.z += (dz / dist) * step;
-    }
     const targetAngle = Math.atan2(dx, dz);
+
+    if (this.domain === 'air') {
+      const step = this.stats.speed * dt;
+      if (dist > step) {
+        this.mesh.position.x += (dx / dist) * step;
+        this.mesh.position.z += (dz / dist) * step;
+      }
+    } else {
+      // Ground/sea: use pathfinding to avoid obstacles, but only re-path periodically
+      this._pursuePathTimer = (this._pursuePathTimer || 0) + dt;
+      if (!this._pursuePath || this._pursuePath.length === 0 || this._pursuePathTimer > 1.0) {
+        this._pursuePathTimer = 0;
+        this._pursuePath = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain) || [];
+      }
+      if (this._pursuePath && this._pursuePath.length > 0) {
+        const wp = this._pursuePath[0];
+        const wpDist = Math.hypot(wp.x - this.mesh.position.x, wp.z - this.mesh.position.z);
+        if (wpDist < 2) {
+          this._pursuePath.shift();
+        } else {
+          const step = this.stats.speed * dt;
+          this.mesh.position.x += ((wp.x - this.mesh.position.x) / wpDist) * step;
+          this.mesh.position.z += ((wp.z - this.mesh.position.z) / wpDist) * step;
+        }
+      } else {
+        // Fallback: direct movement
+        const step = this.stats.speed * dt;
+        if (dist > step) {
+          this.mesh.position.x += (dx / dist) * step;
+          this.mesh.position.z += (dz / dist) * step;
+        }
+      }
+    }
     this.smoothRotate(targetAngle, dt);
 
     // Air units: maintain altitude and bank on turns
