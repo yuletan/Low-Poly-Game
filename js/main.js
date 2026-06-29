@@ -14,20 +14,28 @@ scene.fog = new THREE.Fog(0x87b8e8, 400, 1000);
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2500);
 camera.position.set(0, 150, 150);
 camera.lookAt(0, 0, 0);
+camera.userData.height = 150;
+camera.userData.distance = 150;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// Detect mobile for performance tuning
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: !isMobile,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.shadowMap.enabled = !isMobile;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('gameCanvas').appendChild(renderer.domElement);
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffffff, 0.9);
 sun.position.set(300, 400, 200);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.castShadow = !isMobile;
+sun.shadow.mapSize.set(isMobile ? 512 : 2048, isMobile ? 512 : 2048);
 sun.shadow.camera.left = -600; sun.shadow.camera.right = 600;
 sun.shadow.camera.top  =  600; sun.shadow.camera.bottom = -600;
 scene.add(sun);
@@ -53,21 +61,39 @@ function updateCamera(dt) {
   cameraTarget.x = THREE.MathUtils.clamp(cameraTarget.x, -MAP_SIZE/2, MAP_SIZE/2);
   cameraTarget.z = THREE.MathUtils.clamp(cameraTarget.z, -MAP_SIZE/2, MAP_SIZE/2);
 
+  const height = camera.userData.height ?? 150;
+  const distance = camera.userData.distance ?? height;
+
   camera.position.x = cameraTarget.x;
-  camera.position.z = cameraTarget.z + 150;
-  camera.position.y = 150;
+  camera.position.z = cameraTarget.z + distance;
+  camera.position.y = height;
   camera.lookAt(cameraTarget.x, 0, cameraTarget.z);
 }
 
 // Mouse wheel zoom
 window.addEventListener('wheel', e => {
-  camera.position.y = THREE.MathUtils.clamp(camera.position.y + e.deltaY * 0.3, 60, 400);
-});
+  camera.userData.height = THREE.MathUtils.clamp(
+    (camera.userData.height ?? 150) + e.deltaY * 0.3,
+    60,
+    400
+  );
+  camera.userData.distance = camera.userData.height;
+}, { passive: true });
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function resizeRenderer() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+
+  camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
+  renderer.setSize(width, height, false);
+}
+
+window.addEventListener('resize', resizeRenderer);
+window.addEventListener('orientationchange', () => {
+  setTimeout(resizeRenderer, 250);
 });
 
 // === Start menu wiring ===

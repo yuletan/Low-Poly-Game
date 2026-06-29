@@ -315,12 +315,18 @@ function createUnitButton(key, hotkey, game) {
 function createUpgradeButton(stat, game, upgradeDiv) {
   const def = UPGRADES[stat];
   const row = document.createElement('button');
+
   row.className = 'unitBtn upgradeBtn';
   row.dataset.stat = stat;
+
   upgradeDiv.appendChild(row);
+
   row.addEventListener('click', () => {
-    if (game.upgrades.upgrade(stat)) refreshUpgradeButtons();
+    if (game.upgrades.upgrade(stat)) {
+      refreshUpgradeButtons(game, upgradeDiv);
+    }
   });
+
   return row;
 }
 
