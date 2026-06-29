@@ -458,9 +458,15 @@ export class Unit {
       this._tryCaptureBase(dt);
     }
 
-    // Periodic auto-target scan: always scan for targets
-    if (this.state === 'idle' || this.state === 'pursuing' || this.state === 'moving') {
+    // Periodic auto-target scan: active units scan every frame, idle units throttle to 0.5s
+    if (this.state === 'pursuing' || this.state === 'moving') {
       this.findTarget();
+    } else if (this.state === 'idle') {
+      this._idleScanTimer = (this._idleScanTimer || 0) + dt;
+      if (this._idleScanTimer >= 0.5) {
+        this._idleScanTimer = 0;
+        this.findTarget();
+      }
     }
     this._targetScanTimer += dt;
     if (this._targetScanTimer >= 2) {
@@ -1024,12 +1030,11 @@ export class Unit {
     const nearest = this.game.pathfinder.findNearestWalkable(gx, gy, domain);
     if (nearest) {
       const world = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-      // Teleport to valid position
-      this.mesh.position.set(world.x, 0, world.z);
-      // Rotate 90 degrees to face away from land
-      const angle = Math.random() * Math.PI * 2;
-      this.mesh.rotation.y = angle;
-      // Clear current movement and recalculate path to existing destination
+      // Set correct Y position for domain
+      const y = domain === 'sea' ? 0.3 : (LAND_HEIGHT + 0.5);
+      this.mesh.position.set(world.x, y, world.z);
+      // Don't change rotation — keep current facing direction
+      // Recalculate path if unit was actively moving
       if (this.attackMoveDest && this.state !== 'idle') {
         this.moveTo(this.attackMoveDest, this.attackMove);
       }
@@ -2730,7 +2735,8 @@ export class Game {
         const minDist = (a.domain === 'sea' || b.domain === 'sea') ? 6 : 3.5;
         if (dist >= minDist || dist < 0.01) continue;
         const overlap = minDist - dist;
-        const push = overlap * 0.3;
+        if (overlap < 0.5) continue;
+        const push = overlap * 0.5;
         const nx = dx / dist, nz = dz / dist;
         a.mesh.position.x -= nx * push;
         a.mesh.position.z -= nz * push;
@@ -2750,6 +2756,18 @@ export class Game {
           const w = this.pathfinder.gridToWorld(nearest.gx, nearest.gy);
           u.mesh.position.x = w.x;
           u.mesh.position.z = w.z;
+          // Push nearby units away to prevent re-overlap
+          for (const other of units) {
+            if (!other.alive || other === u) continue;
+            const odx = other.mesh.position.x - u.mesh.position.x;
+            const odz = other.mesh.position.z - u.mesh.position.z;
+            const odist = Math.hypot(odx, odz);
+            if (odist < 6 && odist > 0.01) {
+              const pushAway = (6 - odist) * 0.5;
+              other.mesh.position.x += (odx / odist) * pushAway;
+              other.mesh.position.z += (odz / odist) * pushAway;
+            }
+          }
         }
       }
     }
