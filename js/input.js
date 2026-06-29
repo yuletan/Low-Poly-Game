@@ -558,9 +558,90 @@ export function initInput(game, camera, renderer) {
     }
   });
 
+  // ===== Touch Controls for Mobile =====
+  let touchStartX, touchStartY;
+  let lastTouchDistance = null;
+  let longPressTimer = null;
+  const LONG_PRESS_MS = 500;
+
+  function getTouchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function fireMouseEvent(type, x, y) {
+    const evt = new MouseEvent(type, {
+      clientX: x, clientY: y, bubbles: true
+    });
+    canvas.dispatchEvent(evt);
+  }
+
+  function panCameraByDelta(dx, dy) {
+    const speed = 0.5;
+    cameraTarget.x += dx * speed;
+    cameraTarget.z -= dy * speed;
+    cameraTarget.x = THREE.MathUtils.clamp(cameraTarget.x, -MAP_SIZE/2, MAP_SIZE/2);
+    cameraTarget.z = THREE.MathUtils.clamp(cameraTarget.z, -MAP_SIZE/2, MAP_SIZE/2);
+  }
+
+  function zoomCamera(delta) {
+    camera.position.y = THREE.MathUtils.clamp(camera.position.y + delta, 60, 400);
+  }
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+
+      longPressTimer = setTimeout(() => {
+        fireMouseEvent('contextmenu', t.clientX, t.clientY);
+        longPressTimer = null;
+      }, LONG_PRESS_MS);
+
+    } else if (e.touches.length === 2) {
+      clearTimeout(longPressTimer);
+      lastTouchDistance = getTouchDistance(e.touches);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    clearTimeout(longPressTimer);
+
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+
+      panCameraByDelta(dx, dy);
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+
+    } else if (e.touches.length === 2) {
+      const dist = getTouchDistance(e.touches);
+      const delta = lastTouchDistance - dist;
+      zoomCamera(delta * 0.1);
+      lastTouchDistance = dist;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      fireMouseEvent('click', touchStartX, touchStartY);
+    }
+    lastTouchDistance = null;
+  }, { passive: false });
+
   // Expose selection UI updater and renderer so the game can refresh / project
   game.updateSelectionUI = updateSelectionUI;
   game.renderer = renderer;
 
-  console.log('✅ Input system online — LMB select/drag, RMB move/attack.');
+  console.log('✅ Input system online — LMB select/drag, RMB move/attack, touch enabled.');
 }

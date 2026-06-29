@@ -1,1 +1,21 @@
-(js/unitFactory.js is a source file, and there are no build artifacts, dependencies, or temp files in the changes)
+```
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# Environment variables
+.env*
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Package lock
+package-lock.json
+
+```
