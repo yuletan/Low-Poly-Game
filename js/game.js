@@ -387,6 +387,18 @@ export class Unit {
       }
     }
     this.carriedUnits = [];
+    // Fleet: release escorts from formation
+    if (this._fleetEscorts) {
+      for (const esc of this._fleetEscorts) {
+        if (esc.alive) {
+          esc._fleetCarrier = null;
+          esc._fleetOffset = null;
+          esc.state = 'idle';
+        }
+      }
+      this._fleetEscorts = null;
+      this._fleetFormation = false;
+    }
     // Create "OUT OF COMMISSION" label
     this._createDeathLabel();
     this.game.queueDeath(this);
@@ -473,6 +485,27 @@ export class Unit {
       }
     }
 
+    // CARRIER FLEET: escorts follow carrier in formation
+    if (this.type === 'carrier' && this._fleetFormation && this._fleetEscorts) {
+      for (const esc of this._fleetEscorts) {
+        if (!esc.alive || !esc._fleetOffset) continue;
+        const targetPos = new THREE.Vector3(
+          this.mesh.position.x + esc._fleetOffset.x,
+          0.3,
+          this.mesh.position.z + esc._fleetOffset.z
+        );
+        const dx = targetPos.x - esc.mesh.position.x;
+        const dz = targetPos.z - esc.mesh.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 3) {
+          const step = esc.stats.speed * dt;
+          esc.mesh.position.x += (dx / dist) * step;
+          esc.mesh.position.z += (dz / dist) * step;
+          esc.mesh.position.y = 0.3;
+        }
+      }
+    }
+
     // FIGHTER: Auto-return to carrier and manage lifecycle
     if (this.type === 'fighter' && this.mesh.userData.launchedFrom) {
       this._fighterAutoReturn(dt);
@@ -529,11 +562,28 @@ export class Unit {
       }
     }
 
+    // Fleet escorts: skip normal state machine, carrier controls movement
+    if (this._fleetCarrier && this._fleetCarrier.alive) {
+      // Fleet escorts auto-attack enemies in range but don't move independently
+      if (!this.target || !this.target.alive) {
+        this.findTarget();
+      }
+      if (this.target && this.target.alive) {
+        const d = this._dist2d(this.target.mesh.position);
+        if (d <= this.stats.range) {
+          this.state = 'attacking';
+        }
+      }
+      if (this.state === 'attacking' && this.target && this.target.alive) {
+        this.updateAttack(dt);
+      }
+    } else {
     switch (this.state) {
       case 'moving':    this.updateMove(dt); break;
       case 'attacking': this.updateAttack(dt); break;
       case 'pursuing':  this.updatePursue(dt); break;
       case 'waitingForTransport': this.updateWaitingForTransport(dt); break;
+    }
     }
 
     // Transport: sync carried units; skip combat
