@@ -488,23 +488,27 @@ export class Unit {
     }
 
     // Periodic auto-target scan: active units scan every frame, idle units throttle to 0.5s
-    if (this.state === 'pursuing' || this.state === 'moving') {
-      this.findTarget();
-    } else if (this.state === 'idle') {
-      this._idleScanTimer = (this._idleScanTimer || 0) + dt;
-      if (this._idleScanTimer >= 0.5) {
-        this._idleScanTimer = 0;
+    // Skip for returning carrier fighters
+    const isReturningCarrier = this.mesh.userData.launchedFrom && this.mesh.userData.returning;
+    if (!isReturningCarrier) {
+      if (this.state === 'pursuing' || this.state === 'moving') {
         this.findTarget();
+      } else if (this.state === 'idle') {
+        this._idleScanTimer = (this._idleScanTimer || 0) + dt;
+        if (this._idleScanTimer >= 0.5) {
+          this._idleScanTimer = 0;
+          this.findTarget();
+        }
       }
-    }
-    this._targetScanTimer += dt;
-    if (this._targetScanTimer >= 2) {
-      this._targetScanTimer = 0;
-      if (this.state !== 'dead') this.findTarget();
-    }
-    // Units that can fire while moving: run attack logic even in 'moving' or 'pursuing' state
-    if ((this.state === 'moving' || this.state === 'pursuing') && this.canFireWhileMoving && this.target) {
-      this.updateAttackWhileMoving(dt);
+      this._targetScanTimer += dt;
+      if (this._targetScanTimer >= 2) {
+        this._targetScanTimer = 0;
+        if (this.state !== 'dead') this.findTarget();
+      }
+      // Units that can fire while moving: run attack logic even in 'moving' or 'pursuing' state
+      if ((this.state === 'moving' || this.state === 'pursuing') && this.canFireWhileMoving && this.target) {
+        this.updateAttackWhileMoving(dt);
+      }
     }
 
     // Amphibious auto-conversion: land unit in water → boat, boat on land → land
