@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 import { Sound } from './sound.js';
-import { UNIT_TYPES, TERRAIN } from './config.js?v=4';
+import { UNIT_TYPES, TERRAIN, MAP_SIZE } from './config.js?v=4';
 
 // Canvas roundRect helper for icon generation
 function roundRect(ctx, x, y, w, h, r) {
@@ -452,6 +452,9 @@ export function initInput(game, camera, renderer) {
     }
   });
 
+  // Detect mobile for performance - disable expensive formation preview
+  const isMobile = matchMedia('(pointer: coarse)').matches;
+
   canvas.addEventListener('mousemove', e => {
     // Hover HP tooltip
     updateHoverTooltip(e);
@@ -485,7 +488,7 @@ export function initInput(game, camera, renderer) {
       const point = getGroundPoint(e);
       if (point) {
         updateGroundCursor(point);
-        updateFormationPreview(point);
+        if (!isMobile) updateFormationPreview(point);
       }
     }
   });
@@ -559,10 +562,17 @@ export function initInput(game, camera, renderer) {
   });
 
   // ===== Touch Controls for Mobile =====
-  let touchStartX, touchStartY;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
+  let touchMoved = false;
   let lastTouchDistance = null;
   let longPressTimer = null;
-  const LONG_PRESS_MS = 500;
+  let longPressFired = false;
+
+  const LONG_PRESS_MS = 450;
+  const TAP_MOVE_THRESHOLD = 10;
 
   function getTouchDistance(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -570,72 +580,134 @@ export function initInput(game, camera, renderer) {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  function fireMouseEvent(type, x, y) {
+  function fireMouseEvent(type, x, y, button = 0) {
     const evt = new MouseEvent(type, {
-      clientX: x, clientY: y, bubbles: true
+      clientX: x,
+      clientY: y,
+      button,
+      buttons: type === 'mousedown' ? 1 << button : 0,
+      bubbles: true,
+      cancelable: true,
+      view: window
     });
+
     canvas.dispatchEvent(evt);
   }
 
   function panCameraByDelta(dx, dy) {
     const speed = 0.5;
-    cameraTarget.x += dx * speed;
-    cameraTarget.z -= dy * speed;
-    cameraTarget.x = THREE.MathUtils.clamp(cameraTarget.x, -MAP_SIZE/2, MAP_SIZE/2);
-    cameraTarget.z = THREE.MathUtils.clamp(cameraTarget.z, -MAP_SIZE/2, MAP_SIZE/2);
+    const target = game.cameraTarget;
+
+    target.x -= dx * speed;
+    target.z -= dy * speed;
+
+    target.x = THREE.MathUtils.clamp(target.x, -MAP_SIZE / 2, MAP_SIZE / 2);
+    target.z = THREE.MathUtils.clamp(target.z, -MAP_SIZE / 2, MAP_SIZE / 2);
   }
 
   function zoomCamera(delta) {
-    camera.position.y = THREE.MathUtils.clamp(camera.position.y + delta, 60, 400);
+    camera.userData.height = THREE.MathUtils.clamp(
+      (camera.userData.height ?? camera.position.y) + delta,
+      60,
+      400
+    );
+
+    camera.userData.distance = camera.userData.height;
   }
 
-  canvas.addEventListener('touchstart', (e) => {
+  canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    
+
     if (e.touches.length === 1) {
       const t = e.touches[0];
+
       touchStartX = t.clientX;
       touchStartY = t.clientY;
+      lastTouchX = t.clientX;
+      lastTouchY = t.clientY;
+      touchMoved = false;
+      longPressFired = false;
+
+      clearTimeout(longPressTimer);
 
       longPressTimer = setTimeout(() => {
-        fireMouseEvent('contextmenu', t.clientX, t.clientY);
+        longPressFired = true;
+        clearTimeout(longPressTimer);
         longPressTimer = null;
-      }, LONG_PRESS_MS);
 
-    } else if (e.touches.length === 2) {
+        // Long press = right click command.
+        fireMouseEvent('mouseup', touchStartX, touchStartY, 2);
+      }, LONG_PRESS_MS);
+    }
+
+    if (e.touches.length === 2) {
       clearTimeout(longPressTimer);
+      longPressTimer = null;
       lastTouchDistance = getTouchDistance(e.touches);
     }
   }, { passive: false });
 
-  canvas.addEventListener('touchmove', (e) => {
+  canvas.addEventListener('touchmove', e => {
     e.preventDefault();
-    clearTimeout(longPressTimer);
 
     if (e.touches.length === 1) {
       const t = e.touches[0];
-      const dx = t.clientX - touchStartX;
-      const dy = t.clientY - touchStartY;
 
-      panCameraByDelta(dx, dy);
-      touchStartX = t.clientX;
-      touchStartY = t.clientY;
+      const totalDx = t.clientX - touchStartX;
+      const totalDy = t.clientY - touchStartY;
 
-    } else if (e.touches.length === 2) {
+      if (Math.hypot(totalDx, totalDy) > TAP_MOVE_THRESHOLD) {
+        touchMoved = true;
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+
+      if (touchMoved) {
+        const dx = t.clientX - lastTouchX;
+        const dy = t.clientY - lastTouchY;
+
+        panCameraByDelta(dx, dy);
+
+        lastTouchX = t.clientX;
+        lastTouchY = t.clientY;
+      }
+    }
+
+    if (e.touches.length === 2) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+
       const dist = getTouchDistance(e.touches);
       const delta = lastTouchDistance - dist;
-      zoomCamera(delta * 0.1);
+
+      zoomCamera(delta * 0.4);
+
       lastTouchDistance = dist;
     }
   }, { passive: false });
 
-  canvas.addEventListener('touchend', (e) => {
+  canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      fireMouseEvent('click', touchStartX, touchStartY);
+
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+
+    // Simple tap = left click select.
+    if (!touchMoved && !longPressFired && e.changedTouches.length > 0) {
+      const t = e.changedTouches[0];
+
+      fireMouseEvent('mousedown', t.clientX, t.clientY, 0);
+      fireMouseEvent('mouseup', t.clientX, t.clientY, 0);
     }
+
+    lastTouchDistance = null;
+  }, { passive: false });
+
+  canvas.addEventListener('touchcancel', e => {
+    e.preventDefault();
+
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
     lastTouchDistance = null;
   }, { passive: false });
 
