@@ -473,9 +473,13 @@ export class Unit {
       }
     }
 
-    // FIGHTER: Auto-return to carrier after 60s for repair
+    // FIGHTER: Auto-return to carrier and manage lifecycle
     if (this.type === 'fighter' && this.mesh.userData.launchedFrom) {
       this._fighterAutoReturn(dt);
+      // Transition deploying -> engaging when entering combat
+      if (this.mesh.userData.fighterState === 'deploying' && (this.state === 'pursuing' || this.state === 'attacking')) {
+        this.mesh.userData.fighterState = 'engaging';
+      }
     }
 
     // INFANTRY: Capture adjacent enemy/neutral bases
@@ -728,7 +732,9 @@ export class Unit {
     const carrier = this.mesh.userData.launchedFrom;
     if (!carrier || !carrier.alive) return;
 
-    // Check if there are enemy troops to target (any domain)
+    const state = this.mesh.userData.fighterState;
+
+    // Find nearest enemy of any type
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     let nearestEnemy = null;
     let nearestDist = Infinity;
@@ -738,33 +744,64 @@ export class Unit {
       if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
     }
 
-    // Auto-target nearest enemy if in engage range
-    if (nearestEnemy && nearestDist < this.stats.range * 1.56) {
-      this.mesh.userData.fighterState = 'engaging';
-      this.target = nearestEnemy;
-      this.state = 'pursuing';
-      this.mesh.userData.returning = false;
+    // Deploying: fly toward nearest enemy on the map
+    if (state === 'deploying') {
+      if (nearestEnemy) {
+        // Move toward the nearest enemy (will enter pursue/attack via standard system)
+        if (nearestDist > this.stats.range) {
+          this.mesh.userData.returning = false;
+          this.target = nearestEnemy;
+          this.state = 'pursuing';
+        } else {
+          this.target = nearestEnemy;
+          this.state = 'attacking';
+        }
+      } else {
+        // No enemies on map — just idle near carrier
+        this.state = 'idle';
+      }
       return;
     }
 
-    // No enemies nearby — return to carrier
-    if (!this.mesh.userData.returning) {
-      this.mesh.userData.returning = true;
-      this.mesh.userData.fighterState = 'returning';
-      this.moveTo(carrier.mesh.position.clone());
+    // Engaging: standard combat is handling this via findTarget/pursue/attack
+    // Just check if we should return (no more enemies)
+    if (state === 'engaging') {
+      if (!nearestEnemy) {
+        // All enemies dead — return to carrier
+        this.mesh.userData.fighterState = 'returning';
+        this.mesh.userData.returning = true;
+        this.target = null;
+        this._pursueTarget = null;
+        this.moveTo(carrier.mesh.position.clone());
+        return;
+      }
+      // If target died and findTarget hasn't picked a new one, return
+      if (!this.target || !this.target.alive) {
+        this.target = null;
+        this._pursueTarget = null;
+        this.mesh.userData.fighterState = 'returning';
+        this.mesh.userData.returning = true;
+        this.moveTo(carrier.mesh.position.clone());
+      }
+      return;
     }
 
-    // When close to carrier, fully repair and reset
-    if (this.mesh.userData.returning) {
+    // Returning: fly back to carrier
+    if (state === 'returning' || this.mesh.userData.returning) {
+      this.mesh.userData.returning = true;
       const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
       if (dToCarrier < 10) {
+        // Arrived — fully repair and go back to deploying
         this.hp = this.maxHp;
         this._displayHp = this.hp;
         this.mesh.userData.returning = false;
         this.mesh.userData.fighterState = 'deploying';
+        this.target = null;
+        this._pursueTarget = null;
         this.state = 'idle';
         console.log(`[DEBUG FIGHTER] Returned to carrier, fully repaired`);
       }
+      return;
     }
   }
 
