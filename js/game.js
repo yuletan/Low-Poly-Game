@@ -711,12 +711,13 @@ export class Unit {
     }
   }
 
-  /** Carrier: spawn a single fighter. */
+  /** Carrier: spawn a single fighter at a random position within carrier's range. */
   _spawnSingleFighter() {
     const angle = Math.random() * Math.PI * 2;
+    const dist = 15 + Math.random() * (this.engageRange - 15);
     const pos = {
-      x: this.mesh.position.x + Math.cos(angle) * 10,
-      z: this.mesh.position.z + Math.sin(angle) * 10,
+      x: this.mesh.position.x + Math.cos(angle) * dist,
+      z: this.mesh.position.z + Math.sin(angle) * dist,
     };
     const f = this.game.spawn('fighter', this.faction, pos);
     f.mesh.position.y = UNIT_TYPES.fighter.altitude;
