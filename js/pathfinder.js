@@ -30,8 +30,12 @@ export class Pathfinder {
   }
 
   worldToGrid(x, z) {
-    const gx = Math.floor((x + MAP_SIZE/2) / this.cell);
-    const gy = Math.floor((z + MAP_SIZE/2) / this.cell);
+    let gx = Math.floor((x + MAP_SIZE / 2) / this.cell);
+    let gy = Math.floor((z + MAP_SIZE / 2) / this.cell);
+
+    gx = THREE.MathUtils.clamp(gx, 0, this.size - 1);
+    gy = THREE.MathUtils.clamp(gy, 0, this.size - 1);
+
     return { gx, gy };
   }
 
@@ -47,9 +51,9 @@ export class Pathfinder {
   walkable(gx, gy, domain) {
     if (!this.inBounds(gx, gy)) return false;
     const t = this.terrainGrid[gy * this.size + gx];
-    if (domain === 'air') return t !== TERRAIN.MOUNTAIN;
+    if (domain === 'air') return true;
     if (domain === 'sea') return t === TERRAIN.SEA || t === TERRAIN.COAST;
-    if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST;
+    if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST || t === TERRAIN.MOUNTAIN;
     return false;
   }
 
@@ -107,8 +111,13 @@ export class Pathfinder {
   findPath(startWorld, endWorld, domain, smooth = true) {
     if (domain === 'air') return [endWorld.clone()];
 
-    const s = this.worldToGrid(startWorld.x, startWorld.z);
+    let s = this.worldToGrid(startWorld.x, startWorld.z);
     let g = this.worldToGrid(endWorld.x, endWorld.z);
+
+    if (!this.walkable(s.gx, s.gy, domain)) {
+      s = this.findNearestWalkable(s.gx, s.gy, domain);
+      if (!s) return null;
+    }
 
     if (!this.walkable(g.gx, g.gy, domain)) {
       g = this.findNearestWalkable(g.gx, g.gy, domain);
@@ -132,7 +141,7 @@ export class Pathfinder {
     ];
 
     let iterations = 0;
-    const MAX_ITER = 4000;
+    const MAX_ITER = this.size * this.size;
     while (!open.isEmpty() && iterations++ < MAX_ITER) {
       const cur = open.pop();
       if (cur.gx === g.gx && cur.gy === g.gy) {
@@ -197,27 +206,27 @@ export class Pathfinder {
     return out;
   }
 
-  // Strict grid-based Bresenham Line of Sight
+  // Strict grid-based Bresenham Line of Sight with denser sampling
   // Prevents the path smoother from cutting corners through land masses.
   hasLineOfSight(a, b, domain) {
     if (domain === 'air') return true;
 
-    const start = this.worldToGrid(a.x, a.z);
-    const end = this.worldToGrid(b.x, b.z);
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const dist = Math.hypot(dx, dz);
 
-    let x0 = start.gx, y0 = start.gy;
-    const x1 = end.gx, y1 = end.gy;
-    const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-    const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-    let err = dx + dy, e2;
+    const steps = Math.ceil(dist / (this.cell * 0.5));
 
-    while (true) {
-      if (!this.walkable(x0, y0, domain)) return false;
-      if (x0 === x1 && y0 === y1) break;
-      e2 = 2 * err;
-      if (e2 >= dy) { err += dy; x0 += sx; }
-      if (e2 <= dx) { err += dx; y0 += sy; }
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = a.x + dx * t;
+      const z = a.z + dz * t;
+
+      const { gx, gy } = this.worldToGrid(x, z);
+
+      if (!this.walkable(gx, gy, domain)) return false;
     }
+
     return true;
   }
 
@@ -226,8 +235,9 @@ export class Pathfinder {
     const queue = [{ gx, gy }];
     const visited = new Set([gy * this.size + gx]);
 
-    while (queue.length > 0) {
-      const cur = queue.shift();
+    let qi = 0;
+    while (qi < queue.length) {
+      const cur = queue[qi++];
       if (this.walkable(cur.gx, cur.gy, domain)) return cur;
 
       const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -256,8 +266,9 @@ export class Pathfinder {
     const queue = [{ gx, gy }];
     const visited = new Set([gy * this.size + gx]);
 
-    while (queue.length > 0) {
-      const cur = queue.shift();
+    let qi = 0;
+    while (qi < queue.length) {
+      const cur = queue[qi++];
       const t = this.terrainGrid[cur.gy * this.size + cur.gx];
 
       if (t === TERRAIN.COAST) {
@@ -271,8 +282,8 @@ export class Pathfinder {
             return { groundTile: cur, seaTile: { gx: nx, gy: ny } };
           }
         }
-        // Coast found but no adjacent sea (interior coast) — still return it
-        return { groundTile: cur, seaTile: cur };
+        // Coast found but no adjacent sea (interior coast) — cannot use this point
+        return null;
       }
 
       const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
