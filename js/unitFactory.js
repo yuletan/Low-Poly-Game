@@ -1,80 +1,214 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+
+// --- Shared caches ---
+const MAT_CACHE = new Map();
+const GEO_CACHE = new Map();
+
+function cached(map, key, create) {
+  if (!map.has(key)) map.set(key, create());
+  return map.get(key);
+}
+
+// --- Geometry Helpers ---
+function boxGeo(w, h, d, r = 0.06) {
+  const radius = Math.min(r, w * 0.2, h * 0.2, d * 0.2);
+  return cached(
+    GEO_CACHE,
+    `box:${w}:${h}:${d}:${radius}`,
+    () => new RoundedBoxGeometry(w, h, d, 2, radius)
+  );
+}
+
+function cylGeo(r1, r2, h, seg = 12) {
+  return cached(
+    GEO_CACHE,
+    `cyl:${r1}:${r2}:${h}:${seg}`,
+    () => new THREE.CylinderGeometry(r1, r2, h, seg)
+  );
+}
+
+function sphereGeo(r, w = 12, h = 12) {
+  return cached(
+    GEO_CACHE,
+    `sphere:${r}:${w}:${h}`,
+    () => new THREE.SphereGeometry(r, w, h)
+  );
+}
 
 // --- Material Helpers ---
-function metalMat(color, roughness = 0.5, metalness = 0.7) {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+function metalMat(color, roughness = 0.45, metalness = 0.75) {
+  return cached(
+    MAT_CACHE,
+    `metal:${color}:${roughness}:${metalness}`,
+    () => new THREE.MeshStandardMaterial({ color, roughness, metalness })
+  );
 }
 
 function matteMat(color) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.1 });
+  return cached(
+    MAT_CACHE,
+    `matte:${color}`,
+    () => new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.88,
+      metalness: 0.08
+    })
+  );
 }
 
 function glassMat(color = 0x112233) {
-  return new THREE.MeshStandardMaterial({
-    color, roughness: 0.1, metalness: 0.9,
-    emissive: color, emissiveIntensity: 0.3
-  });
+  return cached(
+    MAT_CACHE,
+    `glass:${color}`,
+    () => new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.04,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.65,
+      transmission: 0.15,
+      emissive: color,
+      emissiveIntensity: 0.25,
+      depthWrite: false
+    })
+  );
 }
 
 function glowMat(color, intensity = 1.5) {
-  return new THREE.MeshStandardMaterial({
-    color, emissive: color, emissiveIntensity: intensity,
-    roughness: 0.5, metalness: 0.5
-  });
+  return cached(
+    MAT_CACHE,
+    `glow:${color}:${intensity}`,
+    () => new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: intensity,
+      roughness: 0.45,
+      metalness: 0.35
+    })
+  );
 }
 
 function trackMat() {
-  return new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.95, metalness: 0.2 });
+  return cached(
+    MAT_CACHE,
+    'track',
+    () => new THREE.MeshStandardMaterial({
+      color: 0x151515,
+      roughness: 0.95,
+      metalness: 0.25
+    })
+  );
 }
 
 function mixColor(a, b, t) {
-  const ca = new THREE.Color(a), cb = new THREE.Color(b);
+  const ca = new THREE.Color(a);
+  const cb = new THREE.Color(b);
   return ca.lerp(cb, t).getHex();
 }
 
-function enableShadows(mesh) {
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+function enableShadows(obj) {
+  obj.castShadow = true;
+  obj.receiveShadow = true;
+  return obj;
 }
+
+function mesh(geometry, material, position, rotation) {
+  const m = enableShadows(new THREE.Mesh(geometry, material));
+  if (position) m.position.set(position[0], position[1], position[2]);
+  if (rotation) m.rotation.set(rotation[0], rotation[1], rotation[2]);
+  return m;
+}
+
+const EDGE_MAT = new THREE.LineBasicMaterial({
+  color: 0x000000,
+  transparent: true,
+  opacity: 0.22,
+  depthTest: true
+});
+
+function finishModel(group, { outlines = true } = {}) {
+  const meshes = [];
+
+  group.traverse((obj) => {
+    if (!obj.isMesh) return;
+
+    enableShadows(obj);
+
+    if (obj.geometry) {
+      obj.geometry.computeVertexNormals();
+      obj.geometry.computeBoundingSphere();
+    }
+
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+
+    for (const mat of mats) {
+      if (!mat) continue;
+      if ('envMapIntensity' in mat) mat.envMapIntensity = 0.7;
+    }
+
+    if (!obj.material?.transparent && outlines) {
+      meshes.push(obj);
+    }
+  });
+
+  for (const obj of meshes) {
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(obj.geometry, 35),
+      EDGE_MAT
+    );
+
+    edges.userData.noShadow = true;
+    edges.renderOrder = 2;
+    obj.add(edges);
+  }
+
+  return group;
+}
+
+const UNIT_BUILDERS = {
+  infantry: buildInfantry,
+  tank: buildTank,
+  heavyTank: buildHeavyTank,
+  crusher: buildCrusher,
+  artillery: buildArtillery,
+  missileDefense: buildMissileDefense,
+  coastal: buildCoastal,
+  mlrs: buildMLRS,
+  healer: buildHealer,
+  medHeli: buildMedHeli,
+  frigate: buildFrigate,
+  cruiser: buildCruiser,
+  submarine: buildSubmarine,
+  carrier: buildCarrier,
+  transport: buildTransport,
+  heli: buildHeli,
+  gunship: buildGunship,
+  escortJet: buildEscortJet,
+  b2: buildB2,
+  escortBomber: buildEscortBomber,
+  minigunnerVehicle: buildMinigunnerVehicle,
+  megaMedic: buildMegaMedic,
+  minigunner: buildMinigunner,
+
+  destroyer: (g, c) => buildShip(g, c, 1.0),
+  battleship: (g, c) => buildShip(g, c, 1.6),
+  fighter: (g, c) => buildJet(g, c, 1.0),
+  bomber: (g, c) => buildJet(g, c, 1.4)
+};
 
 /** Returns a THREE.Group representing the unit. */
 export function createUnitMesh(type, color, faction) {
   const tint = faction === 'enemy' ? mixColor(color, 0xaa3333, 0.4) : color;
+
   const g = new THREE.Group();
   g.userData.turret = null;
   g.userData.muzzleOffset = null;
 
-  switch (type) {
-    case 'infantry': return buildInfantry(g, tint);
-    case 'tank':     return buildTank(g, tint);
-    case 'heavyTank':return buildHeavyTank(g, tint);
-    case 'crusher': return buildCrusher(g, tint);
-    case 'artillery':return buildArtillery(g, tint);
-    case 'missileDefense':return buildMissileDefense(g, tint);
-    case 'coastal':  return buildCoastal(g, tint);
-    case 'mlrs':     return buildMLRS(g, tint);
-    case 'healer':   return buildHealer(g, tint);
-    case 'medHeli':  return buildMedHeli(g, tint);
-    case 'destroyer':return buildShip(g, tint, 1.0);
-    case 'frigate':  return buildFrigate(g, tint);
-    case 'cruiser':  return buildCruiser(g, tint);
-    case 'submarine':return buildSubmarine(g, tint);
-    case 'battleship':return buildShip(g, tint, 1.6);
-    case 'carrier':  return buildCarrier(g, tint);
-    case 'transport':return buildTransport(g, tint);
-    case 'fighter':  return buildJet(g, tint, 1.0);
-    case 'bomber':   return buildJet(g, tint, 1.4);
-    case 'heli':     return buildHeli(g, tint);
-    case 'gunship':  return buildGunship(g, tint);
-    case 'escortJet':return buildEscortJet(g, tint);
-    case 'b2':       return buildB2(g, tint);
-    case 'escortBomber':return buildEscortBomber(g, tint);
-    case 'minigunnerVehicle':return buildMinigunnerVehicle(g, tint);
-    case 'megaMedic':return buildMegaMedic(g, tint);
-    case 'minigunner':return buildMinigunner(g, tint);
-  }
-  return g;
+  const builder = UNIT_BUILDERS[type];
+  const unit = builder ? builder(g, tint) : g;
+
+  return finishModel(unit);
 }
 
 // ---------- LAND ----------
@@ -118,23 +252,17 @@ function buildTank(g, color) {
   const hullMat = matteMat(color);
   const detailMat = metalMat(0x333333, 0.7, 0.5);
 
-  const lowerHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1, 7), hullMat));
-  lowerHull.position.y = 0.8;
+  const lowerHull = mesh(boxGeo(4.5, 1, 7, 0.12), hullMat, [0, 0.8, 0]);
 
-  const upperHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 5), hullMat));
-  upperHull.position.set(0, 1.7, -0.5);
+  const upperHull = mesh(boxGeo(4, 0.8, 5, 0.1), hullMat, [0, 1.7, -0.5]);
 
-  const frontArmor = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), hullMat));
-  frontArmor.position.set(0, 1.5, 3);
-  frontArmor.rotation.x = -0.4;
+  const frontArmor = mesh(boxGeo(4, 1, 2, 0.1), hullMat, [0, 1.5, 3], [-0.4, 0, 0]);
 
-  const trackGeom = new THREE.BoxGeometry(0.8, 1.2, 7.5);
-  const tL = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tL.position.set(-2.4, 0.6, 0);
-  const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tR.position.set(2.4, 0.6, 0);
+  const trackGeom = boxGeo(0.8, 1.2, 7.5, 0.08);
+  const tL = mesh(trackGeom, trackMat(), [-2.4, 0.6, 0]);
+  const tR = mesh(trackGeom, trackMat(), [2.4, 0.6, 0]);
 
-  const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.9, 8);
+  const wheelGeom = cylGeo(0.4, 0.4, 0.9, 12);
   for (let i = -3; i <= 3; i++) {
     const wL = new THREE.Mesh(wheelGeom, detailMat);
     wL.rotation.z = Math.PI / 2;
@@ -146,25 +274,17 @@ function buildTank(g, color) {
   }
 
   const turret = new THREE.Group();
-  const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3.5), hullMat));
-  turretBase.position.y = 2.4;
+  const turretBase = mesh(boxGeo(3, 1, 3.5, 0.1), hullMat, [0, 2.4, 0]);
 
-  const turretFront = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 1, 1.5), hullMat));
-  turretFront.position.set(0, 2.4, 2);
-  turretFront.rotation.x = -0.3;
+  const turretFront = mesh(boxGeo(3, 1, 1.5, 0.1), hullMat, [0, 2.4, 2], [-0.3, 0, 0]);
 
-  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 8), detailMat));
-  cupola.position.set(-0.8, 3.0, -0.5);
+  const cupola = mesh(cylGeo(0.4, 0.4, 0.3, 12), detailMat, [-0.8, 3.0, -0.5]);
 
-  const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 5, 8), detailMat));
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.set(0, 2.5, 3.5);
+  const barrel = mesh(cylGeo(0.2, 0.2, 5, 16), detailMat, [0, 2.5, 3.5], [Math.PI / 2, 0, 0]);
 
-  const fume = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8), detailMat));
-  fume.rotation.x = Math.PI / 2;
-  fume.position.set(0, 2.5, 4.5);
+  const fume = mesh(cylGeo(0.3, 0.3, 0.6, 12), detailMat, [0, 2.5, 4.5], [Math.PI / 2, 0, 0]);
 
-  const raGeom = new THREE.BoxGeometry(0.4, 0.4, 0.1);
+  const raGeom = boxGeo(0.4, 0.4, 0.1, 0.02);
   for (let i = 0; i < 3; i++) {
     const ra = new THREE.Mesh(raGeom, detailMat);
     ra.position.set(-1 + i * 1, 2.4, 2.8);
@@ -174,7 +294,7 @@ function buildTank(g, color) {
 
   turret.add(turretBase, turretFront, cupola, barrel, fume);
 
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 2, 4), detailMat);
+  const antenna = new THREE.Mesh(cylGeo(0.02, 0.02, 2, 4), detailMat);
   antenna.position.set(1, 3.5, -1);
   turret.add(antenna);
 
@@ -189,34 +309,26 @@ function buildHeavyTank(g, color) {
   const detailMat = metalMat(0x333333, 0.7, 0.5);
 
   // Lower hull — wider and taller
-  const lowerHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 1.4, 9), hullMat));
-  lowerHull.position.y = 1;
+  const lowerHull = mesh(boxGeo(6, 1.4, 9, 0.15), hullMat, [0, 1, 0]);
 
   // Upper hull
-  const upperHull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5.5, 1, 7), hullMat));
-  upperHull.position.set(0, 2.2, -0.5);
+  const upperHull = mesh(boxGeo(5.5, 1, 7, 0.12), hullMat, [0, 2.2, -0.5]);
 
   // Sloped front armor — extra thick
-  const frontArmor = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.4, 2.5), hullMat));
-  frontArmor.position.set(0, 2, 4);
-  frontArmor.rotation.x = -0.35;
+  const frontArmor = mesh(boxGeo(5.5, 1.4, 2.5, 0.12), hullMat, [0, 2, 4], [-0.35, 0, 0]);
 
   // Side skirts
   const skirtMat = metalMat(0x444444, 0.6, 0.3);
-  const skirtL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 8), skirtMat));
-  skirtL.position.set(-3.2, 1, 0);
-  const skirtR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 8), skirtMat));
-  skirtR.position.set(3.2, 1, 0);
+  const skirtL = mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMat, [-3.2, 1, 0]);
+  const skirtR = mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMat, [3.2, 1, 0]);
 
   // Tracks — thicker
-  const trackGeom = new THREE.BoxGeometry(1, 1.5, 9.5);
-  const tL = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tL.position.set(-2.8, 0.7, 0);
-  const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tR.position.set(2.8, 0.7, 0);
+  const trackGeom = boxGeo(1, 1.5, 9.5, 0.1);
+  const tL = mesh(trackGeom, trackMat(), [-2.8, 0.7, 0]);
+  const tR = mesh(trackGeom, trackMat(), [2.8, 0.7, 0]);
 
   // Road wheels
-  const wheelGeom = new THREE.CylinderGeometry(0.5, 0.5, 1.1, 8);
+  const wheelGeom = cylGeo(0.5, 0.5, 1.1, 12);
   for (let i = -4; i <= 4; i++) {
     const wL = new THREE.Mesh(wheelGeom, detailMat);
     wL.rotation.z = Math.PI / 2;
@@ -229,33 +341,24 @@ function buildHeavyTank(g, color) {
 
   // Turret — larger, boxy with sloped sides
   const turret = new THREE.Group();
-  const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 4.5), hullMat));
-  turretBase.position.y = 3.1;
+  const turretBase = mesh(boxGeo(4, 1.2, 4.5, 0.12), hullMat, [0, 3.1, 0]);
 
-  const turretFront = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 2), hullMat));
-  turretFront.position.set(0, 3.1, 2.5);
-  turretFront.rotation.x = -0.25;
+  const turretFront = mesh(boxGeo(4, 1.2, 2, 0.1), hullMat, [0, 3.1, 2.5], [-0.25, 0, 0]);
 
   // Commander cupola
-  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8), detailMat));
-  cupola.position.set(-1, 3.9, -1);
+  const cupola = mesh(cylGeo(0.5, 0.5, 0.4, 12), detailMat, [-1, 3.9, -1]);
 
   // Loader hatch
-  const hatch = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8), detailMat));
-  hatch.position.set(1, 3.8, -0.5);
+  const hatch = mesh(cylGeo(0.4, 0.4, 0.2, 12), detailMat, [1, 3.8, -0.5]);
 
   // Main gun — massive barrel
-  const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 6, 8), detailMat));
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.set(0, 3.2, 5.5);
+  const barrel = mesh(cylGeo(0.35, 0.35, 6, 16), detailMat, [0, 3.2, 5.5], [Math.PI / 2, 0, 0]);
 
   // Muzzle brake
-  const muzzle = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.8, 8), detailMat));
-  muzzle.rotation.x = Math.PI / 2;
-  muzzle.position.set(0, 3.2, 8.5);
+  const muzzle = mesh(cylGeo(0.5, 0.5, 0.8, 12), detailMat, [0, 3.2, 8.5], [Math.PI / 2, 0, 0]);
 
   // Reactive armor blocks on turret
-  const raGeom = new THREE.BoxGeometry(0.5, 0.5, 0.15);
+  const raGeom = boxGeo(0.5, 0.5, 0.15, 0.03);
   for (let i = 0; i < 4; i++) {
     const ra = new THREE.Mesh(raGeom, detailMat);
     ra.position.set(-1.5 + i * 1, 3.1, 2.2);
@@ -266,12 +369,12 @@ function buildHeavyTank(g, color) {
   turret.add(turretBase, turretFront, cupola, hatch, barrel, muzzle);
 
   // Antenna
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.5, 4), detailMat);
+  const antenna = new THREE.Mesh(cylGeo(0.03, 0.03, 2.5, 4), detailMat);
   antenna.position.set(1.5, 4.5, -1.5);
   turret.add(antenna);
 
   // IR searchlight
-  const light = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.3, 8), glassMat(0xff4400));
+  const light = new THREE.Mesh(cylGeo(0.25, 0.25, 0.3, 12), glassMat(0xff4400));
   light.rotation.x = Math.PI / 2;
   light.position.set(-1.8, 3.5, 2.5);
   turret.add(light);
@@ -1075,15 +1178,20 @@ function buildGunship(g, color) {
   const wings = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 12), bodyMat));
   wings.position.set(-0.5, 0.5, 0);
 
-  const engGeom = new THREE.CylinderGeometry(0.4, 0.4, 2, 8);
+  const engGeom = cylGeo(0.4, 0.4, 2, 12);
   for (let i = 0; i < 4; i++) {
     const eng = enableShadows(new THREE.Mesh(engGeom, detailMat));
     eng.rotation.x = Math.PI / 2;
     eng.position.set(-0.5, 0, -4.5 + i * 3);
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8), glowMat(0xff5500, 2));
+
+    const exhaust = new THREE.Mesh(
+      cylGeo(0.3, 0.3, 0.2, 12),
+      glowMat(0xff5500, 2)
+    );
     exhaust.rotation.x = Math.PI / 2;
     exhaust.position.set(-0.5, 0, -5.5 + i * 3);
-    g.add(exhaust);
+
+    g.add(eng, exhaust);
   }
 
   const tailH = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 4), bodyMat));
@@ -1339,8 +1447,11 @@ function buildMinigunnerVehicle(g, color) {
   const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
   for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
     const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]); w.rotation.z = Math.PI / 2;
+    w.position.set(p[0], p[1], p[2]);
+    w.rotation.z = Math.PI / 2;
+    g.add(w);
   }
+  g.userData.muzzleOffset = new THREE.Vector3(0, 2.8, 4.8);
   g.add(chassis, body, turret, barrel, barrel2, barrel3);
   return g;
 }
@@ -1364,7 +1475,9 @@ function buildMegaMedic(g, color) {
   const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
   for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
     const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]); w.rotation.z = Math.PI / 2;
+    w.position.set(p[0], p[1], p[2]);
+    w.rotation.z = Math.PI / 2;
+    g.add(w);
   }
   g.add(chassis, cab, medModule, crossH, crossV, windshield);
   return g;
@@ -1397,3 +1510,4 @@ export function tagAsLaunchedFighter(group) {
   marker.position.y = 3;
   group.add(marker);
 }
+export { createUnitMesh, tagAsLaunchedFighter };
