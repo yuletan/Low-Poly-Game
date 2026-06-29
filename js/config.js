@@ -77,7 +77,7 @@ export const UNIT_TYPES = {
 };
 
 // ===== ECONOMY =====
-export const STARTING_MONEY = 100000;
+export const STARTING_MONEY = 2500;
 export const PASSIVE_INCOME = 20;
 
 // ===== DIFFICULTY =====
@@ -92,9 +92,9 @@ export const ENGAGE_RANGE_MULT = 1.56; // engage range = attack range * 1.3 * 1.
 
 // ===== UPGRADES =====
 export const UPGRADES = {
-  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.25, 1.5, 2.0], costs:[0, 300, 800, 2000] },
-  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.25, 1.5, 2.0], costs:[0, 300, 800, 2000] },
-  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.20, 1.4, 1.7], costs:[0, 250, 700, 1800] },
+  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1000, 5000, 25000] },
+  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1500, 7500, 35000] },
+  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.1, 1.25, 1.5], costs:[0, 2000, 10000, 50000] },
 };
 
 // ===== CARRIER ABILITY =====

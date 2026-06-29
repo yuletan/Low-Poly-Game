@@ -9,7 +9,7 @@ import { MAP_SIZE }  from './config.js?v=5';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8e8);
-scene.fog = new THREE.Fog(0x87b8e8, 400, 1000);
+scene.fog = new THREE.Fog(0x87b8e8, 500, 1500);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2500);
 camera.position.set(0, 150, 150);

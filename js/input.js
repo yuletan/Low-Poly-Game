@@ -77,9 +77,8 @@ export function initInput(game, camera, renderer) {
     return game.bases.find(b => b.mesh === obj) || null;
   }
 
-  // ----- Ground Cursor & Formation Preview -----
+  // ----- Ground Cursor -----
   let groundCursor = null;
-  let formationPreview = [];
 
   function createGroundCursor() {
     // Main cursor ring
@@ -128,55 +127,6 @@ export function initInput(game, camera, renderer) {
     if (ring) {
       ring.scale.setScalar(1 + Math.sin(time) * 0.15);
       ring.material.opacity = 0.5 + Math.sin(time * 2) * 0.3;
-    }
-  }
-
-  function clearFormationPreview() {
-    for (const marker of formationPreview) {
-      game.scene.remove(marker);
-    }
-    formationPreview = [];
-  }
-
-  function updateFormationPreview(point) {
-    clearFormationPreview();
-    if (!point || game.selectedUnits.length === 0) return;
-    
-    const positions = game.computeFormation(point, game.selectedUnits.length, game.formation);
-    const unitType = game.selectedUnits[0].type;
-    const stats = UNIT_TYPES[unitType];
-    const color = stats.color;
-    const isAir = stats.domain === 'air';
-    const isSea = stats.domain === 'sea';
-    
-    for (const pos of positions) {
-      const ringGeo = new THREE.RingGeometry(1.5, 2.2, 16);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0x44ff88,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.6,
-        depthTest: false
-      });
-      const marker = new THREE.Mesh(ringGeo, ringMat);
-      marker.rotation.x = -Math.PI / 2;
-      const y = isAir ? stats.altitude : (isSea ? 0.3 : LAND_HEIGHT + 0.5);
-      marker.position.set(pos.x, y + 0.1, pos.z);
-      marker.userData.animOffset = Math.random() * Math.PI * 2;
-      game.scene.add(marker);
-      formationPreview.push(marker);
-    }
-  }
-
-  // Animate formation preview markers
-  function animateFormationPreview() {
-    const time = performance.now() * 0.004;
-    for (let i = 0; i < formationPreview.length; i++) {
-      const marker = formationPreview[i];
-      const offset = marker.userData.animOffset || 0;
-      const scale = 1 + Math.sin(time + offset + i * 0.5) * 0.2;
-      marker.scale.setScalar(scale);
-      marker.material.opacity = 0.4 + Math.sin(time * 2 + offset) * 0.2;
     }
   }
 
@@ -484,12 +434,8 @@ export function initInput(game, camera, renderer) {
         selectionBox.style.height = `${h}px`;
       }
     } else if (game.selectedUnits.length > 0) {
-      // Update ground cursor and formation preview when units are selected
       const point = getGroundPoint(e);
-      if (point) {
-        updateGroundCursor(point);
-        if (!isMobile) updateFormationPreview(point);
-      }
+      if (point) updateGroundCursor(point);
     }
   });
 

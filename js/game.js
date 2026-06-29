@@ -129,7 +129,7 @@ export class Unit {
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.9, depthTest: false })
     );
     outlineBar.rotation.x = -Math.PI / 2;
-    outlineBar.position.y = barY - 0.01;
+    outlineBar.position.y = -0.01;
     outlineBar.renderOrder = 899;
 
     const bgBar = new THREE.Mesh(
@@ -137,7 +137,7 @@ export class Unit {
       new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.9, depthTest: false })
     );
     bgBar.rotation.x = -Math.PI / 2;
-    bgBar.position.y = barY;
+    bgBar.position.y = 0;
     bgBar.renderOrder = 900;
 
     const fgBar = new THREE.Mesh(
@@ -1728,6 +1728,12 @@ export class Unit {
     this._cleaned = true;
     this.game.scene.remove(this.mesh);
     this._removePathLine();
+    if (this._rangeRing) {
+      this.game.scene.remove(this._rangeRing);
+      this._rangeRing.geometry.dispose();
+      this._rangeRing.material.dispose();
+      this._rangeRing = null;
+    }
     if (this._deathLabel) {
       this._deathLabel.remove();
       this._deathLabel = null;
@@ -1972,7 +1978,7 @@ export class Game {
       });
       b.territoryRing = new THREE.Mesh(geom, mat);
       b.territoryRing.rotation.x = -Math.PI / 2;
-      b.territoryRing.position.set(b.mesh.position.x, 0.15, b.mesh.position.z);
+      b.territoryRing.position.set(b.mesh.position.x, b.mesh.position.y + 0.15, b.mesh.position.z);
       this.scene.add(b.territoryRing);
     }
   }
@@ -2474,9 +2480,6 @@ export class Game {
       }
     }
 
-    // Animate formation preview
-    this._animateFormationPreview(dt);
-
     // Cleanup dead units
     const deadCount = this.deadUnits.length;
     this.playerUnits = this.playerUnits.filter(u => !u._cleaned);
@@ -2578,17 +2581,6 @@ export class Game {
     console.log(`[DEBUG GAME] GAME ENDED — ${victory ? 'VICTORY' : 'DEFEAT'}`);
     document.getElementById('endScreen').classList.remove('hidden');
     document.getElementById('endTitle').textContent = victory ? '🏆 Victory!' : '💀 Defeat';
-  }
-
-  _animateFormationPreview(dt) {
-    if (!this.scene || !this.scene.children) return;
-    const time = performance.now() * 0.004;
-    for (const child of this.scene.children) {
-      if (child.userData?.animOffset !== undefined) {
-        child.scale.setScalar(1 + Math.sin(time + child.userData.animOffset) * 0.15);
-        child.material.opacity = 0.4 + Math.sin(time * 2 + child.userData.animOffset) * 0.2;
-      }
-    }
   }
 
   computeFormation(center, count, formation) {

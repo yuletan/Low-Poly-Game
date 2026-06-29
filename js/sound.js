@@ -28,6 +28,7 @@ class SoundSystem {
       case 'upgrade':  return this.playUpgrade();
       case 'capture':  return this.playCapture();
       case 'launch':   return this.playLaunch();
+      case 'error':    return this.playError();
     }
   }
 
@@ -142,6 +143,19 @@ class SoundSystem {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
     o.connect(g); g.connect(this.master);
     o.start(t); o.stop(t + 0.55);
+  }
+
+  playError() {
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.linearRampToValueAtTime(100, t + 0.2);
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.3);
   }
 }
 

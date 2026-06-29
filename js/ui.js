@@ -324,6 +324,16 @@ function createUpgradeButton(stat, game, upgradeDiv) {
   row.addEventListener('click', () => {
     if (game.upgrades.upgrade(stat)) {
       refreshUpgradeButtons(game, upgradeDiv);
+    } else {
+      Sound.play('error');
+      row.classList.add('shake-animation');
+      const origBorder = row.style.borderColor;
+      row.style.borderColor = '#f44';
+      setTimeout(() => {
+        row.classList.remove('shake-animation');
+        row.style.borderColor = origBorder;
+      }, 500);
+      game.flashMessage('Insufficient funds or max tier reached!');
     }
   });
 
@@ -395,6 +405,21 @@ export function initUI(game) {
   const upgradesPanel = document.createElement('div');
   upgradesPanel.className = 'armory-tab-panel upgrades';
   upgradesPanel.dataset.tab = 'upgrades';
+  if (!document.getElementById('upgrade-shake-style')) {
+    const style = document.createElement('style');
+    style.id = 'upgrade-shake-style';
+    style.textContent = `
+      @keyframes upgradeShake {
+        0%, 100% { transform: translateX(0); }
+        20% { transform: translateX(-4px); }
+        40% { transform: translateX(4px); }
+        60% { transform: translateX(-3px); }
+        80% { transform: translateX(3px); }
+      }
+      .shake-animation { animation: upgradeShake 0.4s ease-in-out; }
+    `;
+    document.head.appendChild(style);
+  }
   for (const [stat, def] of Object.entries(UPGRADES)) {
     createUpgradeButton(stat, game, upgradesPanel);
   }

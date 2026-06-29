@@ -39,12 +39,18 @@ export class UpgradeManager {
     this.game.money -= cost;
     this.tiers[stat]++;
     Sound.play('upgrade');
-    if (stat === 'hp') {
-      for (const u of this.game.playerUnits) {
+    for (const u of this.game.playerUnits) {
+      if (stat === 'hp') {
         const ratio = u.hp / u.maxHp;
         const newMax = u.stats.hp * this.multiplier('hp');
         u.maxHp = newMax;
         u.hp = newMax * ratio;
+      } else if (stat === 'damage') {
+        const oldMult = UPGRADES[stat].tiers[this.tiers[stat] - 1];
+        u.stats.damage = u.stats.damage / oldMult * this.multiplier(stat);
+      } else if (stat === 'speed') {
+        const oldMult = UPGRADES[stat].tiers[this.tiers[stat] - 1];
+        u.stats.speed = u.stats.speed / oldMult * this.multiplier(stat);
       }
     }
     return true;
