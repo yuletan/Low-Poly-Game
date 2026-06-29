@@ -1510,4 +1510,3 @@ export function tagAsLaunchedFighter(group) {
   marker.position.y = 3;
   group.add(marker);
 }
-export { createUnitMesh, tagAsLaunchedFighter };
