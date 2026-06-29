@@ -55,7 +55,7 @@ export function initInput(game, camera, renderer) {
   function getUnitUnderMouse(e) {
     setMouseNDC(e);
     raycaster.setFromCamera(mouse, camera);
-    const all = [...game.playerUnits, ...game.enemyUnits].filter(u => u.alive);
+    const all = [...game.playerUnits, ...game.enemyUnits].filter(u => u.alive && u.selectable !== false);
     const meshes = all.map(u => u.mesh);
     const hits = raycaster.intersectObjects(meshes, true);
     if (hits.length === 0) return null;
@@ -156,7 +156,7 @@ export function initInput(game, camera, renderer) {
     const rect = canvas.getBoundingClientRect();
 
     for (const u of game.playerUnits) {
-      if (!u.alive) continue;
+      if (!u.alive || u.selectable === false) continue;
       // Project unit world position to screen
       const p = u.mesh.position.clone().project(camera);
       const sx = (p.x * 0.5 + 0.5) * rect.width  + rect.left;

@@ -34,6 +34,7 @@ export class Unit {
     this.cooldown = 0;
     this.alive    = true;
     this.selected = false;
+    this.selectable = true;
     this._manualTarget = false;
 
     // Engagement range: invisible awareness range beyond attack range
@@ -717,6 +718,7 @@ export class Unit {
     f.mesh.position.y = UNIT_TYPES.fighter.altitude;
     f.mesh.userData.launchedFrom = this;
     f.mesh.userData.fighterState = 'deploying';
+    f.selectable = false;
     Sound.play('launch');
     console.log(`[DEBUG CARRIER] Spawned fighter ${this._deployedFighters + 1}/${CARRIER_FIGHTER_COUNT}`);
   }
@@ -1535,6 +1537,21 @@ export class Unit {
     }
     const targetPos = this._pursueTarget.mesh ? this._pursueTarget.mesh.position : this._pursueTarget.position;
     const dist = this._dist2d(targetPos);
+
+    // Disengage if target moved beyond engage range (prevents infinite chase)
+    if (dist > this.engageRange * 1.5) {
+      this._pursueTarget = null;
+      this.target = null;
+      if (this.mesh.userData.launchedFrom) {
+        // Carrier fighter: return to carrier
+        this.mesh.userData.returning = true;
+        this.mesh.userData.fighterState = 'returning';
+        this.moveTo(this.mesh.userData.launchedFrom.mesh.position.clone());
+      } else {
+        this.state = 'idle';
+      }
+      return;
+    }
 
     // One-way units (escort bomber): die when reaching the target
     if (this.stats.oneWay && this.stats.range === 0 && dist < 20) {
