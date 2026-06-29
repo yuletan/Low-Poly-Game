@@ -62,7 +62,7 @@ export const UNIT_TYPES = {
   battleship:{domain:'sea',   hp:600, damage:130, range:160, speed:9,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:10, splashFalloff:0.6, targetDomains:['sea','land','building'], special:'Shore bombardment' },
   carrier:  { domain:'sea',   hp:800, damage:15, range:40, speed:10, fireRate:2.0, hitChance:0.7, cost:1800, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1, targetDomains:['sea'], special:'Launches aircraft' },
   transport:{ domain:'sea', hp:400, damage:0,  range:0,  speed:14, fireRate:99, hitChance:0,   cost:350, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:8, targetDomains:[], special:'Carries 8 land units' },
-  fighter:  { domain:'air',   hp:80,  damage:35, range:45, speed:32, fireRate:0.6, hitChance:0.9,  cost:250, color:0x9999aa, altitude:25, canFireWhileMoving:true, bounty:80, projectile:'homing', splashRadius:2, splashFalloff:0.5, targetDomains:['air'], special:'Air superiority' },
+  fighter:  { domain:'air',   hp:80,  damage:35, range:45, speed:32, fireRate:0.6, hitChance:0.9,  cost:250, color:0x9999aa, altitude:25, canFireWhileMoving:true, bounty:80, projectile:'homing', splashRadius:2, splashFalloff:0.5, targetDomains:['air','land','sea'], special:'Air superiority' },
   heli:     { domain:'air',   hp:120, damage:25, range:55, speed:16, fireRate:0.8, hitChance:0.8,  cost:350, color:0x4a4a4a, altitude:15, canFireWhileMoving:true, bounty:90, projectile:'burst', splashRadius:1, splashFalloff:0.5, targetDomains:['land','sea'], special:'Versatile attacker' },
   gunship:  { domain:'air',   hp:250, damage:40, range:65, speed:14, fireRate:0.4, hitChance:0.8, cost:500, color:0x8899aa, altitude:20, canFireWhileMoving:true, bounty:200, projectile:'barrage', splashRadius:2, splashFalloff:0.5, targetDomains:['land','sea','building'], special:'Heavy barrage vs ground/sea' },
   bomber:   { domain:'air',   hp:180, damage:140, range:50, speed:18, fireRate:3.5, hitChance:0.75, cost:500, color:0x778899, altitude:30, canFireWhileMoving:true, bounty:160, projectile:'carpet', splashRadius:12, splashFalloff:0.5, targetDomains:['land','sea','building'], special:'Heavy payload' },
@@ -98,5 +98,6 @@ export const UPGRADES = {
 };
 
 // ===== CARRIER ABILITY =====
-export const CARRIER_FIGHTER_COOLDOWN = 20;   // seconds between launches
+export const CARRIER_FIGHTER_COOLDOWN = 30;   // seconds after all 12 deployed before new cycle
 export const CARRIER_FIGHTER_COUNT    = 12;
+export const CARRIER_FIGHTER_INTERVAL = 2;    // seconds between each fighter spawn

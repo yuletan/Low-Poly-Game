@@ -1,6 +1,6 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT } from './config.js?v=6';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT } from './config.js?v=6';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage } from './combat.js?v=3';
@@ -43,6 +43,9 @@ export class Unit {
     // Carrier ability
     this.canLaunch = !!baseStats.canLaunchFighters;
     this.launchCooldown = 0;
+    this._fighterSpawnTimer = 0;
+    this._deployedFighters = 0;
+    this._allDeployed = false;
     this.canFireWhileMoving = !!this.stats.canFireWhileMoving;
     this._targetScanTimer = 0;
 
@@ -440,11 +443,32 @@ export class Unit {
       this._recalcAuras();
     }
 
-    // CARRIER: Auto-launch fighters every 20s if enemies in range
-    if (this.type === 'carrier' && this.canLaunch && this.launchCooldown <= 0) {
-      const enemiesNear = this._enemiesInRange(80); // launch range
-      if (enemiesNear > 0) {
-        this.launchFighters();
+    // CARRIER: Spawn 1 fighter every 2s, max 12 deployed, then 30s cooldown
+    if (this.type === 'carrier' && this.canLaunch) {
+      this.launchCooldown -= dt; // already done above, but ensures tick-down
+      // Count alive fighters belonging to this carrier
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      let aliveFighters = 0;
+      for (const u of allUnits) {
+        if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
+      }
+      // If all deployed fighters have returned (or died), reset deployment cycle
+      if (this._allDeployed && aliveFighters === 0) {
+        this._allDeployed = false;
+        this._deployedFighters = 0;
+        this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+      }
+      // Spawn fighters one at a time every 2s
+      if (!this._allDeployed && this.launchCooldown <= 0 && this._deployedFighters < CARRIER_FIGHTER_COUNT) {
+        this._fighterSpawnTimer += dt;
+        if (this._fighterSpawnTimer >= CARRIER_FIGHTER_INTERVAL) {
+          this._fighterSpawnTimer = 0;
+          this._spawnSingleFighter();
+          this._deployedFighters++;
+          if (this._deployedFighters >= CARRIER_FIGHTER_COUNT) {
+            this._allDeployed = true;
+          }
+        }
       }
     }
 
@@ -522,7 +546,7 @@ export class Unit {
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
-      if (this.domain === 'sea' && terrain !== TERRAIN.SEA) {
+      if (this.domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) {
         this._pushToValidTerrain('sea');
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
         this._pushToValidTerrain('land');
@@ -682,23 +706,62 @@ export class Unit {
     }
   }
 
-  /** Fighter unique: Auto-return to carrier after 60s for repair */
+  /** Carrier: spawn a single fighter. */
+  _spawnSingleFighter() {
+    const angle = Math.random() * Math.PI * 2;
+    const pos = {
+      x: this.mesh.position.x + Math.cos(angle) * 10,
+      z: this.mesh.position.z + Math.sin(angle) * 10,
+    };
+    const f = this.game.spawn('fighter', this.faction, pos);
+    f.mesh.position.y = UNIT_TYPES.fighter.altitude;
+    f.mesh.userData.launchedFrom = this;
+    f.mesh.userData.fighterState = 'deploying';
+    Sound.play('launch');
+    console.log(`[DEBUG CARRIER] Spawned fighter ${this._deployedFighters + 1}/${CARRIER_FIGHTER_COUNT}`);
+  }
+
   _fighterAutoReturn(dt) {
     if (!this.mesh.userData.launchedFrom) return;
-    this.mesh.userData.launchTime = (this.mesh.userData.launchTime || 0) + dt;
-    if (this.mesh.userData.launchTime > 60) { // 60s lifetime
-      const carrier = this.mesh.userData.launchedFrom;
-      if (carrier && carrier.alive) {
-        // Return to carrier and heal
-        this.moveTo(carrier.mesh.position.clone());
-        this.mesh.userData.returning = true;
-        if (this.mesh.position.distanceTo(carrier.mesh.position) < 10) {
-          this.hp = this.maxHp; // Full repair
-          this._displayHp = this.hp;
-          this.mesh.userData.launchTime = 0;
-          this.mesh.userData.returning = false;
-          console.log(`[DEBUG FIGHTER] Returned to carrier, fully repaired`);
-        }
+    const carrier = this.mesh.userData.launchedFrom;
+    if (!carrier || !carrier.alive) return;
+
+    // Check if there are enemy troops to target (any domain)
+    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+    let nearestEnemy = null;
+    let nearestDist = Infinity;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const d = this.mesh.position.distanceTo(e.mesh.position);
+      if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+    }
+
+    // Auto-target nearest enemy if in engage range
+    if (nearestEnemy && nearestDist < this.stats.range * 1.56) {
+      this.mesh.userData.fighterState = 'engaging';
+      this.target = nearestEnemy;
+      this.state = 'pursuing';
+      this.mesh.userData.returning = false;
+      return;
+    }
+
+    // No enemies nearby — return to carrier
+    if (!this.mesh.userData.returning) {
+      this.mesh.userData.returning = true;
+      this.mesh.userData.fighterState = 'returning';
+      this.moveTo(carrier.mesh.position.clone());
+    }
+
+    // When close to carrier, fully repair and reset
+    if (this.mesh.userData.returning) {
+      const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
+      if (dToCarrier < 10) {
+        this.hp = this.maxHp;
+        this._displayHp = this.hp;
+        this.mesh.userData.returning = false;
+        this.mesh.userData.fighterState = 'deploying';
+        this.state = 'idle';
+        console.log(`[DEBUG FIGHTER] Returned to carrier, fully repaired`);
       }
     }
   }
@@ -1167,7 +1230,7 @@ export class Unit {
 
   canEnter(terrain) {
     if (this.domain === 'air')  return true;
-    if (this.domain === 'sea')  return terrain === TERRAIN.SEA;
+    if (this.domain === 'sea')  return terrain === TERRAIN.SEA || terrain === TERRAIN.COAST;
     if (this.domain === 'land') return terrain === TERRAIN.LAND || terrain === TERRAIN.COAST;
     return true;
   }
@@ -1793,25 +1856,27 @@ export class Unit {
     this.game.scene.userData.flakPuffs.push(puff);
   }
 
-  /** Carrier special ability — launch fighters. */
+  /** Carrier special ability — start deploying fighters gradually. */
   launchFighters() {
-    if (!this.canLaunch || this.launchCooldown > 0) {
-      console.warn(`[DEBUG UNIT] Carrier launch FAILED — canLaunch: ${this.canLaunch}, cooldown: ${this.launchCooldown.toFixed(1)}`);
-      return false;
+    if (!this.canLaunch) return false;
+    // If already fully deployed and all fighters returned, reset for new cycle
+    if (this._allDeployed) {
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      let aliveFighters = 0;
+      for (const u of allUnits) {
+        if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
+      }
+      if (aliveFighters > 0) {
+        console.log(`[DEBUG CARRIER] Still have ${aliveFighters} fighters deployed`);
+        return false;
+      }
+      this._allDeployed = false;
+      this._deployedFighters = 0;
     }
-    this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
-    Sound.play('launch');
-    console.log(`[DEBUG UNIT] Carrier LAUNCHING ${CARRIER_FIGHTER_COUNT} fighters`);
-    for (let i = 0; i < CARRIER_FIGHTER_COUNT; i++) {
-      const angle = (i / CARRIER_FIGHTER_COUNT) * Math.PI * 2;
-      const pos = {
-        x: this.mesh.position.x + Math.cos(angle) * 10,
-        z: this.mesh.position.z + Math.sin(angle) * 10,
-      };
-      const f = this.game.spawn('fighter', this.faction, pos);
-      f.mesh.position.y = UNIT_TYPES.fighter.altitude;
-      f.mesh.userData.launchedFrom = this; // Track carrier for auto-return
-    }
+    // Start the gradual spawn cycle
+    this.launchCooldown = 0;
+    this._fighterSpawnTimer = CARRIER_FIGHTER_INTERVAL; // spawn first one immediately
+    console.log(`[DEBUG CARRIER] Starting fighter deployment cycle`);
     return true;
   }
 
@@ -2562,22 +2627,7 @@ export class Game {
       }
     }
 
-    // Carrier fighters: auto-return & repair after 60s
-    for (const u of this.playerUnits) {
-      if (u.type === 'fighter' && u.faction === 'player' && u.mesh.userData.launchedFrom) {
-        u._fighterLifeTimer = (u._fighterLifeTimer || 0) + dt;
-        if (u._fighterLifeTimer > 60) {
-          const carrier = u.mesh.userData.launchedFrom;
-          if (carrier && carrier.alive) {
-            // Return to carrier
-            u.moveTo(carrier.mesh.position.clone());
-            u._fighterLifeTimer = 0;
-            u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.5); // Repair 50%
-            u._displayHp = u.hp;
-          }
-        }
-      }
-    }
+    // Carrier fighters: handled by per-unit _fighterAutoReturn in Unit.update()
 
     if (this.minimap && this.minimap.pings) {
       for (let i=this.minimap.pings.length-1;i>=0;i--) {
@@ -2748,7 +2798,7 @@ export class Game {
     for (const u of units) {
       if (!u.alive || u.domain !== 'sea' || u._amphibious) continue;
       const t = this.terrain.getTerrainAt(u.mesh.position.x, u.mesh.position.z);
-      if (t !== TERRAIN.SEA) {
+      if (t !== TERRAIN.SEA && t !== TERRAIN.COAST) {
         const gx = Math.floor((u.mesh.position.x + MAP_SIZE / 2) / 12);
         const gy = Math.floor((u.mesh.position.z + MAP_SIZE / 2) / 12);
         const nearest = this.pathfinder.findNearestWalkable(gx, gy, 'sea');
