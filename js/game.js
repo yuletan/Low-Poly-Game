@@ -2468,6 +2468,17 @@ export class Game {
 
   updatePlacementPreview(pos) {
     if (!this.placementMode.active || !this.placementMode.ghost) return;
+
+    // Fleet placement: move ghost group, validate center
+    if (this.placementMode.type === 'fleet') {
+      this.placementMode.ghost.position.set(pos.x, 0, pos.z);
+      this.placementMode.previewPos = pos;
+      const valid = this.isValidPlacement(pos.x, pos.z, 'sea');
+      this.placementMode.isValid = valid;
+      this.placementMode.ring.material.color.setHex(valid ? 0x44ff88 : 0xff4444);
+      return;
+    }
+
     const stats = UNIT_TYPES[this.placementMode.type];
     const domain = stats.domain;
     const y = domain === 'air' ? stats.altitude : (domain === 'sea' ? 0.3 : LAND_HEIGHT + 0.5);
@@ -2498,6 +2509,9 @@ export class Game {
   confirmPlacement(pos) {
     if (!this.placementMode.active) return false;
     if (!pos) return false;
+
+    // Fleet placement has its own handler
+    if (this.placementMode.type === 'fleet') return this.confirmFleetPlacement(pos);
 
     const { type, groupPlace, unitCost } = this.placementMode;
     const stats = UNIT_TYPES[type];
@@ -2546,6 +2560,97 @@ export class Game {
     if (this.fog) {
       this.fog.update(this.playerUnits, this.bases.filter(b => b.faction === 'player'));
     }
+    this.exitPlacementMode(false);
+    return true;
+  }
+
+  enterFleetPlacementMode() {
+    const escortTypes = ['destroyer', 'destroyer', 'frigate', 'frigate', 'battleship', 'cruiser', 'cruiser'];
+    const totalCost = escortTypes.reduce((sum, t) => sum + UNIT_TYPES[t].cost, 0) + UNIT_TYPES.carrier.cost;
+    if (this.money < totalCost) {
+      this.flashMessage(`Need $${totalCost} for fleet (have $${Math.floor(this.money)})`);
+      return false;
+    }
+
+    this.exitPlacementMode(true);
+
+    // Create ghost group with carrier + escort markers
+    const ghost = new THREE.Group();
+    const markerMat = new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
+    // Carrier center marker
+    const cvMarker = new THREE.Mesh(new THREE.RingGeometry(4, 5, 24), markerMat.clone());
+    cvMarker.rotation.x = -Math.PI / 2;
+    cvMarker.position.y = 0.2;
+    ghost.add(cvMarker);
+    // Escort markers in ring
+    const radius = 25;
+    const escortMarkers = [];
+    for (let i = 0; i < escortTypes.length; i++) {
+      const a = (i / escortTypes.length) * Math.PI * 2;
+      const m = new THREE.Mesh(new THREE.RingGeometry(2.5, 3, 16), markerMat.clone());
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(Math.cos(a) * radius, 0.2, Math.sin(a) * radius);
+      ghost.add(m);
+      escortMarkers.push(m);
+    }
+    this.scene.add(ghost);
+
+    // Validity ring
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(30, 31, 32),
+      new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.5 })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.2;
+    ghost.add(ring);
+
+    this.placementMode = {
+      active: true, type: 'fleet', ghost, ring, escortMarkers, escortTypes, totalCost,
+      isValid: false, previewPos: null
+    };
+    this.flashMessage(`Click water to place fleet ($${totalCost})`);
+    return true;
+  }
+
+  confirmFleetPlacement(pos) {
+    if (!this.placementMode.active || this.placementMode.type !== 'fleet') return false;
+    if (!pos) return false;
+
+    const { escortTypes, totalCost } = this.placementMode;
+    if (this.money < totalCost) {
+      this.flashMessage('Not enough money');
+      return false;
+    }
+
+    // Validate center position is sea
+    if (!this.isValidPlacement(pos.x, pos.z, 'sea')) {
+      this.flashMessage('Cannot place fleet here');
+      return false;
+    }
+
+    this.money -= totalCost;
+
+    // Spawn carrier at center
+    const cv = this.spawn('carrier', 'player', new THREE.Vector3(pos.x, 0.3, pos.z));
+
+    // Spawn escorts in ring
+    const radius = 25;
+    const spawned = [cv];
+    for (let i = 0; i < escortTypes.length; i++) {
+      const a = (i / escortTypes.length) * Math.PI * 2;
+      const ex = pos.x + Math.cos(a) * radius;
+      const ez = pos.z + Math.sin(a) * radius;
+      const u = this.spawn(escortTypes[i], 'player', new THREE.Vector3(ex, 0.3, ez));
+      u._fleetCarrier = cv;
+      u._fleetOffset = new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius);
+      spawned.push(u);
+    }
+    cv._fleetEscorts = spawned.slice(1);
+    cv._fleetFormation = true;
+
+    Sound.play('build');
+    this.flashMessage(`Fleet deployed! -$${totalCost}`);
+    this.pingMinimap(pos.x, pos.z);
     this.exitPlacementMode(false);
     return true;
   }

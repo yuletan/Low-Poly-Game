@@ -581,41 +581,7 @@ export function initUI(game) {
   });
 
   document.getElementById('fleetBtn').addEventListener('click', () => {
-    const carriers = game.selectedUnits.filter(u => u.canLaunch && u.alive);
-    if (carriers.length === 0) { game.flashMessage('Select a carrier first'); return; }
-    const carrier = carriers[0];
-    // Fleet: 2 destroyers, 1 carrier (center), 2 frigates, 1 battleship, 2 cruisers
-    const escortTypes = ['destroyer', 'destroyer', 'frigate', 'frigate', 'battleship', 'cruiser', 'cruiser'];
-    const totalCost = escortTypes.reduce((sum, t) => sum + UNIT_TYPES[t].cost, 0) + UNIT_TYPES.carrier.cost;
-    if (game.money < totalCost) {
-      game.flashMessage(`Need $${totalCost} for fleet (have $${Math.floor(game.money)})`);
-      return;
-    }
-    game.money -= totalCost;
-
-    // Spawn carrier first at center
-    const center = carrier.mesh.position.clone();
-    const cv = game.spawn('carrier', 'player', new THREE.Vector3(center.x, 0.3, center.z));
-
-    // Formation positions around the carrier (ring pattern, good spacing)
-    const angles = [0, 1, 2, 3, 4, 5, 6, 7]; // 8 escort positions
-    const radius = 25;
-    const escortPositions = angles.map((_, i) => {
-      const a = (i / angles.length) * Math.PI * 2;
-      return new THREE.Vector3(center.x + Math.cos(a) * radius, 0.3, center.z + Math.sin(a) * radius);
-    });
-
-    const spawned = [cv];
-    for (let i = 0; i < escortTypes.length; i++) {
-      const u = game.spawn(escortTypes[i], 'player', escortPositions[i]);
-      u.mesh.position.y = 0.3;
-      u._fleetCarrier = cv;
-      u._fleetOffset = escortPositions[i].clone().sub(center);
-      spawned.push(u);
-    }
-    cv._fleetEscorts = spawned.slice(1);
-    cv._fleetFormation = true;
-    game.flashMessage(`Fleet deployed! -$${totalCost}`);
+    game.enterFleetPlacementMode();
   });
 
   document.getElementById('focusHqBtn').addEventListener('click', () => {
