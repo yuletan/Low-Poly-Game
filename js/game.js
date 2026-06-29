@@ -959,14 +959,19 @@ export class Unit {
         }
       }
       if (bestUnit) {
-        // Use no-smooth sea path to reach embark point
         const embarkTarget = bestUnit._transportData?.shipEmbarkPoint?.clone();
+        if (!embarkTarget) {
+          console.warn(`[DEBUG TRANSPORT] Ship has no embark target for troop`);
+          return;
+        }
         const rawSeaPath = this.game.pathfinder.findPath(this.mesh.position, embarkTarget, 'sea', false);
         if (rawSeaPath && rawSeaPath.length > 0) {
           this.path = rawSeaPath;
           this.moveTarget = this.path.shift();
           this.state = 'moving';
+          console.log(`[DEBUG TRANSPORT] Ship pathing to embark (${rawSeaPath.length} waypoints)`);
         } else {
+          console.warn(`[DEBUG TRANSPORT] Ship FAILED to path to embark — trying moveTo`);
           this.moveTo(embarkTarget);
         }
         this._assignedEmbarkPoint = embarkTarget;
@@ -2912,6 +2917,7 @@ export class Game {
       }
 
       if (waitingCount > 0) {
+        console.log(`[DEBUG LOGISTICS] ${faction}: ${waitingCount} troops waiting for transport`);
         // 2. Count ships actively heading to pick up troops
         let activeShips = 0;
         for (const u of units) {

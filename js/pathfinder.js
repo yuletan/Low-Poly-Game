@@ -67,45 +67,118 @@ export class Pathfinder {
     const s = this.worldToGrid(startWorld.x, startWorld.z);
     const g = this.worldToGrid(endWorld.x, endWorld.z);
 
-    const embarkCoast = this.findNearestCoast(s.gx, s.gy, 'land');
-    const disembarkCoast = this.findNearestCoast(g.gx, g.gy, 'land');
+    // Find ALL reachable coasts, then pick the pair with shortest sea path
+    const embarkCandidates = this._findAllCoasts(s.gx, s.gy, 'land');
+    const disembarkCandidates = this._findAllCoasts(g.gx, g.gy, 'land');
 
-    if (!embarkCoast || !disembarkCoast) return null;
+    if (embarkCandidates.length === 0 || disembarkCandidates.length === 0) return null;
 
-    const embarkWorld = this.gridToWorld(embarkCoast.groundTile.gx, embarkCoast.groundTile.gy);
-    const disembarkWorld = this.gridToWorld(disembarkCoast.groundTile.gx, disembarkCoast.groundTile.gy);
-    const shipEmbarkWorld = this.gridToWorld(embarkCoast.seaTile.gx, embarkCoast.seaTile.gy);
-    const shipDisembarkWorld = this.gridToWorld(disembarkCoast.seaTile.gx, disembarkCoast.seaTile.gy);
+    let bestResult = null;
+    let bestSeaDist = Infinity;
 
-    const vEmbark = new THREE.Vector3(embarkWorld.x, 0, embarkWorld.z);
-    const vDisembark = new THREE.Vector3(disembarkWorld.x, 0, disembarkWorld.z);
-    const vShipEmbark = new THREE.Vector3(shipEmbarkWorld.x, 0, shipEmbarkWorld.z);
-    const vShipDisembark = new THREE.Vector3(shipDisembarkWorld.x, 0, shipDisembarkWorld.z);
+    // Try up to 5 nearest embark + 5 nearest disembark combos
+    const eSlice = embarkCandidates.slice(0, 5);
+    const dSlice = disembarkCandidates.slice(0, 5);
 
-    // Segmented paths: walk to coast, sail on water (NO SMOOTHING), walk to target
-    const pathToShip = this.findPath(startWorld, vEmbark, 'land');
-    const seaPath = this.findPath(vShipEmbark, vShipDisembark, 'sea', false);
-    const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
+    for (const embarkCoast of eSlice) {
+      for (const disembarkCoast of dSlice) {
+        const embarkWorld = this.gridToWorld(embarkCoast.groundTile.gx, embarkCoast.groundTile.gy);
+        const disembarkWorld = this.gridToWorld(disembarkCoast.groundTile.gx, disembarkCoast.groundTile.gy);
+        const shipEmbarkWorld = this.gridToWorld(embarkCoast.seaTile.gx, embarkCoast.seaTile.gy);
+        const shipDisembarkWorld = this.gridToWorld(disembarkCoast.seaTile.gx, disembarkCoast.seaTile.gy);
 
-    if (!pathToShip || !seaPath || !pathToTarget) return null;
+        const vEmbark = new THREE.Vector3(embarkWorld.x, 0, embarkWorld.z);
+        const vDisembark = new THREE.Vector3(disembarkWorld.x, 0, disembarkWorld.z);
+        const vShipEmbark = new THREE.Vector3(shipEmbarkWorld.x, 0, shipEmbarkWorld.z);
+        const vShipDisembark = new THREE.Vector3(shipDisembarkWorld.x, 0, shipDisembarkWorld.z);
 
-    const fullPath = [...pathToShip];
-    for (let i = 1; i < seaPath.length; i++) fullPath.push(seaPath[i]);
-    for (let i = 1; i < pathToTarget.length; i++) fullPath.push(pathToTarget[i]);
+        // Quick distance check — skip if sea distance is already worse than best
+        const seaDist = vShipEmbark.distanceTo(vShipDisembark);
+        if (seaDist >= bestSeaDist) continue;
 
-    return {
-      needsTransport: true,
-      path: fullPath,
-      embarkPoint: vEmbark,
-      disembarkPoint: vDisembark,
-      shipEmbarkPoint: vShipEmbark,
-      shipDisembarkPoint: vShipDisembark,
-      segments: {
-        walkToShip: pathToShip,
-        sail: seaPath,
-        walkToTarget: pathToTarget
+        const pathToShip = this.findPath(startWorld, vEmbark, 'land');
+        if (!pathToShip) continue;
+
+        const seaPath = this.findPath(vShipEmbark, vShipDisembark, 'sea', false);
+        if (!seaPath) continue;
+
+        const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
+        if (!pathToTarget) continue;
+
+        bestSeaDist = seaDist;
+        bestResult = {
+          needsTransport: true,
+          path: null, // computed below
+          embarkPoint: vEmbark,
+          disembarkPoint: vDisembark,
+          shipEmbarkPoint: vShipEmbark,
+          shipDisembarkPoint: vShipDisembark,
+          segments: {
+            walkToShip: pathToShip,
+            sail: seaPath,
+            walkToTarget: pathToTarget
+          }
+        };
       }
-    };
+    }
+
+    if (!bestResult) return null;
+
+    // Build full path
+    const fullPath = [...bestResult.segments.walkToShip];
+    for (let i = 1; i < bestResult.segments.sail.length; i++) fullPath.push(bestResult.segments.sail[i]);
+    for (let i = 1; i < bestResult.segments.walkToTarget.length; i++) fullPath.push(bestResult.segments.walkToTarget[i]);
+    bestResult.path = fullPath;
+
+    console.log(`[DEBUG PATH] findTransportPath: embark(${bestResult.embarkPoint.x.toFixed(0)},${bestResult.embarkPoint.z.toFixed(0)}) → disembark(${bestResult.disembarkPoint.x.toFixed(0)},${bestResult.disembarkPoint.z.toFixed(0)}) sea=${bestSeaDist.toFixed(0)}u`);
+    return bestResult;
+  }
+
+  _findAllCoasts(gx, gy, domain) {
+    if (!this.walkable(gx, gy, domain)) {
+      const nearest = this.findNearestWalkable(gx, gy, domain);
+      if (!nearest) return [];
+      gx = nearest.gx;
+      gy = nearest.gy;
+    }
+
+    const queue = [{ gx, gy, dist: 0 }];
+    const visited = new Set([gy * this.size + gx]);
+    const results = [];
+
+    let qi = 0;
+    while (qi < queue.length && results.length < 10) {
+      const cur = queue[qi++];
+      const t = this.terrainGrid[cur.gy * this.size + cur.gx];
+
+      if (t === TERRAIN.COAST) {
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (const [dx, dy] of dirs) {
+          const nx = cur.gx + dx, ny = cur.gy + dy;
+          if (!this.inBounds(nx, ny)) continue;
+          const nt = this.terrainGrid[ny * this.size + nx];
+          if (nt === TERRAIN.SEA) {
+            results.push({ groundTile: cur, seaTile: { gx: nx, gy: ny }, dist: cur.dist });
+            break;
+          }
+        }
+        // Don't stop — find more coast candidates
+      }
+
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      for (const [dx, dy] of dirs) {
+        const nx = cur.gx + dx, ny = cur.gy + dy;
+        const nKey = ny * this.size + nx;
+        if (this.inBounds(nx, ny) && !visited.has(nKey) && this.walkable(nx, ny, domain)) {
+          visited.add(nKey);
+          queue.push({ gx: nx, gy: ny, dist: cur.dist + 1 });
+        }
+      }
+    }
+
+    // Sort by distance from start
+    results.sort((a, b) => a.dist - b.dist);
+    return results;
   }
 
   findPath(startWorld, endWorld, domain, smooth = true) {
