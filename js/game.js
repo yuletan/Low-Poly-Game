@@ -786,6 +786,10 @@ export class Unit {
     // Returning: fly back to carrier and disappear
     if (state === 'returning' || this.mesh.userData.returning) {
       this.mesh.userData.returning = true;
+      this.state = 'moving';
+      // Continuously track carrier's live position
+      this.moveTarget = carrier.mesh.position.clone();
+      this.path = [];
       const dToCarrier = this.mesh.position.distanceTo(carrier.mesh.position);
       if (dToCarrier < 10) {
         this.alive = false;
