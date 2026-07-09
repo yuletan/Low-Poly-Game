@@ -317,20 +317,161 @@ describe('Troop Waiting on Land', () => {
     expect(target).toBeDefined();
   });
 
-  it('troop boards transport when in range (<= loadRange of 3)', () => {
-    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(10, 0.3, 10));
-    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(12, 0, 10));
+  it('troop boards transport when in 2D range <= 14 (coast tile to adjacent sea tile)', () => {
+    // Coast tile center at (12, 0, 12), adjacent sea tile center at (12, 0.3, 0) or (0, 0.3, 12)
+    // Distance between centers = 12 (GRID_CELL). 2D distance = 12, which is <= 14
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(12, 0.3, 0));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(12, 1.0, 12)); // land unit on coast tile
 
     troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(12, 0, 12) };
     troop.state = 'waitingForTransport';
     troop._claimedByShip = ship;
     game.playerUnits = [ship, troop];
 
-    const dist = troop.mesh.position.distanceTo(ship.mesh.position);
-    expect(dist).toBeLessThanOrEqual(3); // within load range
+    const dist2d = Math.hypot(troop.mesh.position.x - ship.mesh.position.x, troop.mesh.position.z - ship.mesh.position.z);
+    expect(dist2d).toBe(12); // GRID_CELL distance
+    expect(dist2d).toBeLessThanOrEqual(14); // within loadRange of 14
 
     troop.updateWaitingForTransport(0.1);
     expect(troop.carried).toBe(true);
     expect(ship.carriedUnits).toContain(troop);
+  });
+
+  it('troop does NOT board when 2D distance > 14', () => {
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(30, 1.0, 30)); // far away
+
+    troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(30, 0, 30) };
+    troop.state = 'waitingForTransport';
+    troop._claimedByShip = ship;
+    game.playerUnits = [ship, troop];
+
+    const dist2d = Math.hypot(troop.mesh.position.x - ship.mesh.position.x, troop.mesh.position.z - ship.mesh.position.z);
+    expect(dist2d).toBeGreaterThan(14);
+
+    troop.updateWaitingForTransport(0.1);
+    expect(troop.carried).toBeFalsy();
+    expect(ship.carriedUnits.length).toBe(0);
+  });
+});
+
+describe('Troop Disembark - Fans Out on Land', () => {
+  let Unit, Game, game, THREE;
+
+  beforeEach(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Unit = gameMod.Unit;
+    Game = gameMod.Game;
+
+    game = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    game.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    game.pathfinder = {
+      cell: 12,
+      worldToGrid: (x, z) => ({ gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }),
+      gridToWorld: (gx, gy) => ({ x: gx * 12 - 600 + 6, z: gy * 12 - 600 + 6 }),
+      findNearestWalkable: vi.fn((gx, gy, domain) => ({ gx, gy })),
+      findPath: vi.fn(() => []),
+    };
+    game.bases = [{ faction: 'player', alive: true, mesh: { position: new THREE.Vector3(0, 0, 0) }, name: 'HQ' }];
+    game.playerUnits = [];
+    game.enemyUnits = [];
+    game.money = 10000;
+    game._currentTime = 0;
+    game.upgrades = { applyTo: vi.fn(s => ({ ...s })), upgrades: { hp: 0, damage: 0, speed: 0, tactics: 0 } };
+    game.scene = new THREE.Scene();
+  });
+
+  it('unloads troops to nearest walkable land tile via findNearestWalkable', () => {
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(60, 0.3, 60));
+    const troops = [
+      new Unit(game, 'infantry', 'player', new THREE.Vector3(60, 1.0, 60)),
+      new Unit(game, 'tank', 'player', new THREE.Vector3(60, 1.0, 60)),
+      new Unit(game, 'artillery', 'player', new THREE.Vector3(60, 1.0, 60)),
+    ];
+
+    // Load troops
+    for (const t of troops) ship.loadUnit(t);
+    expect(ship.carriedUnits.length).toBe(3);
+
+    // Give them transport data with walk-to-target paths
+    for (const t of troops) {
+      t._transportData = {
+        needsTransport: true,
+        segments: { walkToTarget: [new THREE.Vector3(100, 0, 100)] },
+      };
+    }
+
+    // Ship at disembark point, no path
+    ship._disembarkPoint = new THREE.Vector3(60, 0, 60);
+    ship.path = [];
+
+    ship._updateTransport(0.1);
+
+    // All troops should be unloaded
+    expect(ship.carriedUnits.length).toBe(0);
+    for (const t of troops) {
+      expect(t.carried).toBe(false);
+      expect(t.mesh.visible).toBe(true);
+    }
+    // findNearestWalkable called with 'land' domain
+    expect(game.pathfinder.findNearestWalkable).toHaveBeenCalledWith(
+      expect.any(Number), expect.any(Number), 'land'
+    );
+  });
+
+  it('unloaded troops fan out around landing zone', () => {
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(50, 0.3, 50));
+    const troops = [
+      new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 1.0, 50)),
+      new Unit(game, 'tank', 'player', new THREE.Vector3(50, 1.0, 50)),
+      new Unit(game, 'artillery', 'player', new THREE.Vector3(50, 1.0, 50)),
+      new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 1.0, 50)),
+    ];
+
+    for (const t of troops) ship.loadUnit(t);
+
+    for (const t of troops) {
+      t._transportData = { needsTransport: true, segments: { walkToTarget: [] } };
+    }
+
+    ship._disembarkPoint = new THREE.Vector3(50, 0, 50);
+    ship.path = [];
+
+    ship._updateTransport(0.1);
+
+    // Troops should be fanned out (different positions)
+    const positions = troops.map(t => ({ x: t.mesh.position.x, z: t.mesh.position.z }));
+    const uniquePositions = new Set(positions.map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`));
+    expect(uniquePositions.size).toBe(troops.length); // all at different positions
+  });
+
+  it('unloaded troops receive their walk-to-target path and start moving', () => {
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(60, 0.3, 60));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(60, 1.0, 60));
+    ship.loadUnit(troop);
+
+    const targetPath = [
+      new THREE.Vector3(70, 0, 70),
+      new THREE.Vector3(80, 0, 80),
+      new THREE.Vector3(90, 0, 90),
+    ];
+    // Clone path to avoid mutation by shift()
+    troop._transportData = {
+      needsTransport: true,
+      segments: { walkToTarget: targetPath.map(p => p.clone()) },
+    };
+
+    ship._disembarkPoint = new THREE.Vector3(60, 0, 60);
+    ship.path = [];
+
+    ship._updateTransport(0.1);
+
+    // Troop should have the path and be moving
+    // path.shift() is called in unload logic, so path.length = original - 1
+    expect(troop.path.length).toBe(targetPath.length - 1);
+    // moveTarget is the first element that was shifted
+    expect(troop.moveTarget).toEqual(targetPath[0]);
+    expect(troop.state).toBe('moving');
   });
 });
