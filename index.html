@@ -1,109 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Low-Poly RTS</title>
-  <link rel="stylesheet" href="styles.css" />
-  
-  <!-- Mobile viewport meta -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Low-Poly Command</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Game Canvas -->
+  <div id="gameCanvas"></div>
 
-  <!-- ===== Difficulty / Start Menu ===== -->
+  <!-- Start Menu -->
   <div id="startMenu" class="overlay center">
-    <div class="panel">
-      <h1>⚔️ LOW-POLY COMMAND ⚔️</h1>
-      <p>Select Difficulty</p>
+    <div class="panel" style="text-align:center;padding:40px;">
+      <h1>LOW-POLY COMMAND</h1>
+      <p style="color:var(--text-muted);margin-bottom:30px;">Conquer the battlefield</p>
       <div class="row">
-        <button data-diff="easy"   class="btn btn-green">EASY</button>
-        <button data-diff="normal" class="btn btn-amber">NORMAL</button>
-        <button data-diff="hard"   class="btn btn-red">HARD</button>
+        <button data-diff="easy" class="btn btn-green">EASY</button>
+        <button data-diff="normal" class="btn btn-blue">NORMAL</button>
+        <button data-diff="hard" class="btn btn-red">HARD</button>
       </div>
     </div>
   </div>
 
-  <!-- ===== HUD: Money + Selection Info ===== -->
-  <div id="hud" class="overlay hidden">
-
-    <!-- Top bar -->
-    <div id="topBar" class="bar">
-      <span>💰 <span id="money">500</span> <span id="income" style="color:#4f4;font-size:11px;">(+10/s)</span></span>
-      <span>🏰 Bases: <span id="basesOwned">1</span> / <span id="basesTotal">6</span></span>
-      <span>👥 Units: <span id="unitCount">0</span></span>
-      <span>⚠️ Enemy: <span id="enemyCount" style="color:#f44;">?</span></span>
-      <span id="difficulty">Difficulty: —</span>
-    </div>
-
-    <!-- Bottom-left: Combined Selection + Formation Panel -->
-    <div id="selectionPanel" class="panel small">
-      <div class="panel-header">
-        <h3>Selection</h3>
-        <button id="selectAllBtn" class="mini-btn" title="Select all units (Ctrl+A)">⬜ All</button>
-      </div>
-      <div id="selectionInfo">No units selected</div>
-      
-      <div class="formation-section" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #334;">
-        <label for="formationSelect" style="font-size: 11px; color: #888; margin-bottom: 4px; display: block;">Formation</label>
-        <div class="formation-options" style="display: flex; gap: 4px; flex-wrap: wrap;">
-          <button type="button" class="formation-btn active" data-formation="line" title="Line (F1)">
-            <span class="formation-icon">━━━</span>
-          </button>
-          <button type="button" class="formation-btn" data-formation="wedge" title="Wedge (F2)">
-            <span class="formation-icon">▲</span>
-          </button>
-          <button type="button" class="formation-btn" data-formation="square" title="Square (F3)">
-            <span class="formation-icon">■</span>
-          </button>
-          <button type="button" class="formation-btn" data-formation="column" title="Column (F4)">
-            <span class="formation-icon">┃</span>
-          </button>
-        </div>
-        <select id="formationSelect" style="display: none;">
-          <option value="line">Line</option>
-          <option value="wedge">Wedge</option>
-          <option value="square">Square</option>
-          <option value="column">Column</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Bottom-right: Build / Armory menu -->
-    <div id="buildPanel" class="panel small">
-      <div class="panel-header">
-        <h3>Armory</h3>
-      </div>
-      <div class="armory-tabs">
-        <button class="tab-btn active" data-tab="land">Land</button>
-        <button class="tab-btn" data-tab="sea">Sea</button>
-        <button class="tab-btn" data-tab="air">Air</button>
-        <button class="tab-btn" data-tab="upgrades">Upgrades</button>
-      </div>
-      <div id="armoryContent" class="armory-grid">
-        <!-- Tabs content injected by ui.js -->
-      </div>
-    </div>
-
-    <!-- Selection box (drawn during drag) -->
-    <div id="selectionBox"></div>
-
-    <!-- Placement mode indicator -->
-    <div id="placementIndicator" class="hidden"></div>
-  </div>
-
-  <!-- ===== End screen ===== -->
+  <!-- End Screen -->
   <div id="endScreen" class="overlay center hidden">
-    <div class="panel">
-      <h1 id="endTitle">Victory!</h1>
+    <div class="panel" style="text-align:center;padding:40px;">
+      <h1 id="endTitle" style="font-size:32px;margin-bottom:20px;"></h1>
       <button id="restartBtn" class="btn btn-green">Play Again</button>
     </div>
   </div>
 
-  <!-- Three.js canvas mounts here -->
-  <div id="gameCanvas"></div>
+  <!-- Selection Box (drawn during drag) -->
+  <div id="selectionBox"></div>
 
+  <!-- Placement Mode Indicator -->
+  <div id="placementIndicator" class="hidden"></div>
+
+  <!-- Error handler -->
   <script>
     window.addEventListener('error', (e) => {
       const div = document.createElement('div');
@@ -118,6 +54,6 @@
       document.body.appendChild(div);
     });
   </script>
-  <script type="module" src="js/main.js?v=8"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
