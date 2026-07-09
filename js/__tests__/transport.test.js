@@ -232,7 +232,7 @@ describe('Transport Ship - Real Unit behavior', () => {
 
   it('ship unloads troops to land via findNearestWalkable with land domain', () => {
     const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(50, 0.3, 50));
-    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 0, 48)); // within 14 for loadUnit
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 0, 49)); // within 3 for loadUnit
 
     // Board the troop
     ship.loadUnit(troop);
@@ -317,9 +317,9 @@ describe('Troop Waiting on Land', () => {
     expect(target).toBeDefined();
   });
 
-  it('troop boards transport when in range (<= loadRange of 14)', () => {
+  it('troop boards transport when in range (<= loadRange of 3)', () => {
     const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(10, 0.3, 10));
-    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(15, 0, 15));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(12, 0, 10));
 
     troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(12, 0, 12) };
     troop.state = 'waitingForTransport';
@@ -327,7 +327,7 @@ describe('Troop Waiting on Land', () => {
     game.playerUnits = [ship, troop];
 
     const dist = troop.mesh.position.distanceTo(ship.mesh.position);
-    expect(dist).toBeLessThanOrEqual(14); // within load range
+    expect(dist).toBeLessThanOrEqual(3); // within load range
 
     troop.updateWaitingForTransport(0.1);
     expect(troop.carried).toBe(true);

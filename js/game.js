@@ -1021,8 +1021,17 @@ export class Unit {
       const isFull = this.carriedUnits.length >= this.transportCapacity;
       const timedOut = this._boardingTimer > 15;
 
-      if ((isFull || timedOut) && this.carriedUnits.length > 0) {
-        console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
+      // Count claimed troops still waiting to board (not yet carried)
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      let claimedWaiting = 0;
+      for (const u of allUnits) {
+        if (u.alive && u._claimedByShip === this && !u.carried) claimedWaiting++;
+      }
+
+      // Sail when: all claimed troops are aboard, ship is full, or timed out
+      const allClaimedBoarded = claimedWaiting === 0 && this.carriedUnits.length > 0;
+      if (allClaimedBoarded || isFull || (timedOut && this.carriedUnits.length > 0)) {
+        console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}, claimed remaining: ${claimedWaiting}`);
         // Save disembark data before any moveTo() might clear _transportData
         const disembarkPt = this._transportData?.disembarkPoint?.clone();
         // Use the pre-calculated sea path directly (no recalc, no smoothing)
@@ -1038,12 +1047,10 @@ export class Unit {
         this._assignedEmbarkPoint = null;
 
         // Unclaim any troops that didn't make it
-        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
         for (const u of allUnits) {
           if (u._claimedByShip === this) u._claimedByShip = null;
         }
       } else if (timedOut && this.carriedUnits.length === 0) {
-        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
         for (const u of allUnits) {
           if (u._claimedByShip === this) u._claimedByShip = null;
         }
@@ -1836,7 +1843,7 @@ export class Unit {
 
     if (targetTransport) {
       const d = this.mesh.position.distanceTo(targetTransport.mesh.position);
-      const loadRange = 14;
+      const loadRange = 3;
       
       if (d <= loadRange) {
         targetTransport.loadUnit(this);
