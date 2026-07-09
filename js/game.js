@@ -1842,10 +1842,12 @@ export class Unit {
     }
 
     if (targetTransport) {
-      const d = this.mesh.position.distanceTo(targetTransport.mesh.position);
-      const loadRange = 3;
+      const dx = this.mesh.position.x - targetTransport.mesh.position.x;
+      const dz = this.mesh.position.z - targetTransport.mesh.position.z;
+      const d2d = Math.hypot(dx, dz);
+      const loadRange = 14;
       
-      if (d <= loadRange) {
+      if (d2d <= loadRange) {
         targetTransport.loadUnit(this);
         if (!targetTransport._transportData) {
           targetTransport._transportData = this._transportData;
