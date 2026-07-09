@@ -82,22 +82,22 @@ export function initAI(game) {
   function pickSpawnBase(targetBase = null) {
     const owned = game.bases.filter(b => b.faction === 'enemy');
     if (owned.length === 0) return null;
-    
+
     // If we have a specific target, prefer bases closest to it
     if (targetBase) {
-      return owned.reduce((closest, b) => 
-        b.mesh.position.distanceTo(targetBase.mesh.position) < 
+      return owned.reduce((closest, b) =>
+        b.mesh.position.distanceTo(targetBase.mesh.position) <
         closest.mesh.position.distanceTo(targetBase.mesh.position) ? b : closest
       );
     }
-    
+
     // Otherwise weight by proximity to any player base
     const playerBases = game.bases.filter(b => b.faction === 'player');
     if (playerBases.length === 0) return owned[Math.floor(Math.random() * owned.length)];
-    
+
     let bestBase = owned[0];
     let bestScore = -1;
-    
+
     for (const b of owned) {
       // Score = inverse of average distance to player bases (closer = higher score)
       let totalDist = 0;
@@ -106,13 +106,13 @@ export function initAI(game) {
       }
       const avgDist = totalDist / playerBases.length;
       const score = 1 / (avgDist + 1); // +1 to avoid division by zero
-      
+
       if (score > bestScore) {
         bestScore = score;
         bestBase = b;
       }
     }
-    
+
     // Add some randomness: 70% chance to pick best, 30% random
     if (Math.random() < 0.7) return bestBase;
     return owned[Math.floor(Math.random() * owned.length)];
@@ -258,14 +258,13 @@ export function initAI(game) {
     const isHuge = attackers.length >= 10;
     const primary = targets[0];
 
-    // Attack air units directly
+    // Air units attack targets directly
     const airAttackers = attackers.filter(u => u.domain === 'air');
     for (const target of targets) {
       for (const u of airAttackers) u.attack(target);
     }
 
-    // Ground units: just tell them to move to the target.
-    // Pathfinder + game.js logistics will handle transport ships automatically!
+    // Ground units: attack the target directly (not moveTo formation offsets)
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
@@ -275,17 +274,12 @@ export function initAI(game) {
       for (const t of targets) {
         const slice = groundAttackers.slice(idx, idx + perGroup);
         idx += perGroup;
-        const positions = game.computeFormation(t.mesh.position, slice.length, isHuge ? 'wedge' : 'line');
-        slice.forEach((u, i) => u.moveTo(positions[i] || t.mesh.position.clone()));
+        for (const u of slice) u.attack(t);
       }
       const leftover = groundAttackers.slice(idx);
-      if (leftover.length > 0) {
-        const lPos = game.computeFormation(primary.mesh.position, leftover.length, 'line');
-        leftover.forEach((u, i) => u.moveTo(lPos[i] || primary.mesh.position.clone()));
-      }
+      for (const u of leftover) u.attack(primary);
     } else {
-      const positions = game.computeFormation(primary.mesh.position, groundAttackers.length, isHuge ? 'wedge' : 'line');
-      groundAttackers.forEach((u, i) => u.moveTo(positions[i] || primary.mesh.position.clone()));
+      for (const u of groundAttackers) u.attack(primary);
     }
 
     console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
@@ -371,16 +365,13 @@ export function initAI(game) {
     const target = pickPlayerTarget();
     if (!target) return;
 
-    const isHuge = available.length >= 15;
-    const positions = game.computeFormation(
-      target.mesh.position.clone().add(new THREE.Vector3(50, 0, 0)),
-      available.length,
-      isHuge ? 'wedge' : 'line'
-    );
+    // Air units attack directly
+    const airAttackers = available.filter(u => u.domain === 'air');
+    for (const u of airAttackers) u.attack(target);
 
-    available.forEach((u, i) => {
-      u.moveTo(positions[i] || target.mesh.position.clone());
-    });
+    // Ground units attack the target directly (not moveTo an offset formation)
+    const groundAttackers = available.filter(u => u.domain !== 'air');
+    for (const u of groundAttackers) u.attack(target);
 
     game.flashMessage(`Enemy attack inbound! ${available.length} units detected`);
 
