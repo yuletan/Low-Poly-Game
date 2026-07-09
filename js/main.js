@@ -110,7 +110,6 @@ if (hasSave()) {
     const save = loadSaveData();
     if (save) {
       document.getElementById('startMenu').classList.add('hidden');
-      document.getElementById('hud').classList.remove('hidden');
       startGame(save.difficulty, save);
     }
   });
@@ -121,7 +120,6 @@ document.querySelectorAll('#startMenu .btn[data-diff]').forEach(btn => {
   btn.addEventListener('click', () => {
     const diff = btn.dataset.diff;
     document.getElementById('startMenu').classList.add('hidden');
-    document.getElementById('hud').classList.remove('hidden');
     startGame(diff, null);
     Sound.resume();
   });
