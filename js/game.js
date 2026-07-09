@@ -2348,8 +2348,10 @@ export class Game {
     this.createBases();
     this.spawnStartingArmy();
 
-    document.getElementById('difficulty').textContent = `Difficulty: ${this.difficulty.toUpperCase()}`;
-    document.getElementById('basesTotal').textContent = this.bases.length;
+    const diffEl = document.getElementById('difficulty');
+    if (diffEl) diffEl.textContent = `Difficulty: ${this.difficulty.toUpperCase()}`;
+    const basesTotalEl = document.getElementById('basesTotal');
+    if (basesTotalEl) basesTotalEl.textContent = this.bases.length;
   }
 
   createBases() {
@@ -2988,13 +2990,17 @@ export class Game {
 
   updateHUD() {
     const owned = this.bases.filter(b => b.faction === 'player').length;
-    document.getElementById('money').textContent = Math.floor(this.money);
-    document.getElementById('income').textContent = `+${PASSIVE_INCOME * owned}/s`;
-    document.getElementById('unitCount').textContent = this.playerUnits.length;
-    document.getElementById('basesOwned').textContent = owned;
-    // Enemy intel
+    const moneyEl = document.getElementById('money');
+    const incomeEl = document.getElementById('income');
+    const unitCountEl = document.getElementById('unitCount');
+    const basesOwnedEl = document.getElementById('basesOwned');
+    const enemyCountEl = document.getElementById('enemyCount');
+    if (moneyEl) moneyEl.textContent = Math.floor(this.money);
+    if (incomeEl) incomeEl.textContent = `+${PASSIVE_INCOME * owned}/s`;
+    if (unitCountEl) unitCountEl.textContent = this.playerUnits.length;
+    if (basesOwnedEl) basesOwnedEl.textContent = owned;
     const enemyAlive = this.enemyUnits.filter(u => u.alive && u.state !== 'dead');
-    document.getElementById('enemyCount').textContent = enemyAlive.length;
+    if (enemyCountEl) enemyCountEl.textContent = enemyAlive.length;
     // Live refresh of selection HP/status
     this.updateSelectionUI?.();
   }
