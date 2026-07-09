@@ -28,12 +28,12 @@
     },
     "explore": {
       "mode": "subagent",
-      "model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free",
+      "model": "openrouter/cohere/north-mini-code:free",
       "description": "Codebase exploration and pattern discovery"
     },
     "scout": {
       "mode": "subagent",
-      "model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free",
+      "model": "openrouter/cohere/north-mini-code:free",
       "description": "Fast search and reconnaissance"
     },
     "reviewer": {
