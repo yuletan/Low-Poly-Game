@@ -686,6 +686,18 @@ export class Unit {
       if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
       if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
     }
+    // Tactics Tier 1: Formation bonus — +10% dmg when 2+ allies within range 20
+    const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
+    if (tacticsTier >= 1) {
+      let nearbyAllies = 0;
+      for (const u of allies) {
+        if (!u.alive || u === this) continue;
+        const d = this.mesh.position.distanceTo(u.mesh.position);
+        if (d <= 20) nearbyAllies++;
+      }
+      if (nearbyAllies >= 2) this._dmgMult *= 1.1;
+    }
+
     const targetMax = this._baseMaxHp * this._hpMult;
     if (targetMax !== this.maxHp) {
       const ratio = this.hp / this.maxHp;
@@ -1442,6 +1454,33 @@ export class Unit {
       }
     }
 
+    // Tactics Tier 2: Focus fire — prefer enemies that allies are already attacking
+    const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
+    if (tacticsTier >= 2 && !airOnly && !baseOnly && !baseTarget) {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      const focusCounts = new Map();
+      for (const u of allies) {
+        if (!u.alive || u === this) continue;
+        if (u.target && u.target.alive && u.target.faction !== this.faction) {
+          focusCounts.set(u.target, (focusCounts.get(u.target) || 0) + 1);
+        }
+      }
+      let focusBest = null, focusCount = 0;
+      for (const [enemy, count] of focusCounts) {
+        if (count < focusCount) continue;
+        if (airOnly && enemy.domain !== 'air') continue;
+        const d = this._dist2d(enemy.mesh.position);
+        if (d <= this.engageRange && count >= 2) {
+          focusBest = enemy;
+          focusCount = count;
+        }
+      }
+      if (focusBest && focusCount >= 2) {
+        best = focusBest;
+        bestD = this._dist2d(focusBest.mesh.position);
+      }
+    }
+
     // Fallback: target enemy bases (priority 2 for land units)
     // Always check bases, not just as fallback — troops should attack bases in range
     if (this.stats.range > 0) {
@@ -1838,6 +1877,12 @@ export class Unit {
 
     // Apply damage aura multiplier
     finalDmg *= this._dmgMult;
+
+    // Tactics Tier 3: Combined arms — +25% damage vs different-domain targets
+    if ((this.game.upgrades?.tiers?.tactics ?? 0) >= 3) {
+      const targetDomain = this.target.domain || UNIT_TYPES[this.target.type]?.domain;
+      if (targetDomain && this.domain !== targetDomain) finalDmg *= 1.25;
+    }
 
     // Stealth break on first attack + 5x first strike damage
     if (this._stealthed) {

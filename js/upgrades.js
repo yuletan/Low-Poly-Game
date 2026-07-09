@@ -5,7 +5,7 @@ import { Sound } from './sound.js';
 export class UpgradeManager {
   constructor(game) {
     this.game = game;
-    this.tiers = { hp: 0, damage: 0, speed: 0 };
+    this.tiers = { hp: 0, damage: 0, speed: 0, tactics: 0 };
   }
 
   multiplier(stat) {
