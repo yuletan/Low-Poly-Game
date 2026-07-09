@@ -583,6 +583,7 @@ export function initUI(game) {
     <button id="launchBtn" class="topBtn">Launch</button>
     <button id="fleetBtn" class="topBtn">Fleet</button>
     <button id="focusHqBtn" class="topBtn">HQ</button>
+    <button id="settingsBtn" class="topBtn">⚙</button>
     <button id="helpBtn" class="topBtn">Help</button>
     <div class="top-dropdown">
       <button id="menuToggleBtn" class="topBtn">Menu</button>
@@ -748,6 +749,7 @@ export function initUI(game) {
 
   createHelpModal();
   document.getElementById('helpBtn').addEventListener('click', () => toggleHelpModal(true));
+  document.getElementById('settingsBtn').addEventListener('click', () => toggleSettings(true));
 
   // === Hotkeys (single listener, no duplicates) ===
   window.addEventListener('keydown', e => {
@@ -913,6 +915,185 @@ export function initUI(game) {
     deleteSave();
     location.reload();
   });
+
+  // === SETTINGS MODAL ===
+  function saveSettings() {
+    const s = {
+      shadows: settingsState.shadows,
+      fogOfWar: settingsState.fogOfWar,
+      particleDensity: settingsState.particleDensity,
+      masterVolume: settingsState.masterVolume,
+    };
+    try { localStorage.setItem('perftab_settings', JSON.stringify(s)); } catch(e) {}
+  }
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem('perftab_settings');
+      if (raw) return JSON.parse(raw);
+    } catch(e) {}
+    return null;
+  }
+
+  const settingsState = {
+    shadows: true,
+    fogOfWar: true,
+    particleDensity: 'medium',
+    masterVolume: 30,
+  };
+
+  // Load saved settings
+  const savedSettings = loadSettings();
+  if (savedSettings) {
+    Object.assign(settingsState, savedSettings);
+  }
+
+  function applySettings() {
+    if (game && game.scene && game.scene.userData && game.scene.userData.renderer) {
+      game.scene.userData.renderer.shadowMap.enabled = settingsState.shadows;
+    }
+    if (game && game.fog && game.fog.mesh) {
+      game.fog.mesh.visible = settingsState.fogOfWar;
+    }
+    const densityMult = settingsState.particleDensity === 'low' ? 0.25 : settingsState.particleDensity === 'medium' ? 0.5 : 1.0;
+    if (window.__PARTICLE_DENSITY !== undefined) {
+      window.__PARTICLE_DENSITY = densityMult;
+    }
+    if (Sound && Sound.master) {
+      Sound.master.gain.value = settingsState.masterVolume / 100;
+      Sound.masterVolume = settingsState.masterVolume / 100;
+    }
+    saveSettings();
+  }
+
+  window.__applySettings = applySettings;
+
+  function createSettingsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'settingsModal';
+    modal.className = 'hidden';
+
+    const densityLabel = { low: 'Low', medium: 'Medium', high: 'High' };
+
+    modal.innerHTML = `
+      <div class="settings-panel">
+        <div class="settings-header">
+          <h1>⚙ SETTINGS</h1>
+          <button id="settingsCloseBtn" class="settings-close" title="Close">×</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Shadows</div>
+              <div class="settings-desc">Requires restart to take full effect</div>
+            </div>
+            <div class="settings-control">
+              <button id="settingsShadows" class="toggle-switch ${settingsState.shadows ? 'on' : ''}"></button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Fog of War</div>
+              <div class="settings-desc">Hide unexplored areas</div>
+            </div>
+            <div class="settings-control">
+              <button id="settingsFog" class="toggle-switch ${settingsState.fogOfWar ? 'on' : ''}"></button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Particle Density</div>
+              <div class="settings-desc">Explosion &amp; trail detail</div>
+            </div>
+            <div class="settings-control">
+              <select id="settingsParticles" class="settings-select">
+                <option value="low" ${settingsState.particleDensity === 'low' ? 'selected' : ''}>Low</option>
+                <option value="medium" ${settingsState.particleDensity === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="high" ${settingsState.particleDensity === 'high' ? 'selected' : ''}>High</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Master Volume</div>
+              <div class="settings-desc">0% — 100%</div>
+            </div>
+            <div class="settings-control">
+              <input type="range" id="settingsVolume" class="settings-slider" min="0" max="100" value="${settingsState.masterVolume}">
+              <span id="settingsVolumeValue" class="settings-value">${settingsState.masterVolume}</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-footer">
+          <button id="settingsDefaultsBtn" class="btn btn-amber">Reset to Defaults</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event handlers
+    document.getElementById('settingsCloseBtn').addEventListener('click', () => toggleSettings(false));
+    modal.addEventListener('click', e => { if (e.target === modal) toggleSettings(false); });
+
+    document.getElementById('settingsShadows').addEventListener('click', function() {
+      settingsState.shadows = !settingsState.shadows;
+      this.classList.toggle('on', settingsState.shadows);
+      applySettings();
+      game.flashMessage(`Shadows: ${settingsState.shadows ? 'ON' : 'OFF'}`);
+    });
+
+    document.getElementById('settingsFog').addEventListener('click', function() {
+      settingsState.fogOfWar = !settingsState.fogOfWar;
+      this.classList.toggle('on', settingsState.fogOfWar);
+      applySettings();
+      game.flashMessage(`Fog of War: ${settingsState.fogOfWar ? 'ON' : 'OFF'}`);
+    });
+
+    document.getElementById('settingsParticles').addEventListener('change', function() {
+      settingsState.particleDensity = this.value;
+      applySettings();
+      game.flashMessage(`Particle Density: ${densityLabel[this.value]}`);
+    });
+
+    const volumeSlider = document.getElementById('settingsVolume');
+    const volumeValue = document.getElementById('settingsVolumeValue');
+    volumeSlider.addEventListener('input', function() {
+      settingsState.masterVolume = parseInt(this.value);
+      volumeValue.textContent = this.value;
+      applySettings();
+    });
+
+    document.getElementById('settingsDefaultsBtn').addEventListener('click', function() {
+      settingsState.shadows = true;
+      settingsState.fogOfWar = true;
+      settingsState.particleDensity = 'medium';
+      settingsState.masterVolume = 30;
+      document.getElementById('settingsShadows').classList.toggle('on', true);
+      document.getElementById('settingsFog').classList.toggle('on', true);
+      document.getElementById('settingsParticles').value = 'medium';
+      volumeSlider.value = '30';
+      volumeValue.textContent = '30';
+      applySettings();
+      game.flashMessage('Settings reset to defaults');
+    });
+  }
+
+  function toggleSettings(open) {
+    const modal = document.getElementById('settingsModal');
+    if (open) {
+      modal.classList.remove('hidden');
+      game.paused = true;
+    } else {
+      modal.classList.add('hidden');
+      game.paused = false;
+    }
+  }
+
+  createSettingsModal();
+
+  // Apply settings on first init
+  applySettings();
 
   console.log('UI initialized');
 }
