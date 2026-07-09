@@ -264,7 +264,7 @@ export function initAI(game) {
       for (const u of airAttackers) u.attack(target);
     }
 
-    // Ground units: attack the target directly (not moveTo formation offsets)
+    // Ground units: attack-move toward target so they engage enemies along the path
     const groundAttackers = attackers.filter(u => u.domain !== 'air');
     if (!groundAttackers.length) return;
 
@@ -274,12 +274,12 @@ export function initAI(game) {
       for (const t of targets) {
         const slice = groundAttackers.slice(idx, idx + perGroup);
         idx += perGroup;
-        for (const u of slice) u.attack(t);
+        for (const u of slice) u.moveTo(t.mesh.position.clone(), true);
       }
       const leftover = groundAttackers.slice(idx);
-      for (const u of leftover) u.attack(primary);
+      for (const u of leftover) u.moveTo(primary.mesh.position.clone(), true);
     } else {
-      for (const u of groundAttackers) u.attack(primary);
+      for (const u of groundAttackers) u.moveTo(primary.mesh.position.clone(), true);
     }
 
     console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
@@ -369,9 +369,9 @@ export function initAI(game) {
     const airAttackers = available.filter(u => u.domain === 'air');
     for (const u of airAttackers) u.attack(target);
 
-    // Ground units attack the target directly (not moveTo an offset formation)
+    // Ground units: attack-move toward target so they engage enemies along the path
     const groundAttackers = available.filter(u => u.domain !== 'air');
-    for (const u of groundAttackers) u.attack(target);
+    for (const u of groundAttackers) u.moveTo(target.mesh.position.clone(), true);
 
     game.flashMessage(`Enemy attack inbound! ${available.length} units detected`);
 

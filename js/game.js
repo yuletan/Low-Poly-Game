@@ -1461,7 +1461,7 @@ export class Unit {
         }
       }
 
-      if (priority < bestPriority || (priority === bestPriority && d < bestD)) {
+      if (d <= this.engageRange && (priority < bestPriority || (priority === bestPriority && d < bestD))) {
         best = e; bestD = d; bestPriority = priority;
       }
     }
@@ -1493,21 +1493,17 @@ export class Unit {
       }
     }
 
-    // Fallback: target enemy bases (priority 2 for land units)
-    // Always check bases, not just as fallback — troops should attack bases in range
+    // Target enemy bases (priority 2)
+    // Strict priority: units (1) always beat bases (2). A base only wins over
+    // another base if it is closer. A base only wins over a sea target (3)
+    // because 2 < 3.
     if (this.stats.range > 0) {
       const bases = this.game.bases.filter(b => b.alive && b.faction !== this.faction);
+      const basePriority = 2;
       for (const b of bases) {
         const d = this._dist2d(b.mesh.position);
-        if (d < bestD) {
-          // Base in attack range — take it
-          if (d <= this.stats.range) {
-            best = b; bestD = d; bestPriority = 2;
-          }
-          // Base in engage range — pursue it (only if no closer unit target)
-          else if (!best || bestPriority > 2) {
-            best = b; bestD = d; bestPriority = 2;
-          }
+        if (!best || basePriority < bestPriority || (basePriority === bestPriority && d < bestD)) {
+          best = b; bestD = d; bestPriority = basePriority;
         }
       }
     }

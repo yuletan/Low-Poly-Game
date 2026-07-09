@@ -74,7 +74,7 @@ describe('ai.js - AI Staging Attack System', () => {
           state: 'idle', carried: false, _claimedByShip: null,
           carriedUnits: [], selectable: true,
           setSelected: vi.fn(),
-          moveTo: vi.fn(function(dest) { this.state = 'moving'; this._moveTarget = dest; }),
+          moveTo: vi.fn(function(dest, attackMove) { this.state = 'moving'; this._moveTarget = dest; this._attackMove = attackMove; }),
           attack: vi.fn(function(target) { this.state = 'attacking'; this.target = target; this._pursueTarget = target; }),
           target: null, _pursueTarget: null,
         };
@@ -99,7 +99,7 @@ describe('ai.js - AI Staging Attack System', () => {
     expect(typeof game.onBaseUnderAttack).toBe('function');
   });
 
-  it('should transition from building to staging to attacking and command ground units to attack player base', () => {
+  it('should transition from building to staging to attacking and command ground units to attack-move toward player base', () => {
     for (let i = 0; i < 25; i++) {
       game.onAITick(1);
     }
@@ -108,17 +108,11 @@ describe('ai.js - AI Staging Attack System', () => {
     expect(groundUnits.length).toBeGreaterThan(0);
 
     const playerBase = game.bases.find(b => b.faction === 'player');
-    const attackingGroundUnits = groundUnits.filter(u =>
-      u.attack.mock.calls.some(call => call[0] === playerBase)
+    const attackMovedGroundUnits = groundUnits.filter(u =>
+      u.moveTo.mock.calls.some(call => call[1] === true)
     );
 
-    expect(attackingGroundUnits.length).toBeGreaterThan(0);
-
-    for (const u of attackingGroundUnits) {
-      expect(u.target).toBe(playerBase);
-      expect(u._pursueTarget).toBe(playerBase);
-      expect(u.state).toBe('attacking');
-    }
+    expect(attackMovedGroundUnits.length).toBeGreaterThan(0);
 
     const airUnits = game.enemyUnits.filter(u => u.domain === 'air');
     for (const u of airUnits) {
@@ -128,23 +122,23 @@ describe('ai.js - AI Staging Attack System', () => {
     }
   });
 
-  it('should command ground units via attack() not moveTo() during staged attack', () => {
+  it('should command ground units via attack-move (moveTo with true) during staged attack', () => {
     for (let i = 0; i < 25; i++) {
       game.onAITick(1);
     }
 
     const groundUnits = game.enemyUnits.filter(u =>
-      u.domain === 'land' && !u.isTransport && u.stats.damage > 0 && u.state === 'attacking'
+      u.domain === 'land' && !u.isTransport && u.stats.damage > 0
     );
     expect(groundUnits.length).toBeGreaterThan(0);
 
-    const playerBases = game.bases.filter(b => b.faction === 'player');
-    for (const u of groundUnits) {
-      expect(playerBases).toContain(u.target);
-    }
+    const attackMovedGroundUnits = groundUnits.filter(u =>
+      u.moveTo.mock.calls.some(call => call[1] === true)
+    );
+    expect(attackMovedGroundUnits.length).toBeGreaterThan(0);
   });
 
-  it('launchAttack should command ground units to attack target directly', () => {
+  it('launchAttack should command ground units to attack-move toward target', () => {
     const playerBase = game.bases.find(b => b.faction === 'player');
 
     for (let i = 0; i < 5; i++) {
@@ -158,16 +152,10 @@ describe('ai.js - AI Staging Attack System', () => {
     }
 
     const groundUnits = game.enemyUnits.filter(u => u.domain === 'land' && !u.isTransport && u.stats.damage > 0);
-    const attackingGroundUnits = groundUnits.filter(u =>
-      u.attack.mock.calls.some(call => call[0] === playerBase)
+    const attackMovedGroundUnits = groundUnits.filter(u =>
+      u.moveTo.mock.calls.some(call => call[1] === true)
     );
 
-    expect(attackingGroundUnits.length).toBeGreaterThan(0);
-
-    for (const u of attackingGroundUnits) {
-      expect(u.target).toBe(playerBase);
-      expect(u._pursueTarget).toBe(playerBase);
-      expect(u.state).toBe('attacking');
-    }
+    expect(attackMovedGroundUnits.length).toBeGreaterThan(0);
   });
 });
