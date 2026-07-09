@@ -15,6 +15,14 @@ War game/
 │   ├── index.html
 │   └── assets/
 ├── js/                            # All game source code
+│   ├── __tests__/                 # Vitest unit tests
+│   │   ├── ai.test.js             # AI behavior tests
+│   │   ├── config.test.js         # Config balance tests
+│   │   ├── game.test.js           # Game logic tests
+│   │   ├── input.test.js          # Input system tests
+│   │   ├── transport.test.js      # Transport mechanics tests
+│   │   ├── unitFactory.test.js    # Mesh builder tests
+│   │   └── setup.js               # Test environment setup
 │   ├── ai.js                      # Enemy AI controller
 │   ├── combat.js                  # Projectiles, damage, explosions
 │   ├── config.js                  # Game balance constants
@@ -31,8 +39,8 @@ War game/
 │   ├── unitFactory.js             # 3D mesh builders for all units
 │   └── upgrades.js                # Upgrade tier system
 ├── node_modules/                  # npm dependencies
-├── index.html                     # Main HTML (UI overlays + canvas mount)
-├── styles.css                     # All styling (responsive, mobile)
+├── index.html                     # Main HTML (minimal, UI built by js/ui.js)
+├── styles.css                     # All styling (glassmorphism, responsive)
 ├── package.json                   # Project config + dependencies
 ├── package-lock.json              # Locked dependency versions
 ├── vite.config.js                 # Vite bundler config
@@ -52,7 +60,7 @@ War game/
 
 ### Core Game Files (`js/`)
 
-#### `js/config.js` (103 lines)
+#### `js/config.js` (113 lines)
 Single source of truth for all game balance numbers. Defines:
 - **Terrain constants** — land, sea, coast, mountain, and their damage/HP bonuses per domain
 - **Map settings** — 1200x1200 world, 12-unit grid cells
@@ -60,10 +68,11 @@ Single source of truth for all game balance numbers. Defines:
 - **Economy** — starting money ($2500), passive income ($20/s)
 - **Difficulty tiers** — Easy/Normal/Hard with AI income multipliers, HP scaling, attack group sizes
 - **Upgrades** — Armor, Firepower, Engines with 4 tiers each (up to 2x multiplier)
-- **Carrier settings** — fighter count, spawn interval, cooldown
+- **Carrier settings** — 12 fighters, 2s spawn interval, 30s cooldown after all deployed
 - **Projectile patterns** — burst, dual, salvo, homing, carpet, barrage, AP
+- **Engagement range** — 1.56x attack range for awareness/pursuit
 
-#### `js/main.js` (218 lines)
+#### `js/main.js` (216 lines)
 Application bootstrap and render loop. Sets up:
 - Three.js scene with fog, sky-blue background
 - PerspectiveCamera with WASD panning and mouse-wheel zoom
@@ -74,22 +83,26 @@ Application bootstrap and render loop. Sets up:
 - `animate()` loop — calls `game.update(dt)` and renders each frame
 - Resize handling for responsive canvas
 
-#### `js/game.js` (3063 lines)
+#### `js/game.js` (3159 lines)
 The largest file. Contains three major classes:
 
 **`Unit` class (~2045 lines):**
 - Full unit lifecycle: spawn, movement, attack, death, cleanup
 - A*-based pathfinding with domain validation (land/sea/air)
 - Transport ship system: load/unload units, amphibious pathfinding, embark/disembark phases
-- Carrier ability: gradual fighter deployment with cooldown and auto-return
+- Carrier ability: gradual fighter deployment (1 every 2s, max 12) with 30s cooldown
 - Stealth mechanic (submarine): invisible until first attack, 5x first-strike damage
 - Healer logic: auto-heals nearby friendly units, follows lowest-HP ally
 - Crusher mechanic: absorbs friendly damage, pushes toward bases, provokes enemies
 - Destroyer flak: every 3rd shot hits air units in radius
 - Battleship broadside: bonus damage when broadside to target
+- Fighter dogfight: +50% vs air, -50% vs ground
+- Sea vs air: reduced AA damage (50%)
 - Air unit banking, sea unit bobbing animation
 - HP bar with trail, hit flash, selection ring, range ring, death label
 - Path arrow visualization for transport ships
+- Resume interrupted movement after attacking
+- Soft collision between units with terrain enforcement
 
 **`Base` class (~165 lines):**
 - Capturable buildings with HP, territory radius, defensive turret
@@ -98,18 +111,19 @@ The largest file. Contains three major classes:
 - Capture mechanic: switches faction, updates flag/HQ color, awards money
 - Shipyard vs barracks mesh based on terrain
 
-**`Game` class (~853 lines):**
+**`Game` class (~950 lines):**
 - Orchestrates all systems: terrain, pathfinder, upgrades, fog, minimap
 - Creates 7 bases (1 player HQ + 6 enemy)
-- Unit purchase system with placement mode (click-to-place, Ctrl+click for groups)
+- Unit purchase system with click-to-place (Ctrl+click for groups of 5)
 - Fleet placement mode (carrier + escorts in formation)
 - Soft collision between units
 - Auto-spawns transport ships when troops are waiting
-- HUD updates: money, bases owned, unit counts
+- HUD updates: money, bases, unit counts, enemy count
 - Win/lose condition checks
 - Formation computation (line, wedge, square, column)
+- Transport logistics: auto-spawns ships when troops wait on beach
 
-#### `js/ai.js` (438 lines)
+#### `js/ai.js` (504 lines)
 Enemy AI controller with difficulty-scaled behavior:
 - **Economy** — passive income from owned bases, scaled by difficulty
 - **Unit composition** — Easy: infantry+tanks only; Normal: balanced + air/sea; Hard: full combined arms
@@ -119,8 +133,9 @@ Enemy AI controller with difficulty-scaled behavior:
 - **Defense** — idle defenders near bases automatically engage threats
 - **Reinforcement** — sends idle troops from other bases when one is under attack
 - **Build-up warning** — flashes alert when enemy mass reaches 12+ units
-- **Stationary defenses** — places missile defense and coastal batteries near bases
+- **Stationary defenses** — places missile defense and coastal batteries near bases (free for AI, capped per base)
 - **Proactive transport** — spawns transport ships when AI has multiple bases
+- **Carrier escorts** — spawns 2 destroyer escorts alongside carriers
 
 #### `js/combat.js` (318 lines)
 Projectile and damage system:
@@ -141,15 +156,17 @@ Visibility grid system:
 - Updated 4 times per second (not every frame)
 - Serializable for save/load
 
-#### `js/input.js` (686 lines)
+#### `js/input.js` (714 lines)
 Complete input system:
 - **Mouse** — click to select, drag to box-select, right-click to move/attack
+- **Double-click** — selects all units of same type on screen
 - **Touch** — tap to select, drag to pan, pinch to zoom, long-press for right-click command
 - **Ground cursor** — animated ring + crosshair follows mouse when units selected
 - **Hover tooltip** — shows HP/stats of units under cursor
 - **Formation preview** — drag visualization for movement targets
 - **Placement mode** — left-click confirms, right-click/Escape cancels
 - **Minimap integration** — click to jump camera, placement mode support
+- **Transport UI** — Load/Unload buttons in selection panel for transport ships
 
 #### `js/minimap.js` (190 lines)
 2D tactical overview:
@@ -202,20 +219,21 @@ Map generation:
 - **`getTerrainAt(x,z)`** — returns terrain type at any world coordinate (checks mountains, landmasses, coastal edges)
 - Sea is a flat plane at y=0, land blocks are at y=8 (LAND_HEIGHT)
 
-#### `js/ui.js` (1029 lines)
+#### `js/ui.js` (918 lines)
 HTML overlay controller:
 - **Armory tabs** — Land/Sea/Air/Upgrades with unit buttons, cost display, hotkeys
 - **Unit icons** — procedurally generated on canvas 2D (unique shape per unit type)
 - **Tooltips** — hover shows full stats (HP, DMG, RNG, SPD, FR, HIT%)
 - **Upgrade buttons** — gold-themed, shows current tier and next cost
-- **Formation buttons** — Line/Wedge/Square/Column with visual icons
+- **Formation buttons** — Line/Wedge/Square/Column with SVG icons
 - **Top bar** — Launch fighters, Fleet placement, Focus HQ, Help, Save/Load/Sound dropdown
 - **Selection panel** — grouped unit portraits with type stats, Load/Unload for transports
 - **Help modal** — tabbed (Controls, Gameplay, UI Guide, Quick Start)
 - **First-launch tutorial** — 5-step walkthrough with highlight overlays
 - **Hotkeys** — F (HQ), Ctrl+A (select all), F1-F4 (formations), Escape, H (help)
+- **Affordability system** — 200ms check toggles affordable/unaffordable/disabled states
 
-#### `js/unitFactory.js` (1513 lines)
+#### `js/unitFactory.js` (1518 lines)
 Low-poly 3D model builders:
 - **Shared caches** — `MAT_CACHE` and `GEO_CACHE` for reuse across identical units
 - **Material helpers** — metalMat, matteMat, glassMat, glowMat, trackMat
@@ -241,26 +259,28 @@ Persistent upgrade system:
 
 ### Configuration & Build Files
 
-#### `index.html` (123 lines)
+#### `index.html` (59 lines)
 Main HTML page:
-- Start menu overlay with difficulty buttons (Easy/Normal/Hard)
-- HUD: top bar (money, bases, unit count, difficulty), selection panel, armory panel
-- Selection box for drag-select, placement mode indicator
+- Minimal structure: gameCanvas div, start menu overlay, HUD elements
 - End screen (victory/defeat)
 - Error handler script (shows JS errors on screen)
 - Module script entry point: `js/main.js`
+- UI panels are dynamically created by `js/ui.js`
 
-#### `styles.css` (609 lines)
+#### `styles.css` (1118 lines)
 Complete styling:
 - Fullscreen canvas with no scroll
-- Overlay/panel system with blue accent (#4af)
+- Glassmorphism theme with blue accent (#4af), frosted glass panels
+- Overlay/panel system with backdrop-filter blur
 - Unit buttons: grid layout, icon + name + cost, hotkey badge, hover/affordable/disabled states
 - Tooltip system with domain color badges (green=land, blue=sea, gold=air)
-- Armory tabs (Land/Sea/Air/Upgrades)
-- Formation visual buttons
+- Armory tabs (Land/Sea/Air/Upgrades) — bottom dock layout
+- Upgrade buttons — gold-themed cards
+- Formation visual buttons — SVG icons
 - Selection panel with unit portraits
-- Help modal with side navigation
-- Top bar dropdown menu
+- Help modal with side navigation and tabbed content
+- Top bar with dropdown menu
+- Tutorial overlay with highlight system
 - Death label (fixed position, red glow)
 - Mobile responsive (max-width: 900px, safe area insets, touch-action: none)
 

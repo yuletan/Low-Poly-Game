@@ -1,4 +1,4 @@
-﻿
+
 # =============================================================================
 # FILE: vite.config.js
 # =============================================================================
@@ -81,7 +81,7 @@ export const UNIT_TYPES = {
   submarine:{ domain:'sea',   hp:100, damage:90, range:50, speed:11, fireRate:3.5, hitChance:0.85, cost:400, color:0x223344, canFireWhileMoving:false, bounty:150, projectile:'ap', splashRadius:0, splashFalloff:1, targetDomains:['sea'], special:'Stealth + 3× first strike', stealth:true, firstStrikeMultiplier:3 },
   battleship:{domain:'sea',   hp:600, damage:130, range:160, speed:9,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:10, splashFalloff:0.6, targetDomains:['sea','land','building'], special:'Shore bombardment' },
   carrier:  { domain:'sea',   hp:800, damage:15, range:60, speed:10, fireRate:2.0, hitChance:0.7, cost:1800, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1, targetDomains:['sea'], special:'Launches aircraft' },
-  transport:{ domain:'sea', hp:400, damage:0,  range:0,  speed:14, fireRate:99, hitChance:0,   cost:350, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:8, targetDomains:[], special:'Carries 8 land units' },
+  transport:{ domain:'sea', hp:400, damage:0,  range:0,  speed:42, fireRate:99, hitChance:0,   cost:350, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:8, targetDomains:[], special:'Carries 8 land units', nonCombatant:true },
   fighter:  { domain:'air',   hp:80,  damage:35, range:45, speed:32, fireRate:0.6, hitChance:0.9,  cost:250, color:0x9999aa, altitude:25, canFireWhileMoving:true, bounty:80, projectile:'homing', splashRadius:2, splashFalloff:0.5, targetDomains:['air','land','sea'], special:'Air superiority' },
   heli:     { domain:'air',   hp:120, damage:25, range:55, speed:16, fireRate:0.8, hitChance:0.8,  cost:350, color:0x4a4a4a, altitude:15, canFireWhileMoving:true, bounty:90, projectile:'burst', splashRadius:1, splashFalloff:0.5, targetDomains:['land','sea'], special:'Versatile attacker' },
   gunship:  { domain:'air',   hp:250, damage:40, range:65, speed:14, fireRate:0.4, hitChance:0.8, cost:500, color:0x8899aa, altitude:20, canFireWhileMoving:true, bounty:200, projectile:'barrage', splashRadius:2, splashFalloff:0.5, targetDomains:['land','sea','building'], special:'Heavy barrage vs ground/sea' },
@@ -110,17 +110,27 @@ export const DIFFICULTY = {
 // ===== ENGAGEMENT RANGE =====
 export const ENGAGE_RANGE_MULT = 1.56; // engage range = attack range * 1.3 * 1.2
 
-// ===== UPGRADES =====
+// ===== UPGRADES — Overhauled with tactical abilities =====
 export const UPGRADES = {
-  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1000, 5000, 25000] },
-  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1500, 7500, 35000] },
-  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.1, 1.25, 1.5], costs:[0, 2000, 10000, 50000] },
+  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1000, 5000, 25000],
+             ability: { tier2: 'Damage reduction: -10% incoming', tier3: 'Damage reduction: -20% incoming', tier4: 'Damage reduction: -30% incoming + regen 1 HP/s' } },
+  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1500, 7500, 35000],
+             ability: { tier2: 'Crit chance +5%', tier3: 'Crit chance +10%, Crit dmg 2x', tier4: 'Crit chance +15%, Crit dmg 2.5x, Splash +50%' } },
+  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.1, 1.25, 1.5], costs:[0, 2000, 10000, 50000],
+             ability: { tier2: 'Path smoothing improved', tier3: 'Engage range +20%', tier4: 'Engage range +40%, Can fire while moving (land units)' } },
+  tactics: { name:'Tactics',  icon:'🎯', tiers:[0, 1, 2, 3], costs:[0, 3000, 12000, 40000],
+             ability: { tier1: 'Formation bonus: +10% dmg when in formation', tier2: 'Focus fire: Units target same enemy', tier3: 'Combined arms: +25% dmg vs mixed domain targets' } },
 };
 
 // ===== CARRIER ABILITY =====
 export const CARRIER_FIGHTER_COOLDOWN = 30;   // seconds after all 12 deployed before new cycle
 export const CARRIER_FIGHTER_COUNT    = 12;
 export const CARRIER_FIGHTER_INTERVAL = 2;    // seconds between each fighter spawn
+
+// ===== AI STAGING =====
+export const AI_STAGING_TIME = 8;        // seconds to wait at rally point before attacking
+export const AI_MIN_ATTACK_SIZE = 6;     // minimum units before launching attack
+export const AI_MAX_STAGING_UNITS = 30;  // max units in staging area
 
 
 # =============================================================================
@@ -239,7 +249,6 @@ if (hasSave()) {
     const save = loadSaveData();
     if (save) {
       document.getElementById('startMenu').classList.add('hidden');
-      document.getElementById('hud').classList.remove('hidden');
       startGame(save.difficulty, save);
     }
   });
@@ -250,7 +259,6 @@ document.querySelectorAll('#startMenu .btn[data-diff]').forEach(btn => {
   btn.addEventListener('click', () => {
     const diff = btn.dataset.diff;
     document.getElementById('startMenu').classList.add('hidden');
-    document.getElementById('hud').classList.remove('hidden');
     startGame(diff, null);
     Sound.resume();
   });
@@ -529,6 +537,15 @@ export class Unit {
 
     // Ship water enforcement cooldown
     this._pushCooldown = 0;
+
+    // Movement smoothing state
+    this._lastPathTime = 0;
+    this._pathValid = false;
+    this._moveTargetCached = null;
+    this._stuckTimer = 0;
+    this._stuckPosition = null;
+    this._lastDx = 0;
+    this._lastDz = 0;
 
     game.scene.add(this.mesh);
   }
@@ -1030,6 +1047,18 @@ export class Unit {
       if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
       if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
     }
+    // Tactics Tier 1: Formation bonus — +10% dmg when 2+ allies within range 20
+    const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
+    if (tacticsTier >= 1) {
+      let nearbyAllies = 0;
+      for (const u of allies) {
+        if (!u.alive || u === this) continue;
+        const d = this.mesh.position.distanceTo(u.mesh.position);
+        if (d <= 20) nearbyAllies++;
+      }
+      if (nearbyAllies >= 2) this._dmgMult *= 1.1;
+    }
+
     const targetMax = this._baseMaxHp * this._hpMult;
     if (targetMax !== this.maxHp) {
       const ratio = this.hp / this.maxHp;
@@ -1353,8 +1382,17 @@ export class Unit {
       const isFull = this.carriedUnits.length >= this.transportCapacity;
       const timedOut = this._boardingTimer > 15;
 
-      if ((isFull || timedOut) && this.carriedUnits.length > 0) {
-        console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}`);
+      // Count claimed troops still waiting to board (not yet carried)
+      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      let claimedWaiting = 0;
+      for (const u of allUnits) {
+        if (u.alive && u._claimedByShip === this && !u.carried) claimedWaiting++;
+      }
+
+      // Sail when: all claimed troops are aboard, ship is full, or timed out
+      const allClaimedBoarded = claimedWaiting === 0 && this.carriedUnits.length > 0;
+      if (allClaimedBoarded || isFull || (timedOut && this.carriedUnits.length > 0)) {
+        console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}, claimed remaining: ${claimedWaiting}`);
         // Save disembark data before any moveTo() might clear _transportData
         const disembarkPt = this._transportData?.disembarkPoint?.clone();
         // Use the pre-calculated sea path directly (no recalc, no smoothing)
@@ -1370,12 +1408,10 @@ export class Unit {
         this._assignedEmbarkPoint = null;
 
         // Unclaim any troops that didn't make it
-        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
         for (const u of allUnits) {
           if (u._claimedByShip === this) u._claimedByShip = null;
         }
       } else if (timedOut && this.carriedUnits.length === 0) {
-        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
         for (const u of allUnits) {
           if (u._claimedByShip === this) u._claimedByShip = null;
         }
@@ -1538,7 +1574,7 @@ export class Unit {
 
   _pushToValidTerrain(domain) {
     if (this._pushCooldown > 0) return;
-    this._pushCooldown = 0.05;
+    this._pushCooldown = 0.5;
     // Teleport directly to nearest walkable cell
     const gx = Math.floor((this.mesh.position.x + MAP_SIZE/2) / 12);
     const gy = Math.floor((this.mesh.position.z + MAP_SIZE/2) / 12);
@@ -1549,9 +1585,11 @@ export class Unit {
       const y = domain === 'sea' ? 0.3 : (LAND_HEIGHT + 0.5);
       this.mesh.position.set(world.x, y, world.z);
       // Don't change rotation — keep current facing direction
-      // Recalculate path if unit was actively moving
+      // Re-path after push with delay to avoid spam
       if (this.attackMoveDest && this.state !== 'idle') {
-        this.moveTo(this.attackMoveDest, this.attackMove);
+        setTimeout(() => {
+          if (this.alive) this.moveTo(this.attackMoveDest, this.attackMove);
+        }, 100);
       }
     }
   }
@@ -1615,29 +1653,31 @@ export class Unit {
     }
     const pos = this.mesh.position;
 
+    // Stuck detection: if barely moved in 2 seconds, re-path
+    if (this._stuckPosition) {
+      const distFromStuck = pos.distanceTo(this._stuckPosition);
+      if (distFromStuck < 1) {
+        this._stuckTimer += dt;
+        if (this._stuckTimer > 2 && this.attackMoveDest) {
+          this.moveTo(this.attackMoveDest, this.attackMove);
+          this._stuckTimer = 0;
+          this._stuckPosition = null;
+          return;
+        }
+      } else {
+        this._stuckTimer = 0;
+        this._stuckPosition = pos.clone();
+      }
+    } else {
+      this._stuckPosition = pos.clone();
+      this._stuckTimer = 0;
+    }
+
     // Hard clamp: if on invalid terrain, snap to nearest walkable and stop
     if (this.domain !== 'air') {
       const curTerrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
       if (!this.canEnter(curTerrain)) {
         this._pushToValidTerrain(this.domain);
-        return;
-      }
-    }
-
-    // Validate current waypoint is reachable
-    if (this.domain !== 'air') {
-      const wpTerrain = this.game.terrain.getTerrainAt(this.moveTarget.x, this.moveTarget.z);
-      if (!this.canEnter(wpTerrain)) {
-        // Reject invalid waypoint, find nearest valid one
-        const g = this.game.pathfinder.worldToGrid(this.moveTarget.x, this.moveTarget.z);
-        const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, this.domain);
-        if (nearest) {
-          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-          this.moveTarget.set(w.x, 0, w.z);
-        } else {
-          this.moveTarget = this.path.shift() || null;
-          if (!this.moveTarget) this.state = 'idle';
-        }
         return;
       }
     }
@@ -1652,7 +1692,6 @@ export class Unit {
         if (!this.isTransport && this._transportData && this._transportData.needsTransport && this._transportData.segments) {
           this.state = 'waitingForTransport';
           this._transportData._phase = 'waiting';
-          console.log(`[DEBUG TRANSPORT] ${this.type} reached embark point, waiting for transport`);
           return;
         }
         this.state = 'idle';
@@ -1660,8 +1699,14 @@ export class Unit {
       return;
     }
     const step = this.stats.speed * dt;
-    pos.x += (dx/dist) * step;
-    pos.z += (dz/dist) * step;
+    const moveRatio = Math.min(1, step / dist);
+
+    // Smooth movement blending to prevent zigzag
+    const smoothFactor = 0.85;
+    pos.x += (dx / dist) * step * smoothFactor + (this._lastDx || 0) * (1 - smoothFactor) * 0.3;
+    pos.z += (dz / dist) * step * smoothFactor + (this._lastDz || 0) * (1 - smoothFactor) * 0.3;
+    this._lastDx = dx / dist;
+    this._lastDz = dz / dist;
 
     const targetAngle = Math.atan2(dx, dz);
     this.smoothRotate(targetAngle, dt);
@@ -1774,6 +1819,33 @@ export class Unit {
 
       if (priority < bestPriority || (priority === bestPriority && d < bestD)) {
         best = e; bestD = d; bestPriority = priority;
+      }
+    }
+
+    // Tactics Tier 2: Focus fire — prefer enemies that allies are already attacking
+    const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
+    if (tacticsTier >= 2 && !airOnly && !baseOnly && !baseTarget) {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      const focusCounts = new Map();
+      for (const u of allies) {
+        if (!u.alive || u === this) continue;
+        if (u.target && u.target.alive && u.target.faction !== this.faction) {
+          focusCounts.set(u.target, (focusCounts.get(u.target) || 0) + 1);
+        }
+      }
+      let focusBest = null, focusCount = 0;
+      for (const [enemy, count] of focusCounts) {
+        if (count < focusCount) continue;
+        if (airOnly && enemy.domain !== 'air') continue;
+        const d = this._dist2d(enemy.mesh.position);
+        if (d <= this.engageRange && count >= 2) {
+          focusBest = enemy;
+          focusCount = count;
+        }
+      }
+      if (focusBest && focusCount >= 2) {
+        best = focusBest;
+        bestD = this._dist2d(focusBest.mesh.position);
       }
     }
 
@@ -1903,6 +1975,10 @@ export class Unit {
       }
       return;
     }
+    // In range — stop moving and attack
+    this.path = [];
+    this.moveTarget = null;
+    this.state = 'attacking';
     const dx = targetPos.x - this.mesh.position.x;
     const dz = targetPos.z - this.mesh.position.z;
     const aimAngle = Math.atan2(dx, dz);
@@ -2128,7 +2204,7 @@ export class Unit {
 
     if (targetTransport) {
       const d = this.mesh.position.distanceTo(targetTransport.mesh.position);
-      const loadRange = 14;
+      const loadRange = 3;
       
       if (d <= loadRange) {
         targetTransport.loadUnit(this);
@@ -2169,6 +2245,12 @@ export class Unit {
 
     // Apply damage aura multiplier
     finalDmg *= this._dmgMult;
+
+    // Tactics Tier 3: Combined arms — +25% damage vs different-domain targets
+    if ((this.game.upgrades?.tiers?.tactics ?? 0) >= 3) {
+      const targetDomain = this.target.domain || UNIT_TYPES[this.target.type]?.domain;
+      if (targetDomain && this.domain !== targetDomain) finalDmg *= 1.25;
+    }
 
     // Stealth break on first attack + 5x first strike damage
     if (this._stealthed) {
@@ -2434,10 +2516,11 @@ export class Base {
     this.territory = 150 * size;
     if (name === 'Main Base') this.territory = 200 * size;
 
-    // Defensive turret stats
-    this.turretRange = 60 * size;
-    this.turretDamage = 20 * size * hpMult;
+    // Defensive turret stats — increased range and fire rate
+    this.turretRange = 80 * size;
+    this.turretDamage = 25 * size * hpMult;
     this.turretCooldown = 0;
+    this.turretFireRate = 1.0;
 
     // Use shipyard mesh for bases on water/coast, barracks for land
     const terrainType = game.terrain.getTerrainAt(position.x, position.z);
@@ -2507,16 +2590,17 @@ export class Base {
       if (d < bestD) { best=e; bestD=d; }
     }
     if (best) {
-      this.turretCooldown = 1.5;
-      const projType = this.faction === 'sea' ? 'sea' : (this.faction === 'air' ? 'air' : 'land');
+      this.turretCooldown = this.turretFireRate;
+      const projType = 'land';
       const targetPos = best.mesh.position;
       const projs = createProjectilePattern(
         this.game.scene,
         this.mesh.position.clone().add(new THREE.Vector3(0,10,0)),
-        best, this.turretDamage, 0.85, projType, 'default', 0, 1,
+        best, this.turretDamage, 0.9, projType, 'default', 0, 1,
         0, targetPos
       );
       this.game.projectiles.push(...projs);
+      Sound.play('fire');
     }
   }
 
@@ -2537,22 +2621,35 @@ export class Base {
     this._displayHp = this.hp;
     this._trailHp = this.hp;
     const flagColor = newOwner === 'player' ? 0x2266aa : 0xaa3333;
-    // Update flag AND building HQ color
+    const buildingColor = newOwner === 'player' ? 0x3355aa : 0xaa4444;
+    const glowColor = newOwner === 'player' ? 0x44aaff : 0xff4444;
+    // Update ALL visual elements
     this.mesh.children.forEach(c => {
       if (c.userData?.isFlag) {
         c.material.color.setHex(flagColor);
       }
-      // Change HQ building color (the tall box)
+      // Update building/HQ color
       if (c.geometry?.type === 'BoxGeometry' && c.position.y > 4) {
-        c.material.color.setHex(flagColor);
+        c.material.color.setHex(buildingColor);
+      }
+      // Update trim/glow color
+      if (c.material?.emissive) {
+        c.material.emissive.setHex(glowColor);
       }
     });
     // Update territory ring owner color
     if (this.territoryRing) {
       this.territoryRing.material.color.setHex(flagColor);
     }
+    // Update HP bar color
+    if (this._hpBar) {
+      this._hpBar.fg.material.color.setHex(newOwner === 'player' ? 0x44ff88 : 0xff4444);
+    }
     if (newOwner === 'player') {
       this.game.money += 400;
+      this.game.flashMessage(`Captured ${this.name}!`);
+    } else {
+      this.game.flashMessage(`Lost ${this.name}!`);
     }
     this.game.checkWinCondition();
   }
@@ -2597,6 +2694,7 @@ export class Game {
     this.selectedBuilding = null;
 
     this.placementMode = { active: false, type: null, ghost: null, ring: null, isValid: false, previewPos: null };
+    this._currentTime = 0;
   }
 
   init() {
@@ -2611,8 +2709,10 @@ export class Game {
     this.createBases();
     this.spawnStartingArmy();
 
-    document.getElementById('difficulty').textContent = `Difficulty: ${this.difficulty.toUpperCase()}`;
-    document.getElementById('basesTotal').textContent = this.bases.length;
+    const diffEl = document.getElementById('difficulty');
+    if (diffEl) diffEl.textContent = `Difficulty: ${this.difficulty.toUpperCase()}`;
+    const basesTotalEl = document.getElementById('basesTotal');
+    if (basesTotalEl) basesTotalEl.textContent = this.bases.length;
   }
 
   createBases() {
@@ -3142,6 +3242,7 @@ export class Game {
 
   update(dt) {
     if (this.ended || this.paused) return;
+    this._currentTime += dt;
 
     const owned = this.bases.filter(b => b.faction === 'player').length;
     this.money += PASSIVE_INCOME * owned * dt;
@@ -3250,13 +3351,17 @@ export class Game {
 
   updateHUD() {
     const owned = this.bases.filter(b => b.faction === 'player').length;
-    document.getElementById('money').textContent = Math.floor(this.money);
-    document.getElementById('income').textContent = `+${PASSIVE_INCOME * owned}/s`;
-    document.getElementById('unitCount').textContent = this.playerUnits.length;
-    document.getElementById('basesOwned').textContent = owned;
-    // Enemy intel
+    const moneyEl = document.getElementById('money');
+    const incomeEl = document.getElementById('income');
+    const unitCountEl = document.getElementById('unitCount');
+    const basesOwnedEl = document.getElementById('basesOwned');
+    const enemyCountEl = document.getElementById('enemyCount');
+    if (moneyEl) moneyEl.textContent = Math.floor(this.money);
+    if (incomeEl) incomeEl.textContent = `+${PASSIVE_INCOME * owned}/s`;
+    if (unitCountEl) unitCountEl.textContent = this.playerUnits.length;
+    if (basesOwnedEl) basesOwnedEl.textContent = owned;
     const enemyAlive = this.enemyUnits.filter(u => u.alive && u.state !== 'dead');
-    document.getElementById('enemyCount').textContent = enemyAlive.length;
+    if (enemyCountEl) enemyCountEl.textContent = enemyAlive.length;
     // Live refresh of selection HP/status
     this.updateSelectionUI?.();
   }
@@ -3272,7 +3377,6 @@ export class Game {
       }
 
       if (waitingCount > 0) {
-        console.log(`[DEBUG LOGISTICS] ${faction}: ${waitingCount} troops waiting for transport`);
         // 2. Count ships actively heading to pick up troops
         let activeShips = 0;
         for (const u of units) {
@@ -3281,33 +3385,33 @@ export class Game {
           }
         }
 
-        // 3. Spawn ships until we have enough (1 per 4 troops)
-        const neededShips = Math.ceil(waitingCount / UNIT_TYPES.transport.transportCapacity);
-        if (activeShips < neededShips) {
+        // 3. Spawn ships: 1 per 4 troops, minimum 1
+        const neededShips = Math.max(1, Math.ceil(waitingCount / 4));
+        const shipsToSpawn = neededShips - activeShips;
+        if (shipsToSpawn > 0) {
           const cost = UNIT_TYPES.transport.cost;
-          let money = faction === 'player' ? this.money : Infinity;
+          const bases = this.bases.filter(b => b.faction === faction && b.alive);
+          let spawnPos = null;
 
-          if (money >= cost) {
-            const bases = this.bases.filter(b => b.faction === faction && b.alive);
-            let spawnPos = null;
+          for (const base of bases) {
+            const pos = this.findValidSpawn(base.mesh.position, 'sea');
+            if (pos) { spawnPos = pos; break; }
+          }
 
-            for (const base of bases) {
-              const pos = this.findValidSpawn(base.mesh.position, 'sea');
-              if (pos) { spawnPos = pos; break; }
+          if (!spawnPos && bases.length > 0) {
+            const g = this.pathfinder.worldToGrid(bases[0].mesh.position.x, bases[0].mesh.position.z);
+            const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+            if (seaTile) {
+              const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
+              spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
             }
+          }
 
-            if (!spawnPos && bases.length > 0) {
-              const g = this.pathfinder.worldToGrid(bases[0].mesh.position.x, bases[0].mesh.position.z);
-              const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-              if (seaTile) {
-                const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
-                spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
-              }
-            }
-
-            if (spawnPos) {
+          if (spawnPos) {
+            for (let i = 0; i < shipsToSpawn; i++) {
+              const money = faction === 'player' ? this.money : Infinity;
+              if (money < cost) break;
               if (faction === 'player') this.money -= cost;
-              console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction} (${activeShips+1}/${neededShips})`);
               this.spawn('transport', faction, spawnPos);
             }
           }
@@ -3422,7 +3526,7 @@ export class Game {
 
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js?v=5';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS } from './config.js?v=5';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
@@ -3781,10 +3885,46 @@ export function initAI(game) {
     reinforceBase(base);
   };
 
+  // NEW: Launch staged attack
+  function launchStagedAttack() {
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (playerBases.length === 0) return;
+
+    // Get all staging units + any idle attackers
+    const available = [...stagingUnits.filter(u => u.alive), ...gatherAttackers()];
+    if (available.length < AI_MIN_ATTACK_SIZE) return;
+
+    const target = pickPlayerTarget();
+    if (!target) return;
+
+    const isHuge = available.length >= 15;
+    const positions = game.computeFormation(
+      target.mesh.position.clone().add(new THREE.Vector3(50, 0, 0)),
+      available.length,
+      isHuge ? 'wedge' : 'line'
+    );
+
+    available.forEach((u, i) => {
+      u.moveTo(positions[i] || target.mesh.position.clone());
+    });
+
+    game.flashMessage(`Enemy attack inbound! ${available.length} units detected`);
+
+    // Clear staging
+    stagingUnits = [];
+    attackPhase = 'attacking';
+    stagingTimer = 0;
+  }
+
   // ===== Hook the AI into the game's update loop =====
   const ATTACK_GROUP_TARGET = { easy: 8, normal: 15, hard: 30 };
   const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
   let attackCooldown = 0;
+
+  // NEW: Staging system
+  let stagingUnits = [];
+  let stagingTimer = 0;
+  let attackPhase = 'building'; // 'building', 'staging', 'attacking'
 
   game.onAITick = function (dt) {
     if (game.ended) return;
@@ -3829,14 +3969,44 @@ export function initAI(game) {
         }
       }
 
-      // Rally-then-attack: build up to groupTarget before launching a wave
-      const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
-      attackCooldown += 1;
+      // NEW: Staging phase logic
+      const totalCombat = game.enemyUnits.filter(u =>
+        u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
+      ).length;
 
-      const shouldAttack = totalCombat >= groupTarget || (totalCombat >= 4 && attackCooldown >= 10);
-      if (shouldAttack && totalCombat >= 1) {
-        launchAttack();
-        attackCooldown = 0;
+      if (attackPhase === 'building') {
+        if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= 10)) {
+          attackPhase = 'staging';
+          stagingTimer = 0;
+          // Gather idle units to staging area (near strongest base)
+          const stagingBase = game.bases.filter(b => b.faction === 'enemy')
+            .sort((a, b) => b.hp - a.hp)[0];
+          if (stagingBase) {
+            const idleUnits = game.enemyUnits.filter(u =>
+              u.alive && u.domain !== 'sea' && !u.isTransport &&
+              u.stats.damage > 0 && u.state === 'idle'
+            );
+            const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
+            idleUnits.slice(0, AI_MAX_STAGING_UNITS).forEach(u => {
+              u.moveTo(rallyPos);
+              stagingUnits.push(u);
+            });
+          }
+          game.flashMessage(`Enemy forces gathering...`);
+        }
+      } else if (attackPhase === 'staging') {
+        stagingTimer += 1;
+        // Keep spawning during staging
+        if (stagingTimer >= AI_STAGING_TIME || stagingUnits.length >= AI_MAX_STAGING_UNITS) {
+          launchStagedAttack();
+        }
+      } else if (attackPhase === 'attacking') {
+        attackCooldown += 1;
+        if (attackCooldown >= 15) {
+          attackPhase = 'building';
+          attackCooldown = 0;
+          stagingUnits = [];
+        }
       }
 
       // Proactive transport: ensure at least 1 transport exists when AI has 2+ bases
@@ -4314,6 +4484,10 @@ export function initInput(game, camera, renderer) {
   let dragStart  = { x: 0, y: 0 };
   let mouseDownPos = { x: 0, y: 0 };
   const DRAG_THRESHOLD = 5;  // pixels before we consider it a drag
+  const DOUBLE_CLICK_MS = 300;
+  const DOUBLE_CLICK_DIST = 10;
+  let lastClickTime = 0;
+  let lastClickPos = { x: 0, y: 0 };
   const selectionBox = document.getElementById('selectionBox');
 
   // ----- Helpers -----
@@ -4428,6 +4602,20 @@ export function initInput(game, camera, renderer) {
       Sound.play('select');
     }
     updateSelectionUI();
+  }
+
+  // NEW: Double-click to select all units of same type
+  function handleDoubleClick(u) {
+    if (!u) return;
+    const sameType = game.playerUnits.filter(unit =>
+      unit.alive && unit.type === u.type
+    );
+    clearSelection();
+    for (const unit of sameType) {
+      unit.setSelected(true);
+      game.selectedUnits.push(unit);
+    }
+    game.flashMessage(`Selected ${sameType.length} ${u.type.toUpperCase()}(s)`);
   }
 
   function selectUnitsInBox(x1, y1, x2, y2) {
@@ -4758,8 +4946,20 @@ export function initInput(game, camera, renderer) {
         // Single click — select unit or base or clear
         const u = getUnitUnderMouse(e);
         const base = getBaseUnderMouse(e);
+
+        // Double-click detection
+        const now = Date.now();
+        const dist = Math.hypot(e.clientX - lastClickPos.x, e.clientY - lastClickPos.y);
+        const isDoubleClick = (now - lastClickTime < DOUBLE_CLICK_MS) && (dist < DOUBLE_CLICK_DIST);
+        lastClickTime = now;
+        lastClickPos = { x: e.clientX, y: e.clientY };
+
         if (u) {
-          selectUnit(u, e.shiftKey);
+          if (isDoubleClick && u.faction === 'player') {
+            handleDoubleClick(u);
+          } else {
+            selectUnit(u, e.shiftKey);
+          }
           game.selectedBuilding = null;
         } else if (base && base.faction === 'player') {
           clearSelection();
@@ -4783,12 +4983,10 @@ export function initInput(game, camera, renderer) {
                            takeDamage: d => targetBase.takeDamage(d) }
                        : null);
       if (target && target.faction !== 'player') {
-        console.log(`[DEBUG INPUT] Right-click ATTACK on ${targetUnit ? 'unit' : 'base'} (${game.selectedUnits.length} attackers)`);
         for (const u of game.selectedUnits) u.attack(target);
       } else {
         const point = getGroundPoint(e);
         if (point) {
-          console.log(`[DEBUG INPUT] Right-click MOVE to (${point.x.toFixed(0)}, ${point.z.toFixed(0)}) — ${game.selectedUnits.length} units`);
           issueMoveCommand(point);
         }
       }
@@ -5958,7 +6156,7 @@ export function buildTerrain(scene) {
 # FILE: js\ui.js
 # =============================================================================
 
-// ui.js — Binds HTML overlay controls to the game.
+// ui.js — Modern UI with bottom dock layout and glassmorphism
 import * as THREE from 'three';
 import { UNIT_TYPES, UPGRADES } from './config.js?v=4';
 import { Sound } from './sound.js';
@@ -5970,10 +6168,9 @@ function generateUnitIcon(type, color, size = 48) {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  
-  // RoundRect polyfill
+
   function roundRect(ctx, x, y, w, h, r) {
-    const rad = Math.min(r, w/2, h/2);
+    const rad = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
     ctx.moveTo(x + rad, y);
     ctx.lineTo(x + w - rad, y);
@@ -5986,15 +6183,15 @@ function generateUnitIcon(type, color, size = 48) {
     ctx.quadraticCurveTo(x, y, x + rad, y);
     ctx.closePath();
   }
-  
+
   ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
   ctx.strokeStyle = '#4af';
   ctx.lineWidth = 1;
-  
+
   const cx = size / 2;
   const cy = size / 2;
   const s = size * 0.35;
-  
+
   ctx.beginPath();
   switch (type) {
     case 'infantry':
@@ -6205,55 +6402,60 @@ function generateUnitIcon(type, color, size = 48) {
   }
   ctx.fill();
   ctx.stroke();
-  
+
   return canvas.toDataURL('image/png');
 }
 
-// Create tooltip element
-function createTooltip(content) {
-  const tip = document.createElement('div');
-  tip.className = 'unit-tooltip';
-  tip.innerHTML = content;
-  document.body.appendChild(tip);
-  return tip;
+// Create enhanced tooltip with grid layout
+function createEnhancedTooltip(type, stats) {
+  const tooltip = document.createElement('div');
+  tooltip.className = 'unit-tooltip';
+  tooltip.innerHTML = `
+    <strong>${type.toUpperCase()} <span class="domain-badge ${stats.domain}">${stats.domain}</span></strong>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0;">
+      <div><span class="stat">HP:</span> <strong>${stats.hp}</strong></div>
+      <div><span class="stat">DMG:</span> <strong>${stats.damage}</strong></div>
+      <div><span class="stat">RNG:</span> <strong>${stats.range}</strong></div>
+      <div><span class="stat">SPD:</span> <strong>${stats.speed}</strong></div>
+      <div><span class="stat">FR:</span> <strong>${stats.fireRate}s</strong></div>
+      <div><span class="stat">HIT:</span> <strong>${Math.round(stats.hitChance * 100)}%</strong></div>
+    </div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+      <span class="stat">Cost:</span> <strong style="color:var(--success)">$${stats.cost}</strong>
+    </div>
+    ${stats.special ? `<div class="stat-special">${stats.special}</div>` : ''}
+  `;
+  document.body.appendChild(tooltip);
+  return tooltip;
 }
 
 // Create a unit button with icon, name, cost, hotkey, tooltip
 function createUnitButton(key, hotkey, game) {
   const stats = UNIT_TYPES[key];
   const iconDataUrl = generateUnitIcon(key, stats.color);
-  
+
   const b = document.createElement('button');
   b.className = 'unitBtn';
   b.dataset.unitType = key;
-  b.dataset.hotkey = hotkey;
+
   b.innerHTML = `
+    <span class="unit-hotkey">${hotkey}</span>
     <img class="unit-icon" src="${iconDataUrl}" alt="${key}" loading="lazy">
     <div class="unit-info">
-      <span class="unit-name">${key.toUpperCase()}</span>
-      <span class="unit-domain">${stats.domain.toUpperCase()}</span>
+      <span class="unit-name">${key}</span>
+      <span class="unit-domain ${stats.domain}">${stats.domain}</span>
     </div>
     <div class="unit-cost">$${stats.cost}</div>
-    <span class="unit-hotkey">${hotkey}</span>
   `;
-  b.title = '';
+
   b.addEventListener('click', (e) => game.enterPlacementMode(key, e.ctrlKey));
-  
-  // Tooltip with stats
+
   let tooltip = null;
-  b.addEventListener('mouseenter', (e) => {
-    tooltip = createTooltip(`
-      <strong>${key.toUpperCase()}</strong> <span class="domain-badge ${stats.domain}">${stats.domain}</span><br>
-      <span class="stat">❤ HP:</span> ${stats.hp} | 
-      <span class="stat">⚔ DMG:</span> ${stats.damage} | 
-      <span class="stat">🎯 RNG:</span> ${stats.range}<br>
-      <span class="stat">⚡ SPD:</span> ${stats.speed} | 
-      <span class="stat">🔥 FR:</span> ${stats.fireRate}s | 
-      <span class="stat">% HIT:</span> ${Math.round(stats.hitChance * 100)}%
-    `);
+  b.addEventListener('mouseenter', () => {
+    tooltip = createEnhancedTooltip(key, stats);
     const rect = b.getBoundingClientRect();
-    tooltip.style.left = (rect.right + 8) + 'px';
-    tooltip.style.top = (rect.top + window.scrollY) + 'px';
+    tooltip.style.left = (rect.left) + 'px';
+    tooltip.style.top = (rect.top - 10) + 'px';
     tooltip.classList.add('visible');
   });
   b.addEventListener('mouseleave', () => {
@@ -6268,275 +6470,295 @@ function createUnitButton(key, hotkey, game) {
       tooltip.style.top = (e.clientY + 16) + 'px';
     }
   });
-  
+
   return b;
 }
 
 // Create an upgrade button
-function createUpgradeButton(stat, game, upgradeDiv) {
+function createUpgradeButton(stat, game) {
   const def = UPGRADES[stat];
-  const row = document.createElement('button');
+  const btn = document.createElement('button');
+  btn.className = 'unitBtn upgradeBtn';
+  btn.dataset.stat = stat;
 
-  row.className = 'unitBtn upgradeBtn';
-  row.dataset.stat = stat;
+  const tier = game.upgrades.tiers[stat];
+  const cost = game.upgrades.nextCost(stat);
+  const mult = def.tiers[tier];
 
-  upgradeDiv.appendChild(row);
+  btn.innerHTML = `
+    <span class="unit-icon" style="font-size:28px;display:flex;align-items:center;justify-content:center;">${def.icon}</span>
+    <div class="unit-info">
+      <span class="unit-name">${def.name}</span>
+      <span class="unit-domain">T${tier} x${mult.toFixed(2)}</span>
+    </div>
+    <div class="unit-cost" style="${cost === null ? 'color:var(--text-muted)' : ''}">${cost === null ? 'MAX' : '$' + cost}</div>
+  `;
 
-  row.addEventListener('click', () => {
+  btn.addEventListener('click', () => {
     if (game.upgrades.upgrade(stat)) {
-      refreshUpgradeButtons(game, upgradeDiv);
+      const newBtn = createUpgradeButton(stat, game);
+      btn.parentNode.replaceChild(newBtn, btn);
     } else {
       Sound.play('error');
-      row.classList.add('shake-animation');
-      const origBorder = row.style.borderColor;
-      row.style.borderColor = '#f44';
-      setTimeout(() => {
-        row.classList.remove('shake-animation');
-        row.style.borderColor = origBorder;
-      }, 500);
+      btn.classList.add('shake-animation');
+      setTimeout(() => btn.classList.remove('shake-animation'), 500);
       game.flashMessage('Insufficient funds or max tier reached!');
     }
   });
 
-  return row;
+  return btn;
 }
 
-function refreshUpgradeButtons(game, upgradeDiv) {
-  for (const stat of Object.keys(UPGRADES)) {
-    const btn = upgradeDiv.querySelector(`[data-stat="${stat}"]`);
-    const tier = game.upgrades.tiers[stat];
-    const maxTier = UPGRADES[stat].tiers.length - 1;
-    const cost = game.upgrades.nextCost(stat);
-    const mult = UPGRADES[stat].tiers[tier];
-    btn.innerHTML = `<span>${UPGRADES[stat].icon} ${UPGRADES[stat].name} T${tier} (×${mult.toFixed(2)})</span>` +
-                    `<span>${cost === null ? 'MAX' : '$' + cost}</span>`;
-    btn.disabled = cost === null || game.money < cost;
+// Update selection panel UI
+function updateSelectionUI(game, selectionInfo) {
+  if (game.selectedUnits.length === 0) {
+    selectionInfo.innerHTML = `
+      <div style="color:var(--text-muted);text-align:center;padding:20px;">
+        Click or drag to select units
+      </div>
+    `;
+    return;
+  }
+
+  const counts = {};
+  game.selectedUnits.forEach(u => {
+    counts[u.type] = (counts[u.type] || 0) + 1;
+  });
+
+  let html = '';
+  for (const [type, count] of Object.entries(counts)) {
+    const stats = UNIT_TYPES[type];
+    const iconDataUrl = generateUnitIcon(type, stats.color);
+
+    let typeHp = 0, typeDmg = 0, typeRange = 0;
+    game.selectedUnits.forEach(u => {
+      if (u.type === type) {
+        typeHp += u.hp;
+        typeDmg += u.stats.damage;
+        typeRange = Math.max(typeRange, u.stats.range);
+      }
+    });
+
+    const avgHp = Math.round(typeHp / count);
+
+    html += `
+      <div class="selection-item">
+        <img class="selection-icon" src="${iconDataUrl}" alt="${type}">
+        <div style="flex:1;">
+          <div class="selection-type">${type}</div>
+          <div class="selection-stats">HP: ${avgHp} | DMG: ${Math.round(typeDmg / count)} | RNG: ${typeRange}</div>
+        </div>
+        <div class="selection-count">x${count}</div>
+      </div>
+    `;
+  }
+
+  const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
+  if (hasTransport) {
+    const transport = game.selectedUnits.find(u => u.isTransport);
+    const nearbyLand = game.playerUnits.filter(u =>
+      u.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit(u)
+    );
+    const canLoad = nearbyLand.length > 0;
+    const canUnload = transport.carriedUnits.length > 0;
+
+    html += `
+      <div class="transport-actions">
+        <button class="action-btn" id="loadBtn" ${canLoad ? '' : 'disabled'}>
+          Load${canLoad ? '' : ' (no units)'}
+        </button>
+        <button class="action-btn" id="unloadBtn" ${canUnload ? '' : 'disabled'}>
+          Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (empty)'}
+        </button>
+      </div>
+    `;
+  }
+
+  selectionInfo.innerHTML = html;
+
+  const loadBtn = document.getElementById('loadBtn');
+  if (loadBtn) {
+    loadBtn.addEventListener('click', () => {
+      const t = game.selectedUnits.find(u => u.isTransport);
+      if (!t) return;
+      const toLoad = game.playerUnits.filter(u =>
+        u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
+      );
+      for (const u of toLoad) t.loadUnit(u);
+      updateSelectionUI(game, selectionInfo);
+    });
+  }
+
+  const unloadBtn = document.getElementById('unloadBtn');
+  if (unloadBtn) {
+    unloadBtn.addEventListener('click', () => {
+      const t = game.selectedUnits.find(u => u.isTransport);
+      if (t) t.unloadAll();
+      updateSelectionUI(game, selectionInfo);
+    });
   }
 }
 
 export function initUI(game) {
-  // === Build menu (Armory) with Tabs ===
-  const armoryTabs = document.querySelectorAll('.tab-btn');
-  const armoryContent = document.getElementById('armoryContent');
-  
-  // Group units by domain
-  const unitsByDomain = {
-    land: [],
-    sea: [],
-    air: []
-  };
-  
-  const unitKeys = Object.keys(UNIT_TYPES);
-  unitKeys.forEach((key, index) => {
-    const stats = UNIT_TYPES[key];
-    unitsByDomain[stats.domain].push({ key, index: index + 1 });
-  });
-  
-  // Create tab panels
+  // === Create Armory Panel (Bottom Dock) ===
+  const armoryPanel = document.createElement('div');
+  armoryPanel.id = 'armoryPanel';
+  armoryPanel.className = 'panel';
+  document.body.appendChild(armoryPanel);
+
+  const armoryTabs = document.createElement('div');
+  armoryTabs.className = 'armory-tabs';
+
+  const tabs = [
+    { id: 'land', label: 'LAND' },
+    { id: 'sea', label: 'SEA' },
+    { id: 'air', label: 'AIR' },
+    { id: 'upgrades', label: 'UPGRADES' }
+  ];
+
   const tabPanels = {};
-  
-  // Land tab
-  const landPanel = document.createElement('div');
-  landPanel.className = 'armory-tab-panel active';
-  landPanel.dataset.tab = 'land';
-  unitsByDomain.land.forEach(({ key, index }) => {
-    landPanel.appendChild(createUnitButton(key, index, game));
-  });
-  tabPanels.land = landPanel;
-  
-  // Sea tab
-  const seaPanel = document.createElement('div');
-  seaPanel.className = 'armory-tab-panel';
-  seaPanel.dataset.tab = 'sea';
-  unitsByDomain.sea.forEach(({ key, index }) => {
-    seaPanel.appendChild(createUnitButton(key, index, game));
-  });
-  tabPanels.sea = seaPanel;
-  
-  // Air tab
-  const airPanel = document.createElement('div');
-  airPanel.className = 'armory-tab-panel';
-  airPanel.dataset.tab = 'air';
-  unitsByDomain.air.forEach(({ key, index }) => {
-    airPanel.appendChild(createUnitButton(key, index, game));
-  });
-  tabPanels.air = airPanel;
-  
-  // Upgrades tab
-  const upgradesPanel = document.createElement('div');
-  upgradesPanel.className = 'armory-tab-panel upgrades';
-  upgradesPanel.dataset.tab = 'upgrades';
-  if (!document.getElementById('upgrade-shake-style')) {
-    const style = document.createElement('style');
-    style.id = 'upgrade-shake-style';
-    style.textContent = `
-      @keyframes upgradeShake {
-        0%, 100% { transform: translateX(0); }
-        20% { transform: translateX(-4px); }
-        40% { transform: translateX(4px); }
-        60% { transform: translateX(-3px); }
-        80% { transform: translateX(3px); }
-      }
-      .shake-animation { animation: upgradeShake 0.4s ease-in-out; }
-    `;
-    document.head.appendChild(style);
-  }
-  for (const [stat, def] of Object.entries(UPGRADES)) {
-    createUpgradeButton(stat, game, upgradesPanel);
-  }
-  tabPanels.upgrades = upgradesPanel;
-  
-  // Append all panels to content
-  Object.values(tabPanels).forEach(panel => armoryContent.appendChild(panel));
-  
-  // Tab switching
-  armoryTabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      armoryTabs.forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.armory-tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      tabPanels[tab].classList.add('active');
-    });
-  });
-  
-  // Periodic affordability & context check for armory buttons
-  setInterval(() => {
-    const selectedBuilding = game.selectedBuilding;
-    document.querySelectorAll('.unitBtn[data-unit-type]').forEach(b => {
-      const key = b.dataset.unitType;
-      const cost = UNIT_TYPES[key].cost;
-      const canAfford = game.money >= cost;
 
-      // Context-sensitive: gray out units not buildable by selected building
-      let isContextDisabled = false;
-      if (selectedBuilding) {
-        const domain = UNIT_TYPES[key].domain;
-        if (selectedBuilding.faction !== 'player') {
-          isContextDisabled = true;
-        } else if (selectedBuilding.isShipyard) {
-          // Shipyard can only build sea & air units
-          isContextDisabled = (domain !== 'sea' && domain !== 'air');
-        } else {
-          // Land base: land & air only
-          isContextDisabled = (domain !== 'land' && domain !== 'air');
-        }
-      }
-
-      b.classList.toggle('unaffordable', !canAfford && !isContextDisabled);
-      b.classList.toggle('context-disabled', isContextDisabled);
-      b.disabled = !canAfford || isContextDisabled;
-    });
-    
-    // Upgrade buttons affordability
-    document.querySelectorAll('.upgradeBtn').forEach(btn => {
-      const stat = btn.dataset.stat;
-      const cost = game.upgrades.nextCost(stat);
-      btn.disabled = cost === null || game.money < cost;
-    });
-  }, 200);
-  
-  // Initial upgrade button refresh
-  refreshUpgradeButtons(game, upgradesPanel);
-  setInterval(() => refreshUpgradeButtons(game, upgradesPanel), 500);
-
-  // === Formation (visual buttons in merged Selection Panel) ===
-  const formationSelect = document.getElementById('formationSelect');
-  const formationBtns = document.querySelectorAll('.formation-btn');
-  
-  function setFormation(formation) {
-    game.formation = formation;
-    formationSelect.value = formation;
-    formationBtns.forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.formation === formation);
-    });
-  }
-  
-  // Custom tooltips for formation buttons
-  const formationTooltips = {
-    line: 'Line Formation <span style="color:#888;font-size:10px;">(F1)</span><br><span style="color:#aaa;font-size:10px;">Units spread horizontally</span>',
-    wedge: 'Wedge Formation <span style="color:#888;font-size:10px;">(F2)</span><br><span style="color:#aaa;font-size:10px;">V-shaped assault formation</span>',
-    square: 'Square Formation <span style="color:#888;font-size:10px;">(F3)</span><br><span style="color:#aaa;font-size:10px;">All-around defense</span>',
-    column: 'Column Formation <span style="color:#888;font-size:10px;">(F4)</span><br><span style="color:#aaa;font-size:10px;">Single-file movement</span>',
-  };
-
-  formationBtns.forEach(btn => {
-    btn.addEventListener('click', () => setFormation(btn.dataset.formation));
-
-    let tooltip = null;
-    btn.addEventListener('mouseenter', (e) => {
-      if (tooltip) tooltip.remove();
-      tooltip = document.createElement('div');
-      tooltip.className = 'unit-tooltip';
-      tooltip.innerHTML = formationTooltips[btn.dataset.formation] || btn.title;
-      document.body.appendChild(tooltip);
-      const rect = btn.getBoundingClientRect();
-      tooltip.style.left = (rect.right + 8) + 'px';
-      tooltip.style.top = (rect.top + window.scrollY) + 'px';
-      tooltip.classList.add('visible');
-    });
-    btn.addEventListener('mouseleave', () => {
-      if (tooltip) {
-        tooltip.classList.remove('visible');
-        setTimeout(() => { tooltip.remove(); tooltip = null; }, 150);
-      }
-    });
-    btn.addEventListener('mousemove', (e) => {
-      if (tooltip) {
-        tooltip.style.left = (e.clientX + 16) + 'px';
-        tooltip.style.top = (e.clientY + 16) + 'px';
-      }
-    });
-  });
-  
-  // Keep dropdown in sync (for any legacy code)
-  formationSelect.addEventListener('change', e => {
-    setFormation(e.target.value);
+  tabs.forEach((tab, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+    btn.dataset.tab = tab.id;
+    btn.textContent = tab.label;
+    armoryTabs.appendChild(btn);
   });
 
-  // === Top-bar action buttons (dropdown menu for secondary actions) ===
-  const topBar = document.getElementById('topBar');
-  const actions = document.createElement('span');
-  actions.style.marginLeft = 'auto';
-  actions.innerHTML = `
-    <button id="launchBtn" class="topBtn" title="Launch fighters from selected carrier">✈️ Launch</button>
-    <button id="fleetBtn" class="topBtn" title="Buy fleet: 2 destroyers, 1 carrier, 2 frigates, 1 battleship">🚢 Fleet</button>
-    <button id="focusHqBtn" class="topBtn" title="Center camera on HQ (F)">🏠 HQ</button>
-    <button id="helpBtn" class="topBtn" title="Help & Controls (H)">❓</button>
-    <div class="top-dropdown" id="menuDropdown">
-      <button class="topBtn dropdown-toggle" id="menuToggleBtn" title="More options">☰</button>
-      <div class="dropdown-menu hidden" id="dropdownMenu">
-        <button id="saveBtn" class="dropdown-item" title="Save game">💾 Save</button>
-        <button id="loadBtn" class="dropdown-item" title="Load game">📂 Load</button>
-        <button id="soundBtn" class="dropdown-item" title="Toggle sound">🔊 Sound</button>
-      </div>
-    </div>
-  `;
-  topBar.appendChild(actions);
+  const armoryContent = document.createElement('div');
+  armoryContent.id = 'armoryContent';
 
-  // Dropdown toggle
-  const menuToggle = document.getElementById('menuToggleBtn');
-  const dropdownMenu = document.getElementById('dropdownMenu');
-  menuToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    dropdownMenu.classList.toggle('hidden');
-    menuToggle.classList.toggle('active');
-  });
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.top-dropdown')) {
-      dropdownMenu.classList.add('hidden');
-      menuToggle.classList.remove('active');
+  const unitsByDomain = { land: [], sea: [], air: [] };
+  Object.keys(UNIT_TYPES).forEach((key, index) => {
+    const stats = UNIT_TYPES[key];
+    if (stats.domain && unitsByDomain[stats.domain]) {
+      unitsByDomain[stats.domain].push({ key, index: index + 1 });
     }
   });
 
+  tabs.forEach((tab, i) => {
+    const panel = document.createElement('div');
+    panel.className = 'armory-tab-panel' + (i === 0 ? ' active' : '');
+    panel.dataset.tab = tab.id;
+
+    if (tab.id === 'upgrades') {
+      panel.className = 'armory-tab-panel upgrades-grid' + (i === 0 ? ' active' : '');
+      for (const [stat] of Object.entries(UPGRADES)) {
+        panel.appendChild(createUpgradeButton(stat, game));
+      }
+    } else {
+      unitsByDomain[tab.id].forEach(({ key, index }) => {
+        panel.appendChild(createUnitButton(key, index, game));
+      });
+    }
+
+    tabPanels[tab.id] = panel;
+  });
+
+  Object.values(tabPanels).forEach(panel => armoryContent.appendChild(panel));
+
+  armoryPanel.appendChild(armoryTabs);
+  armoryPanel.appendChild(armoryContent);
+
+  function switchTab(tabId) {
+    armoryTabs.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    armoryContent.querySelectorAll('.armory-tab-panel').forEach(panel => {
+      panel.classList.toggle('active', panel.dataset.tab === tabId);
+    });
+  }
+
+  armoryTabs.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  // === Create Selection Panel (Bottom Left) ===
+  const selectionPanel = document.createElement('div');
+  selectionPanel.id = 'selectionPanel';
+  selectionPanel.className = 'panel';
+  selectionPanel.innerHTML = `
+    <div style="padding:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;font-weight:bold;color:var(--primary);text-transform:uppercase;letter-spacing:1px;">Selection</div>
+      <button id="selectAllBtn" class="topBtn" style="font-size:10px;padding:3px 8px;">All</button>
+    </div>
+    <div id="selectionInfo">
+      <div style="color:var(--text-muted);text-align:center;padding:20px;">
+        Click or drag to select units
+      </div>
+    </div>
+    <div class="formation-options">
+      <button class="formation-btn active" data-formation="line" title="Line (F1)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="10" width="20" height="4" rx="1"/></svg>
+      </button>
+      <button class="formation-btn" data-formation="wedge" title="Wedge (F2)">
+        <svg viewBox="0 0 24 24"><path d="M12 2 L22 20 L2 20 Z"/></svg>
+      </button>
+      <button class="formation-btn" data-formation="square" title="Square (F3)">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+      </button>
+      <button class="formation-btn" data-formation="column" title="Column (F4)">
+        <svg viewBox="0 0 24 24"><rect x="10" y="2" width="4" height="20" rx="1"/></svg>
+      </button>
+    </div>
+  `;
+  document.body.appendChild(selectionPanel);
+
+  const selectionInfo = document.getElementById('selectionInfo');
+  game.updateSelectionUI = () => updateSelectionUI(game, selectionInfo);
+
+  const formationBtns = selectionPanel.querySelectorAll('.formation-btn');
+  function setFormation(formation) {
+    game.formation = formation;
+    formationBtns.forEach(b => b.classList.toggle('active', b.dataset.formation === formation));
+  }
+  formationBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      setFormation(btn.dataset.formation);
+      game.flashMessage(`Formation: ${btn.dataset.formation}`);
+    });
+  });
+
+  document.getElementById('selectAllBtn').addEventListener('click', () => {
+    const aliveUnits = game.playerUnits.filter(u => u.alive);
+    if (aliveUnits.length === 0) { game.flashMessage('No units to select'); return; }
+    for (const u of game.selectedUnits) u.setSelected(false);
+    game.selectedUnits = aliveUnits;
+    for (const u of game.selectedUnits) u.setSelected(true);
+    game.flashMessage(`Selected ${aliveUnits.length} units`);
+  });
+
+  // === Create Top Bar ===
+  const topBar = document.createElement('div');
+  topBar.id = 'topBar';
+  topBar.innerHTML = `
+    <div class="top-stat">Money: <span id="money">0</span></div>
+    <div class="top-stat">Bases: <span id="basesOwned">0</span>/<span id="basesTotal">0</span></div>
+    <div class="top-stat">Units: <span id="unitCount">0</span></div>
+    <div class="top-stat" style="color:var(--text-muted);">Enemy: <span id="enemyCount">0</span></div>
+    <div style="flex:1;"></div>
+    <button id="launchBtn" class="topBtn">Launch</button>
+    <button id="fleetBtn" class="topBtn">Fleet</button>
+    <button id="focusHqBtn" class="topBtn">HQ</button>
+    <button id="helpBtn" class="topBtn">Help</button>
+    <div class="top-dropdown">
+      <button id="menuToggleBtn" class="topBtn">Menu</button>
+      <div class="dropdown-menu hidden" id="dropdownMenu">
+        <button id="saveBtn" class="dropdown-item">Save</button>
+        <button id="loadBtn" class="dropdown-item">Load</button>
+        <button id="soundBtn" class="dropdown-item">Sound: ON</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(topBar);
+
+  // Top bar button handlers
   document.getElementById('launchBtn').addEventListener('click', () => {
     const carriers = game.selectedUnits.filter(u => u.canLaunch && u.alive);
     if (carriers.length === 0) { game.flashMessage('Select a carrier first'); return; }
     let launched = 0;
-    for (const c of carriers) {
-      if (c.launchFighters()) launched++;
-    }
+    for (const c of carriers) { if (c.launchFighters()) launched++; }
     if (launched === 0) game.flashMessage('Carriers on cooldown');
   });
 
@@ -6553,112 +6775,53 @@ export function initUI(game) {
     }
   });
 
-  document.getElementById('selectAllBtn').addEventListener('click', () => {
-    const aliveUnits = game.playerUnits.filter(u => u.alive);
-    if (aliveUnits.length === 0) { game.flashMessage('No units to select'); return; }
-    for (const u of game.selectedUnits) u.setSelected(false);
-    game.selectedUnits = aliveUnits;
-    for (const u of game.selectedUnits) u.setSelected(true);
-    game.flashMessage(`Selected ${aliveUnits.length} units`);
+  // Dropdown
+  const menuToggle = document.getElementById('menuToggleBtn');
+  const dropdownMenu = document.getElementById('dropdownMenu');
+  menuToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdownMenu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.top-dropdown')) dropdownMenu.classList.add('hidden');
   });
 
-  // Dropdown menu actions
   document.getElementById('saveBtn').addEventListener('click', () => {
-    if (saveGame(game)) game.flashMessage('💾 Game saved!');
+    if (saveGame(game)) game.flashMessage('Game saved!');
     else game.flashMessage('Save failed');
     dropdownMenu.classList.add('hidden');
-    menuToggle.classList.remove('active');
   });
   document.getElementById('loadBtn').addEventListener('click', () => {
     if (hasSave()) location.reload();
     else game.flashMessage('No save found');
     dropdownMenu.classList.add('hidden');
-    menuToggle.classList.remove('active');
   });
-  document.getElementById('soundBtn').addEventListener('click', e => {
+  document.getElementById('soundBtn').addEventListener('click', () => {
     Sound.enabled = !Sound.enabled;
-    e.currentTarget.textContent = Sound.enabled ? '🔊 Sound' : '🔇 Sound';
+    document.getElementById('soundBtn').textContent = Sound.enabled ? 'Sound: ON' : 'Sound: OFF';
     dropdownMenu.classList.add('hidden');
-    menuToggle.classList.remove('active');
   });
 
-  // Hotkeys: F = Focus HQ, Ctrl+A = Select All, F1-F4 = Formations, Escape = Deselect, H = Toggle Help
-  window.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    
-    // Toggle help with H key
-    if (e.key === 'h' || e.key === 'H') {
-      toggleHelpModal(!helpModalOpen);
-      return;
-    }
-
-    // Escape closes help modal first, then deselects
-    if (e.key === 'Escape') {
-      if (helpModalOpen) {
-        toggleHelpModal(false);
-        return;
-      }
-      for (const u of game.selectedUnits) u.setSelected(false);
-      game.selectedUnits = [];
-      game.selectedBuilding = null;
-      return;
-    }
-
-    // Ctrl+A = Select all (prevents conflict with camera left)
-    if (e.key === 'a' || e.key === 'A') {
-      if (e.ctrlKey || e.metaKey) {
-        const aliveUnits = game.playerUnits.filter(u => u.alive);
-        if (aliveUnits.length > 0) {
-          for (const u of game.selectedUnits) u.setSelected(false);
-          game.selectedUnits = aliveUnits;
-          for (const u of game.selectedUnits) u.setSelected(true);
-          game.flashMessage(`Selected ${aliveUnits.length} units`);
-        }
-        return;
-      }
-      // Without Ctrl: camera left (handled by game camera)
-      return;
-    }
-
-    // F1-F4 = Formations
-    if (e.key === 'F1') { setFormation('line'); game.flashMessage('Formation: Line'); return; }
-    if (e.key === 'F2') { setFormation('wedge'); game.flashMessage('Formation: Wedge'); return; }
-    if (e.key === 'F3') { setFormation('square'); game.flashMessage('Formation: Square'); return; }
-    if (e.key === 'F4') { setFormation('column'); game.flashMessage('Formation: Column'); return; }
-
-    if (e.key === 'f' || e.key === 'F') {
-      const hq = game.bases.find(b => b.faction === 'player');
-      if (hq) {
-        game.cameraTarget.x = hq.mesh.position.x;
-        game.cameraTarget.z = hq.mesh.position.z;
-      }
-    }
-  });
-
-  // === Help Modal (Side Navigation + Content Panels) ===
-  createHelpModal();
-
-  document.getElementById('helpBtn').addEventListener('click', () => {
-    toggleHelpModal(true);
-  });
+  // === Help Modal ===
+  let helpModalOpen = false;
 
   function createHelpModal() {
     const modal = document.createElement('div');
     modal.id = 'helpModal';
-    modal.className = 'overlay center hidden';
+    modal.className = 'hidden';
     modal.innerHTML = `
-      <div class="panel help-panel">
+      <div class="help-panel">
         <div class="help-header">
           <h1>CONTROLS & HOW TO PLAY</h1>
-          <span class="help-hint">Press <span class="help-key">H</span> or <span class="help-key">Escape</span> to close</span>
-          <button id="helpCloseBtn" class="help-close" title="Close (H/Escape)">×</button>
+          <span class="help-hint">Press <span class="help-key">H</span> or <span class="help-key">Esc</span> to close</span>
+          <button id="helpCloseBtn" class="help-close" title="Close">×</button>
         </div>
         <div class="help-body">
-          <nav class="help-nav" role="tablist" aria-label="Help categories">
-            <button class="help-nav-btn active" data-tab="controls" role="tab" aria-selected="true">🖱️ Controls</button>
-            <button class="help-nav-btn" data-tab="gameplay" role="tab" aria-selected="false">🎮 Gameplay</button>
-            <button class="help-nav-btn" data-tab="ui" role="tab" aria-selected="false">📊 UI Guide</button>
-            <button class="help-nav-btn" data-tab="quickstart" role="tab" aria-selected="false">🚀 Quick Start</button>
+          <nav class="help-nav" role="tablist">
+            <button class="help-nav-btn active" data-tab="controls" role="tab">Controls</button>
+            <button class="help-nav-btn" data-tab="gameplay" role="tab">Gameplay</button>
+            <button class="help-nav-btn" data-tab="ui" role="tab">UI Guide</button>
+            <button class="help-nav-btn" data-tab="quickstart" role="tab">Quick Start</button>
           </nav>
           <div class="help-content">
             <div class="help-panel-content active" id="tab-controls" role="tabpanel">
@@ -6667,86 +6830,67 @@ export function initUI(game) {
               <div class="help-row"><span class="help-key">LMB Drag</span><span>Box select multiple units</span></div>
               <div class="help-row"><span class="help-key">RMB Click</span><span>Move selected units / Attack enemy</span></div>
               <div class="help-row"><span class="help-key">Mouse Wheel</span><span>Zoom camera in/out</span></div>
-              <div class="help-row"><span class="help-key">Minimap Click</span><span>Jump camera to location</span></div>
-              
               <h3>Keyboard Shortcuts</h3>
-              <div class="help-row"><span class="help-key">W / ↑</span><span>Move camera up</span></div>
-              <div class="help-row"><span class="help-key">S / ↓</span><span>Move camera down</span></div>
-              <div class="help-row"><span class="help-key">A / ←</span><span>Move camera left</span></div>
-              <div class="help-row"><span class="help-key">D / →</span><span>Move camera right</span></div>
+              <div class="help-row"><span class="help-key">W / S / A / D</span><span>Move camera</span></div>
               <div class="help-row"><span class="help-key">F</span><span>Focus camera on HQ</span></div>
               <div class="help-row"><span class="help-key">Ctrl+A</span><span>Select all player units</span></div>
-              <div class="help-row"><span class="help-key">Escape</span><span>Deselect units / Close menus</span></div>
+              <div class="help-row"><span class="help-key">Escape</span><span>Deselect / Close menus</span></div>
               <div class="help-row"><span class="help-key">H</span><span>Toggle this help menu</span></div>
-              <div class="help-row"><span class="help-key">1–9</span><span>Quick-build unit (Armory order)</span></div>
-              <div class="help-row"><span class="help-key">F1–F4</span><span>Set formation (Line/Wedge/Square/Column)</span></div>
+              <div class="help-row"><span class="help-key">1-9</span><span>Quick-build unit</span></div>
+              <div class="help-row"><span class="help-key">F1-F4</span><span>Set formation</span></div>
             </div>
-            
             <div class="help-panel-content" id="tab-gameplay" role="tabpanel" hidden>
               <h3>Core Mechanics</h3>
-              <div class="help-row"><span class="help-key">Build Units</span><span>Click unit buttons in Armory (bottom-right). Units spawn near your HQ.</span></div>
-              <div class="help-row"><span class="help-key">Capture Bases</span><span>Move units to enemy bases (red flags). When HP reaches 0, base switches to your faction.</span></div>
-              <div class="help-row"><span class="help-key">Fog of War</span><span>Map is dark until explored. Units and bases reveal area around them.</span></div>
-              <div class="help-row"><span class="help-key">Formations</span><span>Select units → choose formation (Line, Wedge, Square, Column) → right-click to move in formation.</span></div>
-              <div class="help-row"><span class="help-key">Carrier Launch</span><span>Select carrier → click ✈️ Launch button to deploy fighters (cooldown: 20s).</span></div>
-              <div class="help-row"><span class="help-key">Upgrades</span><span>Buy Armor, Firepower, Engines in Armory (gold buttons) to permanently buff all player units.</span></div>
-              <div class="help-row"><span class="help-key">Income</span><span>Earn passive income per owned base. Destroy enemy units for bonus cash.</span></div>
+              <div class="help-row"><span class="help-key">Build Units</span><span>Click unit buttons in Armory (bottom). Units spawn near your HQ.</span></div>
+              <div class="help-row"><span class="help-key">Capture Bases</span><span>Move units to enemy bases. When HP reaches 0, base switches to your faction.</span></div>
+              <div class="help-row"><span class="help-key">Formations</span><span>Select units, choose formation (F1-F4), right-click to move in formation.</span></div>
+              <div class="help-row"><span class="help-key">Upgrades</span><span>Buy upgrades in Armory to permanently buff all player units.</span></div>
+              <div class="help-row"><span class="help-key">Income</span><span>Earn passive income per owned base.</span></div>
             </div>
-            
             <div class="help-panel-content" id="tab-ui" role="tabpanel" hidden>
               <h3>UI Elements</h3>
-              <div class="help-row"><span class="help-key">Top Bar</span><span>Money ($) • Bases Owned/Total • Unit Count • Difficulty</span></div>
-              <div class="help-row"><span class="help-key">Minimap (top-right)</span><span>Blue = your units/bases • Red = known enemies • Gray outline = terrain • White box = camera view</span></div>
-              <div class="help-row"><span class="help-key">Selection Panel (bottom-left)</span><span>Shows selected unit portraits, types, count, and combined stats</span></div>
-              <div class="help-row"><span class="help-key">Formation Selector</span><span>Integrated in Selection Panel — visual preview of Line/Wedge/Square/Column</span></div>
-              <div class="help-row"><span class="help-key">Armory (bottom-right)</span><span>Build units (with hotkeys 1–9) & buy upgrades</span></div>
+              <div class="help-row"><span class="help-key">Top Bar</span><span>Money, Bases, Units, Enemy count, and action buttons</span></div>
+              <div class="help-row"><span class="help-key">Armory (bottom)</span><span>Build units and buy upgrades with hotkeys 1-9</span></div>
+              <div class="help-row"><span class="help-key">Selection (left)</span><span>Shows selected unit portraits, types, combined stats</span></div>
+              <div class="help-row"><span class="help-key">Formations</span><span>Visual buttons in Selection panel for Line/Wedge/Square/Column</span></div>
             </div>
-            
             <div class="help-panel-content" id="tab-quickstart" role="tabpanel" hidden>
               <h3>Quick Start</h3>
               <ol class="quickstart-steps">
-                <li><span class="step-num">1</span><div><strong>Build an army</strong> — Click <span class="help-key">TANK</span> / <span class="help-key">INFANTRY</span> in Armory (or press <span class="help-key">1</span> / <span class="help-key">2</span>). Costs $.</div></li>
-                <li><span class="step-num">2</span><div><strong>Select units</strong> — Click a unit, or drag a box to select multiple. Press <span class="help-key">Ctrl+A</span> for all.</div></li>
-                <li><span class="step-num">3</span><div><strong>Move & Attack</strong> — Right-click ground to move, right-click enemy to attack. Use <span class="help-key">F1–F4</span> for formations.</div></li>
-                <li><span class="step-num">4</span><div><strong>Capture bases</strong> — Move units onto enemy bases (red flags) to capture them. Earn income per base.</div></li>
-                <li><span class="step-num">5</span><div><strong>Win</strong> — Capture all enemy bases. Lose if you lose your HQ.</div></li>
+                <li><span class="step-num">1</span><div><strong>Build an army</strong> — Click <span class="help-key">TANK</span> / <span class="help-key">INFANTRY</span> in Armory (or press <span class="help-key">1</span> / <span class="help-key">2</span>).</div></li>
+                <li><span class="step-num">2</span><div><strong>Select units</strong> — Click a unit, or drag a box. Press <span class="help-key">Ctrl+A</span> for all.</div></li>
+                <li><span class="step-num">3</span><div><strong>Move & Attack</strong> — Right-click to move, right-click enemy to attack.</div></li>
+                <li><span class="step-num">4</span><div><strong>Capture bases</strong> — Move units onto enemy bases to capture them.</div></li>
+                <li><span class="step-num">5</span><div><strong>Win</strong> — Capture all enemy bases.</div></li>
               </ol>
             </div>
           </div>
         </div>
-        <div class="help-footer">Press <span class="help-key">H</span> or <span class="help-key">Escape</span> or click outside to close</div>
+        <div class="help-footer">Press <span class="help-key">H</span> or <span class="help-key">Esc</span> or click outside to close</div>
       </div>
     `;
     document.body.appendChild(modal);
 
-    // Tab switching
     const navBtns = modal.querySelectorAll('.help-nav-btn');
     const panels = modal.querySelectorAll('.help-panel-content');
     navBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
         navBtns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
         panels.forEach(p => { p.classList.remove('active'); p.hidden = true; });
         btn.classList.add('active');
         btn.setAttribute('aria-selected', 'true');
-        const panel = modal.querySelector(`#tab-${tab}`);
+        const panel = modal.querySelector('#tab-' + btn.dataset.tab);
         panel.classList.add('active');
         panel.hidden = false;
       });
     });
 
-    // Close on backdrop click
     modal.addEventListener('click', e => {
       if (e.target === modal) toggleHelpModal(false);
     });
-
-    // Close button
-    document.getElementById('helpCloseBtn').addEventListener('click', () => {
-      toggleHelpModal(false);
-    });
+    document.getElementById('helpCloseBtn').addEventListener('click', () => toggleHelpModal(false));
   }
 
-  let helpModalOpen = false;
   function toggleHelpModal(open) {
     const modal = document.getElementById('helpModal');
     if (open) {
@@ -6760,222 +6904,159 @@ export function initUI(game) {
     }
   }
 
-  // Hotkeys: F = Focus HQ, A = Select All, Escape = Deselect, H = Toggle Help
+  createHelpModal();
+  document.getElementById('helpBtn').addEventListener('click', () => toggleHelpModal(true));
+
+  // === Hotkeys (single listener, no duplicates) ===
   window.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    
-    // Toggle help with H key
+
     if (e.key === 'h' || e.key === 'H') {
       toggleHelpModal(!helpModalOpen);
       return;
     }
-
-    // Escape closes help modal first, then deselects
     if (e.key === 'Escape') {
-      if (helpModalOpen) {
-        toggleHelpModal(false);
-        return;
-      }
+      if (helpModalOpen) { toggleHelpModal(false); return; }
       for (const u of game.selectedUnits) u.setSelected(false);
       game.selectedUnits = [];
       game.selectedBuilding = null;
       return;
     }
-
     if (e.key === 'f' || e.key === 'F') {
+      if (e.ctrlKey || e.metaKey) return;
       const hq = game.bases.find(b => b.faction === 'player');
       if (hq) {
         game.cameraTarget.x = hq.mesh.position.x;
         game.cameraTarget.z = hq.mesh.position.z;
       }
-    } else if (e.key === 'a' || e.key === 'A') {
+      return;
+    }
+    if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
       const aliveUnits = game.playerUnits.filter(u => u.alive);
       if (aliveUnits.length > 0) {
         for (const u of game.selectedUnits) u.setSelected(false);
         game.selectedUnits = aliveUnits;
         for (const u of game.selectedUnits) u.setSelected(true);
+        game.flashMessage(`Selected ${aliveUnits.length} units`);
       }
+      return;
     }
+    if (e.key === 'F1') { setFormation('line'); game.flashMessage('Formation: Line'); return; }
+    if (e.key === 'F2') { setFormation('wedge'); game.flashMessage('Formation: Wedge'); return; }
+    if (e.key === 'F3') { setFormation('square'); game.flashMessage('Formation: Square'); return; }
+    if (e.key === 'F4') { setFormation('column'); game.flashMessage('Formation: Column'); return; }
   });
 
-  // Restart
-  document.getElementById('restartBtn').addEventListener('click', () => {
-    deleteSave();
-    location.reload();
-  });
+  // === Affordability Check (200ms) ===
+  setInterval(() => {
+    const selectedBuilding = game.selectedBuilding;
+
+    document.querySelectorAll('.unitBtn[data-unit-type]').forEach(b => {
+      const key = b.dataset.unitType;
+      const cost = UNIT_TYPES[key].cost;
+      const canAfford = game.money >= cost;
+
+      let isContextDisabled = false;
+      if (selectedBuilding) {
+        const domain = UNIT_TYPES[key].domain;
+        if (selectedBuilding.faction !== 'player') {
+          isContextDisabled = true;
+        } else if (selectedBuilding.isShipyard) {
+          isContextDisabled = (domain !== 'sea' && domain !== 'air');
+        } else {
+          isContextDisabled = (domain !== 'land' && domain !== 'air');
+        }
+      }
+
+      b.classList.toggle('affordable', canAfford && !isContextDisabled);
+      b.classList.toggle('unaffordable', !canAfford && !isContextDisabled);
+      b.classList.toggle('context-disabled', isContextDisabled);
+      b.disabled = !canAfford || isContextDisabled;
+    });
+
+    // Update HUD stats
+    const moneyEl = document.getElementById('money');
+    const basesOwnedEl = document.getElementById('basesOwned');
+    const basesTotalEl = document.getElementById('basesTotal');
+    const unitCountEl = document.getElementById('unitCount');
+    const enemyCountEl = document.getElementById('enemyCount');
+    if (moneyEl) moneyEl.textContent = Math.floor(game.money);
+    if (basesOwnedEl) basesOwnedEl.textContent = game.bases.filter(b => b.faction === 'player').length;
+    if (basesTotalEl) basesTotalEl.textContent = game.bases.length;
+    if (unitCountEl) unitCountEl.textContent = game.playerUnits.filter(u => u.alive).length;
+    if (enemyCountEl) enemyCountEl.textContent = game.enemyUnits.filter(u => u.alive).length;
+
+    // Upgrade buttons affordability
+    document.querySelectorAll('.upgradeBtn').forEach(btn => {
+      const stat = btn.dataset.stat;
+      if (stat) {
+        const cost = game.upgrades.nextCost(stat);
+        btn.disabled = cost === null || game.money < cost;
+      }
+    });
+  }, 200);
 
   // === First-Launch Tutorial ===
   initTutorial();
 
   function initTutorial() {
     const completed = localStorage.getItem('tutorialCompleted');
-    if (completed === 'true') return; // Skip if already completed
-    
-    // Small delay to let UI settle
+    if (completed === 'true') return;
     setTimeout(() => showTutorialStep(1), 500);
   }
 
   const tutorialSteps = [
-    {
-      title: 'Welcome to Low-Poly Command!',
-      text: 'This tutorial will walk you through the basics. Click "Next" to continue or "Skip" to jump straight into the game.',
-      highlight: null,
-      action: null,
-    },
-    {
-      title: 'Step 1: Build Your Army',
-      text: 'Click the <strong>TANK</strong> or <strong>INFANTRY</strong> button in the Armory (bottom-right) to build units. They\'ll spawn near your HQ. You can also press <span class="help-key">1</span> or <span class="help-key">2</span> as hotkeys.',
-      highlight: '#buildPanel',
-      action: null,
-    },
-    {
-      title: 'Step 2: Select Units',
-      text: 'Click a unit to select it, or drag a box to select multiple. Press <span class="help-key">Ctrl+A</span> to select all your units. Selected units show a green ring and appear in the Selection panel (bottom-left).',
-      highlight: '#selectionPanel',
-      action: null,
-    },
-    {
-      title: 'Step 3: Move & Attack',
-      text: 'Right-click on the ground to move selected units. Right-click on an enemy to attack. Choose a formation (Line/Wedge/Square/Column) in the Selection panel or press <span class="help-key">F1–F4</span>.',
-      highlight: '#selectionPanel .formation-options',
-      action: null,
-    },
-    {
-      title: 'Step 4: Capture Bases',
-      text: 'Move your units onto enemy bases (red flags). When a base\'s HP reaches 0, it switches to your faction (blue flag). You earn passive income per owned base. Capture all enemy bases to win!',
-      highlight: null,
-      action: null,
-    },
-    {
-      title: 'Step 5: Win the Game!',
-      text: 'Destroy all enemy bases to achieve victory. If you lose your HQ, it\'s defeat. Use the Minimap (top-right) to navigate, and press <span class="help-key">H</span> anytime to reopen the Help menu. Good luck, Commander!',
-      highlight: null,
-      action: 'complete',
-    },
+    { title: 'Welcome to Low-Poly Command!', text: 'This tutorial will walk you through the basics. Click "Next" or "Skip" to begin.', highlight: null },
+    { title: 'Step 1: Build Your Army', text: 'Click <strong>TANK</strong> or <strong>INFANTRY</strong> in the Armory (bottom) to build units. Press <span class="help-key">1</span> or <span class="help-key">2</span> as hotkeys.', highlight: '#armoryPanel' },
+    { title: 'Step 2: Select Units', text: 'Click a unit or drag a box to select. Press <span class="help-key">Ctrl+A</span> for all. Selected units appear in the Selection panel.', highlight: '#selectionPanel' },
+    { title: 'Step 3: Move & Attack', text: 'Right-click to move. Right-click enemy to attack. Use <span class="help-key">F1-F4</span> for formations.', highlight: '#selectionPanel .formation-options' },
+    { title: 'Step 4: Capture Bases', text: 'Move units onto enemy bases to capture them. Earn income per base. Capture all to win!', highlight: null },
+    { title: 'Step 5: Win the Game!', text: 'Destroy all enemy bases. Press <span class="help-key">H</span> for help anytime. Good luck, Commander!', highlight: null },
   ];
 
   let tutorialOverlay = null;
   let tutorialHighlight = null;
-  let currentStep = 0;
 
   function showTutorialStep(stepIndex) {
-    currentStep = stepIndex;
     const step = tutorialSteps[stepIndex - 1];
-    
-    // Remove existing overlay
     if (tutorialOverlay) tutorialOverlay.remove();
     if (tutorialHighlight) tutorialHighlight.remove();
-    
-    // Create highlight for target element
+
     if (step.highlight) {
       const target = document.querySelector(step.highlight);
       if (target) {
         tutorialHighlight = document.createElement('div');
         tutorialHighlight.className = 'tutorial-highlight';
         const rect = target.getBoundingClientRect();
-        tutorialHighlight.style.cssText = `
-          position: fixed;
-          left: ${rect.left - 4}px;
-          top: ${rect.top - 4}px;
-          width: ${rect.width + 8}px;
-          height: ${rect.height + 8}px;
-          border: 3px solid #4af;
-          border-radius: 8px;
-          box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 20px rgba(70,170,255,0.5);
-          pointer-events: none;
-          z-index: 1000;
-          animation: tutorialPulse 1.5s ease-in-out infinite;
-        `;
+        tutorialHighlight.style.cssText = `position:fixed;left:${rect.left - 4}px;top:${rect.top - 4}px;width:${rect.width + 8}px;height:${rect.height + 8}px;border:3px solid var(--primary);border-radius:8px;pointer-events:none;z-index:1000;`;
         document.body.appendChild(tutorialHighlight);
       }
     }
-    
-    // Create tutorial overlay
+
     tutorialOverlay = document.createElement('div');
     tutorialOverlay.className = 'tutorial-overlay';
     tutorialOverlay.innerHTML = `
       <div class="tutorial-card">
         <div class="tutorial-header">
           <span class="tutorial-step">${stepIndex} / ${tutorialSteps.length}</span>
-          <button class="tutorial-skip" title="Skip tutorial">Skip</button>
+          <button class="tutorial-skip">Skip</button>
         </div>
         <h2>${step.title}</h2>
         <p>${step.text}</p>
         <div class="tutorial-footer">
-          ${stepIndex > 1 ? '<button class="tutorial-btn tutorial-prev">← Back</button>' : '<div style="width:80px;"></div>'}
+          ${stepIndex > 1 ? '<button class="tutorial-btn tutorial-prev">Back</button>' : '<div></div>'}
           <div style="flex:1;"></div>
-          ${stepIndex < tutorialSteps.length ? '<button class="tutorial-btn tutorial-next">Next →</button>' : '<button class="tutorial-btn tutorial-finish">Start Playing!</button>'}
+          ${stepIndex < tutorialSteps.length ? '<button class="tutorial-btn tutorial-next">Next</button>' : '<button class="tutorial-btn tutorial-finish">Start Playing!</button>'}
         </div>
       </div>
     `;
     document.body.appendChild(tutorialOverlay);
-    
-    // Add pulse animation if not exists
-    if (!document.getElementById('tutorial-style')) {
-      const style = document.createElement('style');
-      style.id = 'tutorial-style';
-      style.textContent = `
-        @keyframes tutorialPulse {
-          0%, 100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 20px rgba(70,170,255,0.5); }
-          50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 30px rgba(70,170,255,0.9); }
-        }
-        .tutorial-overlay {
-          position: fixed; inset: 0; z-index: 1001;
-          display: flex; align-items: center; justify-content: center;
-          background: transparent; pointer-events: none;
-        }
-        .tutorial-card {
-          pointer-events: auto;
-          background: rgba(20,25,35,0.98);
-          border: 2px solid #4af;
-          border-radius: 12px;
-          padding: 24px;
-          max-width: 420px;
-          width: 90%;
-          box-shadow: 0 0 40px rgba(70,170,255,0.3);
-          animation: slideUp 0.3s ease;
-        }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .tutorial-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .tutorial-step { font-size: 12px; color: #888; font-family: monospace; }
-        .tutorial-skip {
-          background: none; border: 1px solid #444; color: #888;
-          padding: 4px 10px; border-radius: 4px; cursor: pointer;
-          font-family: inherit; font-size: 11px; transition: all 0.15s;
-        }
-        .tutorial-skip:hover { border-color: #f66; color: #f66; }
-        .tutorial-card h2 { color: #4af; margin-bottom: 12px; font-size: 18px; }
-        .tutorial-card p { color: #ddd; line-height: 1.6; font-size: 13px; }
-        .tutorial-card p strong { color: #4af; }
-        .tutorial-footer { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
-        .tutorial-btn {
-          background: #1a3a5a; border: 1px solid #4af; color: #4af;
-          padding: 8px 20px; border-radius: 6px; cursor: pointer;
-          font-family: inherit; font-size: 12px; font-weight: bold;
-          transition: all 0.15s;
-        }
-        .tutorial-btn:hover { background: #235a8a; }
-        .tutorial-btn.tutorial-prev { background: #2a2; border-color: #4f4; color: #4f4; }
-        .tutorial-btn.tutorial-prev:hover { background: #3b3; }
-        .tutorial-btn.tutorial-finish { background: #2a8; border-color: #4c4; color: #fff; }
-        .tutorial-btn.tutorial-finish:hover { background: #3b9; }
-      `;
-      document.head.appendChild(style);
-    }
-    
-    // Event listeners
-    tutorialOverlay.querySelector('.tutorial-next')?.addEventListener('click', () => {
-      showTutorialStep(stepIndex + 1);
-    });
-    tutorialOverlay.querySelector('.tutorial-prev')?.addEventListener('click', () => {
-      showTutorialStep(stepIndex - 1);
-    });
-    tutorialOverlay.querySelector('.tutorial-finish')?.addEventListener('click', () => {
-      completeTutorial();
-    });
-    tutorialOverlay.querySelector('.tutorial-skip')?.addEventListener('click', () => {
-      completeTutorial();
-    });
+
+    tutorialOverlay.querySelector('.tutorial-next')?.addEventListener('click', () => showTutorialStep(stepIndex + 1));
+    tutorialOverlay.querySelector('.tutorial-prev')?.addEventListener('click', () => showTutorialStep(stepIndex - 1));
+    tutorialOverlay.querySelector('.tutorial-finish')?.addEventListener('click', completeTutorial);
+    tutorialOverlay.querySelector('.tutorial-skip')?.addEventListener('click', completeTutorial);
   }
 
   function completeTutorial() {
@@ -6985,7 +7066,13 @@ export function initUI(game) {
     game.flashMessage('Tutorial complete! Press H for help anytime.');
   }
 
-  console.log('✅ UI initialized');
+  // === Restart ===
+  document.getElementById('restartBtn').addEventListener('click', () => {
+    deleteSave();
+    location.reload();
+  });
+
+  console.log('UI initialized');
 }
 
 
@@ -7904,38 +7991,38 @@ function buildEscortJet(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
-  // Heavy fuselage
+  // Fuselage along Z axis (forward = +Z)
   const fuselage = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 5, 4, 8), bodyMat));
-  fuselage.rotation.z = Math.PI / 2;
+  fuselage.rotation.x = Math.PI / 2;
 
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(2, 0.3, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.3, 2.5);
+  cockpit.rotation.x = -Math.PI / 3;
 
   // Thick swept wings
   const wingGeom = new THREE.BoxGeometry(2.5, 0.15, 5);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5, -0.1, 2.5);
+  wingL.position.set(-0.5, -0.1, 0);
   wingL.rotation.y = -0.3;
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-0.5, -0.1, -2.5);
+  wingR.position.set(0.5, -0.1, 0);
   wingR.rotation.y = 0.3;
 
   // Dual exhausts
   const exhaustGeom = new THREE.CylinderGeometry(0.3, 0.35, 0.6, 8);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.z = Math.PI / 2;
-  exhaustL.position.set(-3, 0, 0.5);
+  exhaustL.rotation.x = Math.PI / 2;
+  exhaustL.position.set(-0.5, 0, -2.5);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -0.5;
+  exhaustR.position.x = 0.5;
 
   // Tail fins (vertical stabilizers)
   const tailGeom = new THREE.BoxGeometry(0.15, 1.5, 1.2);
   const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-2.5, 0.8, 1);
+  tailL.position.set(-1, 0.8, -2);
   tailL.rotation.z = -0.15;
   const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(-2.5, 0.8, -1);
+  tailR.position.set(1, 0.8, -2);
   tailR.rotation.z = 0.15;
 
   // Missile pylons
@@ -7944,14 +8031,15 @@ function buildEscortJet(g, color) {
   for (let i = 0; i < 2; i++) {
     const m1 = new THREE.Mesh(pylonGeom, missileMat);
     m1.rotation.x = Math.PI / 2;
-    m1.position.set(-0.3, -0.3, 1.5 + i * 1.2);
+    m1.position.set(-0.3, -0.3, 1 + i * 0.8);
     g.add(m1);
     const m2 = m1.clone();
-    m2.position.z = -(1.5 + i * 1.2);
+    m2.position.x = 0.3;
     g.add(m2);
   }
 
   g.add(fuselage, cockpit, wingL, wingR, exhaustL, exhaustR, tailL, tailR);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3);
   return g;
 }
 
@@ -7959,40 +8047,41 @@ function buildB2(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x222222);
 
-  // Flying wing body
-  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1, 0.6, 6), bodyMat));
+  // Flying wing body along Z axis (forward = +Z)
+  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4), bodyMat));
   body.position.y = 0;
 
-  // Wings — massive swept delta
-  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), bodyMat));
-  wingL.position.set(-3, 0, -1);
-  wingL.rotation.y = 0.3;
-  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), bodyMat));
-  wingR.position.set(-3, 0, 1);
-  wingR.rotation.y = -0.3;
+  // Wings — massive swept delta along X axis
+  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
+  wingL.position.set(-3.5, 0, 0);
+  wingL.rotation.y = 0.4;
+  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
+  wingR.position.set(3.5, 0, 0);
+  wingR.rotation.y = -0.4;
 
   // Cockpit (flush, stealthy)
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 6, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x112222)));
-  cockpit.position.set(0.5, 0.4, 0);
+  cockpit.position.set(0, 0.4, 1.5);
 
   // Engine intakes (buried in wing)
   const intakeL = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.8), detailMat);
-  intakeL.position.set(-0.5, 0.2, 1.5);
+  intakeL.position.set(-1, 0.2, -0.5);
   const intakeR = intakeL.clone();
-  intakeR.position.z = -1.5;
+  intakeR.position.x = 1;
 
-  // Exhausts (flat, stealthy)
+  // Exhausts (flat, stealthy) at rear (-Z)
   const exhaustGeom = new THREE.BoxGeometry(0.8, 0.15, 1);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0xff5500, 1.5));
-  exhaustL.position.set(-4, 0, 1);
+  exhaustL.position.set(-1, 0, -2);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -1;
+  exhaustR.position.x = 1;
 
   // Weapons bay lines
-  const bay = new THREE.Mesh(new THREE.BoxGeometry(3, 0.05, 2), detailMat);
-  bay.position.set(-1, -0.3, 0);
+  const bay = new THREE.Mesh(new THREE.BoxGeometry(2, 0.05, 1.5), detailMat);
+  bay.position.set(0, -0.3, 0);
 
   g.add(body, wingL, wingR, cockpit, intakeL, intakeR, exhaustL, exhaustR, bay);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 2);
   return g;
 }
 
@@ -8000,25 +8089,25 @@ function buildEscortBomber(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
-  // Very large fuselage (flying fortress style)
+  // Very large fuselage along Z axis (forward = +Z)
   const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(1.8, 8, 4, 8), bodyMat));
-  body.rotation.z = Math.PI / 2;
+  body.rotation.x = Math.PI / 2;
 
-  // Cockpit
+  // Cockpit at front (+Z)
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(4.5, 0.5, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.5, 4.5);
+  cockpit.rotation.x = -Math.PI / 3;
 
-  // Massive wings
+  // Massive wings along X axis
   const wingGeom = new THREE.BoxGeometry(2.5, 0.25, 10);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-1, 0.3, 5);
+  wingL.position.set(-1, 0.3, 0);
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-1, 0.3, -5);
+  wingR.position.set(1, 0.3, 0);
 
   // 4 engines
   const engGeom = new THREE.CylinderGeometry(0.5, 0.5, 2.5, 8);
-  const engPositions = [[-1, 0.3, 3], [-1, 0.3, 6], [-1, 0.3, -3], [-1, 0.3, -6]];
+  const engPositions = [[-1, 0.3, 3], [-1, 0.3, -3], [1, 0.3, 3], [1, 0.3, -3]];
   for (const p of engPositions) {
     const eng = enableShadows(new THREE.Mesh(engGeom, detailMat));
     eng.rotation.x = Math.PI / 2;
@@ -8030,20 +8119,21 @@ function buildEscortBomber(g, color) {
     g.add(exhaust);
   }
 
-  // Tail
+  // Tail at rear (-Z)
   const tailH = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 3), bodyMat));
-  tailH.position.set(-5, 0.5, 0);
+  tailH.position.set(0, 0.5, -5);
   const tailV = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 2.5), bodyMat));
-  tailV.position.set(-5, 2, 0);
+  tailV.position.set(0, 2, -5);
 
   // Defensive gun turrets (visual only, no damage)
   const turretMat = metalMat(0x444444);
   const turret1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 6), turretMat);
   turret1.rotation.x = Math.PI / 2;
-  turret1.position.set(-2, -1, 1);
+  turret1.position.set(1, -1, -2);
   g.add(turret1);
 
   g.add(body, cockpit, wingL, wingR, tailH, tailV);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 5);
   return g;
 }
 
@@ -8219,48 +8309,50 @@ function buildJet(g, color, scale) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
+  // Fuselage along Z axis (forward = +Z) — use rotation.x instead of rotation.z
   const fuselage = enableShadows(new THREE.Mesh(
     new THREE.CapsuleGeometry(0.4 * scale, 5 * scale, 4, 8), bodyMat
   ));
-  fuselage.rotation.z = Math.PI / 2;
+  fuselage.rotation.x = Math.PI / 2;
 
   const cockpit = enableShadows(new THREE.Mesh(
     new THREE.SphereGeometry(0.4 * scale, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)
   ));
-  cockpit.position.set(1.5 * scale, 0.3 * scale, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.3 * scale, 2 * scale);
+  cockpit.rotation.x = -Math.PI / 3;
 
   const wingGeom = new THREE.BoxGeometry(2 * scale, 0.1 * scale, 4 * scale);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5 * scale, -0.1 * scale, 2 * scale);
+  wingL.position.set(-0.5 * scale, -0.1 * scale, 0);
   wingL.rotation.y = -0.4;
 
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-0.5 * scale, -0.1 * scale, -2 * scale);
+  wingR.position.set(0.5 * scale, -0.1 * scale, 0);
   wingR.rotation.y = 0.4;
 
   const tailGeom = new THREE.BoxGeometry(1 * scale, 0.1 * scale, 1.5 * scale);
   const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-2.5 * scale, 0.5 * scale, 1 * scale);
+  tailL.position.set(-1 * scale, 0.5 * scale, -2 * scale);
   tailL.rotation.z = -0.5;
   const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(-2.5 * scale, 0.5 * scale, -1 * scale);
+  tailR.position.set(1 * scale, 0.5 * scale, -2 * scale);
   tailR.rotation.z = 0.5;
 
   const exhaustGeom = new THREE.CylinderGeometry(0.25 * scale, 0.3 * scale, 0.5 * scale, 8);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.z = Math.PI / 2;
-  exhaustL.position.set(-3 * scale, 0, 0.4 * scale);
+  exhaustL.rotation.x = Math.PI / 2;
+  exhaustL.position.set(-0.4 * scale, 0, -2.5 * scale);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -0.4 * scale;
+  exhaustR.position.x = 0.4 * scale;
 
   const canardGeom = new THREE.BoxGeometry(0.8 * scale, 0.05 * scale, 1 * scale);
   const canardL = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardL.position.set(1 * scale, 0, 1 * scale);
+  canardL.position.set(-1 * scale, 0, 1.5 * scale);
   const canardR = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardR.position.set(1 * scale, 0, -1 * scale);
+  canardR.position.set(1 * scale, 0, 1.5 * scale);
 
   g.add(fuselage, cockpit, wingL, wingR, tailL, tailR, exhaustL, exhaustR, canardL, canardR);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3 * scale);
   return g;
 }
 
@@ -8519,7 +8611,7 @@ import { Sound } from './sound.js';
 export class UpgradeManager {
   constructor(game) {
     this.game = game;
-    this.tiers = { hp: 0, damage: 0, speed: 0 };
+    this.tiers = { hp: 0, damage: 0, speed: 0, tactics: 0 };
   }
 
   multiplier(stat) {
@@ -8573,5 +8665,4 @@ export class UpgradeManager {
   serialize() { return { ...this.tiers }; }
   deserialize(data) { this.tiers = { ...this.tiers, ...data }; }
 }
-
 
