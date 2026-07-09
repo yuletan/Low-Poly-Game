@@ -1,6 +1,6 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN } from './config.js?v=5';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS } from './config.js?v=5';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
@@ -359,10 +359,46 @@ export function initAI(game) {
     reinforceBase(base);
   };
 
+  // NEW: Launch staged attack
+  function launchStagedAttack() {
+    const playerBases = game.bases.filter(b => b.faction === 'player');
+    if (playerBases.length === 0) return;
+
+    // Get all staging units + any idle attackers
+    const available = [...stagingUnits.filter(u => u.alive), ...gatherAttackers()];
+    if (available.length < AI_MIN_ATTACK_SIZE) return;
+
+    const target = pickPlayerTarget();
+    if (!target) return;
+
+    const isHuge = available.length >= 15;
+    const positions = game.computeFormation(
+      target.mesh.position.clone().add(new THREE.Vector3(50, 0, 0)),
+      available.length,
+      isHuge ? 'wedge' : 'line'
+    );
+
+    available.forEach((u, i) => {
+      u.moveTo(positions[i] || target.mesh.position.clone());
+    });
+
+    game.flashMessage(`Enemy attack inbound! ${available.length} units detected`);
+
+    // Clear staging
+    stagingUnits = [];
+    attackPhase = 'attacking';
+    stagingTimer = 0;
+  }
+
   // ===== Hook the AI into the game's update loop =====
   const ATTACK_GROUP_TARGET = { easy: 8, normal: 15, hard: 30 };
   const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
   let attackCooldown = 0;
+
+  // NEW: Staging system
+  let stagingUnits = [];
+  let stagingTimer = 0;
+  let attackPhase = 'building'; // 'building', 'staging', 'attacking'
 
   game.onAITick = function (dt) {
     if (game.ended) return;
@@ -407,14 +443,44 @@ export function initAI(game) {
         }
       }
 
-      // Rally-then-attack: build up to groupTarget before launching a wave
-      const totalCombat = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
-      attackCooldown += 1;
+      // NEW: Staging phase logic
+      const totalCombat = game.enemyUnits.filter(u =>
+        u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
+      ).length;
 
-      const shouldAttack = totalCombat >= groupTarget || (totalCombat >= 4 && attackCooldown >= 10);
-      if (shouldAttack && totalCombat >= 1) {
-        launchAttack();
-        attackCooldown = 0;
+      if (attackPhase === 'building') {
+        if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= 10)) {
+          attackPhase = 'staging';
+          stagingTimer = 0;
+          // Gather idle units to staging area (near strongest base)
+          const stagingBase = game.bases.filter(b => b.faction === 'enemy')
+            .sort((a, b) => b.hp - a.hp)[0];
+          if (stagingBase) {
+            const idleUnits = game.enemyUnits.filter(u =>
+              u.alive && u.domain !== 'sea' && !u.isTransport &&
+              u.stats.damage > 0 && u.state === 'idle'
+            );
+            const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
+            idleUnits.slice(0, AI_MAX_STAGING_UNITS).forEach(u => {
+              u.moveTo(rallyPos);
+              stagingUnits.push(u);
+            });
+          }
+          game.flashMessage(`Enemy forces gathering...`);
+        }
+      } else if (attackPhase === 'staging') {
+        stagingTimer += 1;
+        // Keep spawning during staging
+        if (stagingTimer >= AI_STAGING_TIME || stagingUnits.length >= AI_MAX_STAGING_UNITS) {
+          launchStagedAttack();
+        }
+      } else if (attackPhase === 'attacking') {
+        attackCooldown += 1;
+        if (attackCooldown >= 15) {
+          attackPhase = 'building';
+          attackCooldown = 0;
+          stagingUnits = [];
+        }
       }
 
       // Proactive transport: ensure at least 1 transport exists when AI has 2+ bases

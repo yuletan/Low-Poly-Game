@@ -909,38 +909,38 @@ function buildEscortJet(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
-  // Heavy fuselage
+  // Fuselage along Z axis (forward = +Z)
   const fuselage = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 5, 4, 8), bodyMat));
-  fuselage.rotation.z = Math.PI / 2;
+  fuselage.rotation.x = Math.PI / 2;
 
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(2, 0.3, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.3, 2.5);
+  cockpit.rotation.x = -Math.PI / 3;
 
   // Thick swept wings
   const wingGeom = new THREE.BoxGeometry(2.5, 0.15, 5);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5, -0.1, 2.5);
+  wingL.position.set(-0.5, -0.1, 0);
   wingL.rotation.y = -0.3;
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-0.5, -0.1, -2.5);
+  wingR.position.set(0.5, -0.1, 0);
   wingR.rotation.y = 0.3;
 
   // Dual exhausts
   const exhaustGeom = new THREE.CylinderGeometry(0.3, 0.35, 0.6, 8);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.z = Math.PI / 2;
-  exhaustL.position.set(-3, 0, 0.5);
+  exhaustL.rotation.x = Math.PI / 2;
+  exhaustL.position.set(-0.5, 0, -2.5);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -0.5;
+  exhaustR.position.x = 0.5;
 
   // Tail fins (vertical stabilizers)
   const tailGeom = new THREE.BoxGeometry(0.15, 1.5, 1.2);
   const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-2.5, 0.8, 1);
+  tailL.position.set(-1, 0.8, -2);
   tailL.rotation.z = -0.15;
   const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(-2.5, 0.8, -1);
+  tailR.position.set(1, 0.8, -2);
   tailR.rotation.z = 0.15;
 
   // Missile pylons
@@ -949,14 +949,15 @@ function buildEscortJet(g, color) {
   for (let i = 0; i < 2; i++) {
     const m1 = new THREE.Mesh(pylonGeom, missileMat);
     m1.rotation.x = Math.PI / 2;
-    m1.position.set(-0.3, -0.3, 1.5 + i * 1.2);
+    m1.position.set(-0.3, -0.3, 1 + i * 0.8);
     g.add(m1);
     const m2 = m1.clone();
-    m2.position.z = -(1.5 + i * 1.2);
+    m2.position.x = 0.3;
     g.add(m2);
   }
 
   g.add(fuselage, cockpit, wingL, wingR, exhaustL, exhaustR, tailL, tailR);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3);
   return g;
 }
 
@@ -964,40 +965,41 @@ function buildB2(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x222222);
 
-  // Flying wing body
-  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1, 0.6, 6), bodyMat));
+  // Flying wing body along Z axis (forward = +Z)
+  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4), bodyMat));
   body.position.y = 0;
 
-  // Wings — massive swept delta
-  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), bodyMat));
-  wingL.position.set(-3, 0, -1);
-  wingL.rotation.y = 0.3;
-  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 0.3, 5), bodyMat));
-  wingR.position.set(-3, 0, 1);
-  wingR.rotation.y = -0.3;
+  // Wings — massive swept delta along X axis
+  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
+  wingL.position.set(-3.5, 0, 0);
+  wingL.rotation.y = 0.4;
+  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
+  wingR.position.set(3.5, 0, 0);
+  wingR.rotation.y = -0.4;
 
   // Cockpit (flush, stealthy)
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 6, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x112222)));
-  cockpit.position.set(0.5, 0.4, 0);
+  cockpit.position.set(0, 0.4, 1.5);
 
   // Engine intakes (buried in wing)
   const intakeL = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.8), detailMat);
-  intakeL.position.set(-0.5, 0.2, 1.5);
+  intakeL.position.set(-1, 0.2, -0.5);
   const intakeR = intakeL.clone();
-  intakeR.position.z = -1.5;
+  intakeR.position.x = 1;
 
-  // Exhausts (flat, stealthy)
+  // Exhausts (flat, stealthy) at rear (-Z)
   const exhaustGeom = new THREE.BoxGeometry(0.8, 0.15, 1);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0xff5500, 1.5));
-  exhaustL.position.set(-4, 0, 1);
+  exhaustL.position.set(-1, 0, -2);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -1;
+  exhaustR.position.x = 1;
 
   // Weapons bay lines
-  const bay = new THREE.Mesh(new THREE.BoxGeometry(3, 0.05, 2), detailMat);
-  bay.position.set(-1, -0.3, 0);
+  const bay = new THREE.Mesh(new THREE.BoxGeometry(2, 0.05, 1.5), detailMat);
+  bay.position.set(0, -0.3, 0);
 
   g.add(body, wingL, wingR, cockpit, intakeL, intakeR, exhaustL, exhaustR, bay);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 2);
   return g;
 }
 
@@ -1005,25 +1007,25 @@ function buildEscortBomber(g, color) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
-  // Very large fuselage (flying fortress style)
+  // Very large fuselage along Z axis (forward = +Z)
   const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(1.8, 8, 4, 8), bodyMat));
-  body.rotation.z = Math.PI / 2;
+  body.rotation.x = Math.PI / 2;
 
-  // Cockpit
+  // Cockpit at front (+Z)
   const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(4.5, 0.5, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.5, 4.5);
+  cockpit.rotation.x = -Math.PI / 3;
 
-  // Massive wings
+  // Massive wings along X axis
   const wingGeom = new THREE.BoxGeometry(2.5, 0.25, 10);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-1, 0.3, 5);
+  wingL.position.set(-1, 0.3, 0);
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-1, 0.3, -5);
+  wingR.position.set(1, 0.3, 0);
 
   // 4 engines
   const engGeom = new THREE.CylinderGeometry(0.5, 0.5, 2.5, 8);
-  const engPositions = [[-1, 0.3, 3], [-1, 0.3, 6], [-1, 0.3, -3], [-1, 0.3, -6]];
+  const engPositions = [[-1, 0.3, 3], [-1, 0.3, -3], [1, 0.3, 3], [1, 0.3, -3]];
   for (const p of engPositions) {
     const eng = enableShadows(new THREE.Mesh(engGeom, detailMat));
     eng.rotation.x = Math.PI / 2;
@@ -1035,20 +1037,21 @@ function buildEscortBomber(g, color) {
     g.add(exhaust);
   }
 
-  // Tail
+  // Tail at rear (-Z)
   const tailH = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 3), bodyMat));
-  tailH.position.set(-5, 0.5, 0);
+  tailH.position.set(0, 0.5, -5);
   const tailV = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 2.5), bodyMat));
-  tailV.position.set(-5, 2, 0);
+  tailV.position.set(0, 2, -5);
 
   // Defensive gun turrets (visual only, no damage)
   const turretMat = metalMat(0x444444);
   const turret1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 6), turretMat);
   turret1.rotation.x = Math.PI / 2;
-  turret1.position.set(-2, -1, 1);
+  turret1.position.set(1, -1, -2);
   g.add(turret1);
 
   g.add(body, cockpit, wingL, wingR, tailH, tailV);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 5);
   return g;
 }
 
@@ -1224,48 +1227,50 @@ function buildJet(g, color, scale) {
   const bodyMat = matteMat(color);
   const detailMat = metalMat(0x333333);
 
+  // Fuselage along Z axis (forward = +Z) — use rotation.x instead of rotation.z
   const fuselage = enableShadows(new THREE.Mesh(
     new THREE.CapsuleGeometry(0.4 * scale, 5 * scale, 4, 8), bodyMat
   ));
-  fuselage.rotation.z = Math.PI / 2;
+  fuselage.rotation.x = Math.PI / 2;
 
   const cockpit = enableShadows(new THREE.Mesh(
     new THREE.SphereGeometry(0.4 * scale, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)
   ));
-  cockpit.position.set(1.5 * scale, 0.3 * scale, 0);
-  cockpit.rotation.z = -Math.PI / 3;
+  cockpit.position.set(0, 0.3 * scale, 2 * scale);
+  cockpit.rotation.x = -Math.PI / 3;
 
   const wingGeom = new THREE.BoxGeometry(2 * scale, 0.1 * scale, 4 * scale);
   const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5 * scale, -0.1 * scale, 2 * scale);
+  wingL.position.set(-0.5 * scale, -0.1 * scale, 0);
   wingL.rotation.y = -0.4;
 
   const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(-0.5 * scale, -0.1 * scale, -2 * scale);
+  wingR.position.set(0.5 * scale, -0.1 * scale, 0);
   wingR.rotation.y = 0.4;
 
   const tailGeom = new THREE.BoxGeometry(1 * scale, 0.1 * scale, 1.5 * scale);
   const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-2.5 * scale, 0.5 * scale, 1 * scale);
+  tailL.position.set(-1 * scale, 0.5 * scale, -2 * scale);
   tailL.rotation.z = -0.5;
   const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(-2.5 * scale, 0.5 * scale, -1 * scale);
+  tailR.position.set(1 * scale, 0.5 * scale, -2 * scale);
   tailR.rotation.z = 0.5;
 
   const exhaustGeom = new THREE.CylinderGeometry(0.25 * scale, 0.3 * scale, 0.5 * scale, 8);
   const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.z = Math.PI / 2;
-  exhaustL.position.set(-3 * scale, 0, 0.4 * scale);
+  exhaustL.rotation.x = Math.PI / 2;
+  exhaustL.position.set(-0.4 * scale, 0, -2.5 * scale);
   const exhaustR = exhaustL.clone();
-  exhaustR.position.z = -0.4 * scale;
+  exhaustR.position.x = 0.4 * scale;
 
   const canardGeom = new THREE.BoxGeometry(0.8 * scale, 0.05 * scale, 1 * scale);
   const canardL = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardL.position.set(1 * scale, 0, 1 * scale);
+  canardL.position.set(-1 * scale, 0, 1.5 * scale);
   const canardR = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardR.position.set(1 * scale, 0, -1 * scale);
+  canardR.position.set(1 * scale, 0, 1.5 * scale);
 
   g.add(fuselage, cockpit, wingL, wingR, tailL, tailR, exhaustL, exhaustR, canardL, canardR);
+  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3 * scale);
   return g;
 }
 

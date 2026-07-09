@@ -606,4 +606,159 @@ select {
   }
 }
 
+/* ===== NEW: Improved unit button layout ===== */
+.unit-btn-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.domain-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+/* ===== NEW: Stat rows in tooltip ===== */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.stat-label {
+  color: #888;
+  font-size: 11px;
+}
+
+.stat-special {
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(70, 170, 255, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #4af;
+  font-style: italic;
+}
+
+/* ===== NEW: Selection panel improvements ===== */
+.selection-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  margin: 4px 0;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  border-left: 3px solid #4af;
+}
+
+.selection-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.selection-type {
+  font-weight: bold;
+  font-size: 12px;
+  color: #4af;
+}
+
+.selection-stats {
+  font-size: 10px;
+  color: #aaa;
+  font-family: monospace;
+}
+
+.selection-count {
+  margin-left: auto;
+  font-weight: bold;
+  color: #4f4;
+  font-size: 14px;
+}
+
+/* ===== NEW: Transport action buttons ===== */
+.transport-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.action-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  transition: all 0.15s;
+}
+
+.action-btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ===== NEW: Formation buttons with better visuals ===== */
+.formation-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 30, 50, 0.9);
+  border: 2px solid #334;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.formation-btn:hover {
+  border-color: #4af;
+}
+
+.formation-btn.active {
+  border-color: #4f4;
+  background: rgba(30, 60, 40, 0.9);
+}
+
+/* ===== NEW: Upgrade button improvements ===== */
+.upgradeBtn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 4px 0;
+  background: rgba(40, 35, 20, 0.9);
+  border: 1px solid #886;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.upgradeBtn:hover:not(:disabled) {
+  border-color: #fa4;
+  background: rgba(60, 50, 25, 0.9);
+}
+
+.upgradeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 

@@ -61,7 +61,7 @@ export const UNIT_TYPES = {
   submarine:{ domain:'sea',   hp:100, damage:90, range:50, speed:11, fireRate:3.5, hitChance:0.85, cost:400, color:0x223344, canFireWhileMoving:false, bounty:150, projectile:'ap', splashRadius:0, splashFalloff:1, targetDomains:['sea'], special:'Stealth + 3× first strike', stealth:true, firstStrikeMultiplier:3 },
   battleship:{domain:'sea',   hp:600, damage:130, range:160, speed:9,  fireRate:3.5, hitChance:0.8,  cost:600, color:0x334455, canFireWhileMoving:true, bounty:300, projectile:'salvo', splashRadius:10, splashFalloff:0.6, targetDomains:['sea','land','building'], special:'Shore bombardment' },
   carrier:  { domain:'sea',   hp:800, damage:15, range:60, speed:10, fireRate:2.0, hitChance:0.7, cost:1800, color:0x556677, canLaunchFighters:true, altitude:0, canFireWhileMoving:true, bounty:400, projectile:'default', splashRadius:0, splashFalloff:1, targetDomains:['sea'], special:'Launches aircraft' },
-  transport:{ domain:'sea', hp:400, damage:0,  range:0,  speed:14, fireRate:99, hitChance:0,   cost:350, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:8, targetDomains:[], special:'Carries 8 land units' },
+  transport:{ domain:'sea', hp:400, damage:0,  range:0,  speed:14, fireRate:99, hitChance:0,   cost:350, color:0x8b7355, canFireWhileMoving:false, bounty:200, projectile:'default', splashRadius:0, splashFalloff:1, transportCapacity:8, targetDomains:[], special:'Carries 8 land units', nonCombatant:true },
   fighter:  { domain:'air',   hp:80,  damage:35, range:45, speed:32, fireRate:0.6, hitChance:0.9,  cost:250, color:0x9999aa, altitude:25, canFireWhileMoving:true, bounty:80, projectile:'homing', splashRadius:2, splashFalloff:0.5, targetDomains:['air','land','sea'], special:'Air superiority' },
   heli:     { domain:'air',   hp:120, damage:25, range:55, speed:16, fireRate:0.8, hitChance:0.8,  cost:350, color:0x4a4a4a, altitude:15, canFireWhileMoving:true, bounty:90, projectile:'burst', splashRadius:1, splashFalloff:0.5, targetDomains:['land','sea'], special:'Versatile attacker' },
   gunship:  { domain:'air',   hp:250, damage:40, range:65, speed:14, fireRate:0.4, hitChance:0.8, cost:500, color:0x8899aa, altitude:20, canFireWhileMoving:true, bounty:200, projectile:'barrage', splashRadius:2, splashFalloff:0.5, targetDomains:['land','sea','building'], special:'Heavy barrage vs ground/sea' },
@@ -90,14 +90,24 @@ export const DIFFICULTY = {
 // ===== ENGAGEMENT RANGE =====
 export const ENGAGE_RANGE_MULT = 1.56; // engage range = attack range * 1.3 * 1.2
 
-// ===== UPGRADES =====
+// ===== UPGRADES — Overhauled with tactical abilities =====
 export const UPGRADES = {
-  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1000, 5000, 25000] },
-  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1500, 7500, 35000] },
-  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.1, 1.25, 1.5], costs:[0, 2000, 10000, 50000] },
+  hp:      { name:'Armor',    icon:'🛡️', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1000, 5000, 25000],
+             ability: { tier2: 'Damage reduction: -10% incoming', tier3: 'Damage reduction: -20% incoming', tier4: 'Damage reduction: -30% incoming + regen 1 HP/s' } },
+  damage:  { name:'Firepower',icon:'💥', tiers:[1.0, 1.2, 1.5, 2.0], costs:[0, 1500, 7500, 35000],
+             ability: { tier2: 'Crit chance +5%', tier3: 'Crit chance +10%, Crit dmg 2x', tier4: 'Crit chance +15%, Crit dmg 2.5x, Splash +50%' } },
+  speed:   { name:'Engines',  icon:'⚡', tiers:[1.0, 1.1, 1.25, 1.5], costs:[0, 2000, 10000, 50000],
+             ability: { tier2: 'Path smoothing improved', tier3: 'Engage range +20%', tier4: 'Engage range +40%, Can fire while moving (land units)' } },
+  tactics: { name:'Tactics',  icon:'🎯', tiers:[0, 1, 2, 3], costs:[0, 3000, 12000, 40000],
+             ability: { tier1: 'Formation bonus: +10% dmg when in formation', tier2: 'Focus fire: Units target same enemy', tier3: 'Combined arms: +25% dmg vs mixed domain targets' } },
 };
 
 // ===== CARRIER ABILITY =====
 export const CARRIER_FIGHTER_COOLDOWN = 30;   // seconds after all 12 deployed before new cycle
 export const CARRIER_FIGHTER_COUNT    = 12;
 export const CARRIER_FIGHTER_INTERVAL = 2;    // seconds between each fighter spawn
+
+// ===== AI STAGING =====
+export const AI_STAGING_TIME = 8;        // seconds to wait at rally point before attacking
+export const AI_MIN_ATTACK_SIZE = 6;     // minimum units before launching attack
+export const AI_MAX_STAGING_UNITS = 30;  // max units in staging area

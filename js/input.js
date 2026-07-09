@@ -33,6 +33,10 @@ export function initInput(game, camera, renderer) {
   let dragStart  = { x: 0, y: 0 };
   let mouseDownPos = { x: 0, y: 0 };
   const DRAG_THRESHOLD = 5;  // pixels before we consider it a drag
+  const DOUBLE_CLICK_MS = 300;
+  const DOUBLE_CLICK_DIST = 10;
+  let lastClickTime = 0;
+  let lastClickPos = { x: 0, y: 0 };
   const selectionBox = document.getElementById('selectionBox');
 
   // ----- Helpers -----
@@ -147,6 +151,20 @@ export function initInput(game, camera, renderer) {
       Sound.play('select');
     }
     updateSelectionUI();
+  }
+
+  // NEW: Double-click to select all units of same type
+  function handleDoubleClick(u) {
+    if (!u) return;
+    const sameType = game.playerUnits.filter(unit =>
+      unit.alive && unit.type === u.type
+    );
+    clearSelection();
+    for (const unit of sameType) {
+      unit.setSelected(true);
+      game.selectedUnits.push(unit);
+    }
+    game.flashMessage(`Selected ${sameType.length} ${u.type.toUpperCase()}(s)`);
   }
 
   function selectUnitsInBox(x1, y1, x2, y2) {
@@ -477,8 +495,20 @@ export function initInput(game, camera, renderer) {
         // Single click — select unit or base or clear
         const u = getUnitUnderMouse(e);
         const base = getBaseUnderMouse(e);
+
+        // Double-click detection
+        const now = Date.now();
+        const dist = Math.hypot(e.clientX - lastClickPos.x, e.clientY - lastClickPos.y);
+        const isDoubleClick = (now - lastClickTime < DOUBLE_CLICK_MS) && (dist < DOUBLE_CLICK_DIST);
+        lastClickTime = now;
+        lastClickPos = { x: e.clientX, y: e.clientY };
+
         if (u) {
-          selectUnit(u, e.shiftKey);
+          if (isDoubleClick && u.faction === 'player') {
+            handleDoubleClick(u);
+          } else {
+            selectUnit(u, e.shiftKey);
+          }
           game.selectedBuilding = null;
         } else if (base && base.faction === 'player') {
           clearSelection();
@@ -502,12 +532,10 @@ export function initInput(game, camera, renderer) {
                            takeDamage: d => targetBase.takeDamage(d) }
                        : null);
       if (target && target.faction !== 'player') {
-        console.log(`[DEBUG INPUT] Right-click ATTACK on ${targetUnit ? 'unit' : 'base'} (${game.selectedUnits.length} attackers)`);
         for (const u of game.selectedUnits) u.attack(target);
       } else {
         const point = getGroundPoint(e);
         if (point) {
-          console.log(`[DEBUG INPUT] Right-click MOVE to (${point.x.toFixed(0)}, ${point.z.toFixed(0)}) — ${game.selectedUnits.length} units`);
           issueMoveCommand(point);
         }
       }

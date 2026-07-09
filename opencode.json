@@ -1,0 +1,49 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "plan": {
+      "mode": "primary",
+      "model": "opencode/deepseek-v4-flash-free",
+      "description": "Architecture and planning agent"
+    },
+    "build": {
+      "mode": "primary",
+      "model": "opencode/mimo-v2.5-free",
+      "description": "Implementation and coding agent"
+    },
+    "test": {
+      "mode": "primary",
+      "model": "opencode/deepseek-v4-flash-free",
+      "description": "Test generation and validation agent"
+    },
+    "debug": {
+      "mode": "primary",
+      "model": "opencode/nemotron-3-ultra-free",
+      "description": "Debugging and root cause analysis agent"
+    },
+    "analyze": {
+      "mode": "primary",
+      "model": "opencode/mimo-v2.5-free",
+      "description": "Vision-capable analysis agent for images and documents"
+    },
+    "explore": {
+      "mode": "subagent",
+      "model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free",
+      "description": "Codebase exploration and pattern discovery"
+    },
+    "scout": {
+      "mode": "subagent",
+      "model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free",
+      "description": "Fast search and reconnaissance"
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "opencode/mimo-v2.5-free",
+      "description": "Code review and best practices checking",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    }
+  }
+}

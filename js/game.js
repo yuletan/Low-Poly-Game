@@ -177,6 +177,15 @@ export class Unit {
     // Ship water enforcement cooldown
     this._pushCooldown = 0;
 
+    // Movement smoothing state
+    this._lastPathTime = 0;
+    this._pathValid = false;
+    this._moveTargetCached = null;
+    this._stuckTimer = 0;
+    this._stuckPosition = null;
+    this._lastDx = 0;
+    this._lastDz = 0;
+
     game.scene.add(this.mesh);
   }
 
@@ -1185,7 +1194,7 @@ export class Unit {
 
   _pushToValidTerrain(domain) {
     if (this._pushCooldown > 0) return;
-    this._pushCooldown = 0.05;
+    this._pushCooldown = 0.5;
     // Teleport directly to nearest walkable cell
     const gx = Math.floor((this.mesh.position.x + MAP_SIZE/2) / 12);
     const gy = Math.floor((this.mesh.position.z + MAP_SIZE/2) / 12);
@@ -1196,9 +1205,11 @@ export class Unit {
       const y = domain === 'sea' ? 0.3 : (LAND_HEIGHT + 0.5);
       this.mesh.position.set(world.x, y, world.z);
       // Don't change rotation — keep current facing direction
-      // Recalculate path if unit was actively moving
+      // Re-path after push with delay to avoid spam
       if (this.attackMoveDest && this.state !== 'idle') {
-        this.moveTo(this.attackMoveDest, this.attackMove);
+        setTimeout(() => {
+          if (this.alive) this.moveTo(this.attackMoveDest, this.attackMove);
+        }, 100);
       }
     }
   }
@@ -1262,29 +1273,31 @@ export class Unit {
     }
     const pos = this.mesh.position;
 
+    // Stuck detection: if barely moved in 2 seconds, re-path
+    if (this._stuckPosition) {
+      const distFromStuck = pos.distanceTo(this._stuckPosition);
+      if (distFromStuck < 1) {
+        this._stuckTimer += dt;
+        if (this._stuckTimer > 2 && this.attackMoveDest) {
+          this.moveTo(this.attackMoveDest, this.attackMove);
+          this._stuckTimer = 0;
+          this._stuckPosition = null;
+          return;
+        }
+      } else {
+        this._stuckTimer = 0;
+        this._stuckPosition = pos.clone();
+      }
+    } else {
+      this._stuckPosition = pos.clone();
+      this._stuckTimer = 0;
+    }
+
     // Hard clamp: if on invalid terrain, snap to nearest walkable and stop
     if (this.domain !== 'air') {
       const curTerrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
       if (!this.canEnter(curTerrain)) {
         this._pushToValidTerrain(this.domain);
-        return;
-      }
-    }
-
-    // Validate current waypoint is reachable
-    if (this.domain !== 'air') {
-      const wpTerrain = this.game.terrain.getTerrainAt(this.moveTarget.x, this.moveTarget.z);
-      if (!this.canEnter(wpTerrain)) {
-        // Reject invalid waypoint, find nearest valid one
-        const g = this.game.pathfinder.worldToGrid(this.moveTarget.x, this.moveTarget.z);
-        const nearest = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, this.domain);
-        if (nearest) {
-          const w = this.game.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-          this.moveTarget.set(w.x, 0, w.z);
-        } else {
-          this.moveTarget = this.path.shift() || null;
-          if (!this.moveTarget) this.state = 'idle';
-        }
         return;
       }
     }
@@ -1299,7 +1312,6 @@ export class Unit {
         if (!this.isTransport && this._transportData && this._transportData.needsTransport && this._transportData.segments) {
           this.state = 'waitingForTransport';
           this._transportData._phase = 'waiting';
-          console.log(`[DEBUG TRANSPORT] ${this.type} reached embark point, waiting for transport`);
           return;
         }
         this.state = 'idle';
@@ -1307,8 +1319,14 @@ export class Unit {
       return;
     }
     const step = this.stats.speed * dt;
-    pos.x += (dx/dist) * step;
-    pos.z += (dz/dist) * step;
+    const moveRatio = Math.min(1, step / dist);
+
+    // Smooth movement blending to prevent zigzag
+    const smoothFactor = 0.85;
+    pos.x += (dx / dist) * step * smoothFactor + (this._lastDx || 0) * (1 - smoothFactor) * 0.3;
+    pos.z += (dz / dist) * step * smoothFactor + (this._lastDz || 0) * (1 - smoothFactor) * 0.3;
+    this._lastDx = dx / dist;
+    this._lastDz = dz / dist;
 
     const targetAngle = Math.atan2(dx, dz);
     this.smoothRotate(targetAngle, dt);
@@ -1550,6 +1568,10 @@ export class Unit {
       }
       return;
     }
+    // In range — stop moving and attack
+    this.path = [];
+    this.moveTarget = null;
+    this.state = 'attacking';
     const dx = targetPos.x - this.mesh.position.x;
     const dz = targetPos.z - this.mesh.position.z;
     const aimAngle = Math.atan2(dx, dz);
@@ -2081,10 +2103,11 @@ export class Base {
     this.territory = 150 * size;
     if (name === 'Main Base') this.territory = 200 * size;
 
-    // Defensive turret stats
-    this.turretRange = 60 * size;
-    this.turretDamage = 20 * size * hpMult;
+    // Defensive turret stats — increased range and fire rate
+    this.turretRange = 80 * size;
+    this.turretDamage = 25 * size * hpMult;
     this.turretCooldown = 0;
+    this.turretFireRate = 1.0;
 
     // Use shipyard mesh for bases on water/coast, barracks for land
     const terrainType = game.terrain.getTerrainAt(position.x, position.z);
@@ -2154,16 +2177,17 @@ export class Base {
       if (d < bestD) { best=e; bestD=d; }
     }
     if (best) {
-      this.turretCooldown = 1.5;
-      const projType = this.faction === 'sea' ? 'sea' : (this.faction === 'air' ? 'air' : 'land');
+      this.turretCooldown = this.turretFireRate;
+      const projType = 'land';
       const targetPos = best.mesh.position;
       const projs = createProjectilePattern(
         this.game.scene,
         this.mesh.position.clone().add(new THREE.Vector3(0,10,0)),
-        best, this.turretDamage, 0.85, projType, 'default', 0, 1,
+        best, this.turretDamage, 0.9, projType, 'default', 0, 1,
         0, targetPos
       );
       this.game.projectiles.push(...projs);
+      Sound.play('fire');
     }
   }
 
@@ -2184,22 +2208,35 @@ export class Base {
     this._displayHp = this.hp;
     this._trailHp = this.hp;
     const flagColor = newOwner === 'player' ? 0x2266aa : 0xaa3333;
-    // Update flag AND building HQ color
+    const buildingColor = newOwner === 'player' ? 0x3355aa : 0xaa4444;
+    const glowColor = newOwner === 'player' ? 0x44aaff : 0xff4444;
+    // Update ALL visual elements
     this.mesh.children.forEach(c => {
       if (c.userData?.isFlag) {
         c.material.color.setHex(flagColor);
       }
-      // Change HQ building color (the tall box)
+      // Update building/HQ color
       if (c.geometry?.type === 'BoxGeometry' && c.position.y > 4) {
-        c.material.color.setHex(flagColor);
+        c.material.color.setHex(buildingColor);
+      }
+      // Update trim/glow color
+      if (c.material?.emissive) {
+        c.material.emissive.setHex(glowColor);
       }
     });
     // Update territory ring owner color
     if (this.territoryRing) {
       this.territoryRing.material.color.setHex(flagColor);
     }
+    // Update HP bar color
+    if (this._hpBar) {
+      this._hpBar.fg.material.color.setHex(newOwner === 'player' ? 0x44ff88 : 0xff4444);
+    }
     if (newOwner === 'player') {
       this.game.money += 400;
+      this.game.flashMessage(`Captured ${this.name}!`);
+    } else {
+      this.game.flashMessage(`Lost ${this.name}!`);
     }
     this.game.checkWinCondition();
   }
@@ -2244,6 +2281,7 @@ export class Game {
     this.selectedBuilding = null;
 
     this.placementMode = { active: false, type: null, ghost: null, ring: null, isValid: false, previewPos: null };
+    this._currentTime = 0;
   }
 
   init() {
@@ -2789,6 +2827,7 @@ export class Game {
 
   update(dt) {
     if (this.ended || this.paused) return;
+    this._currentTime += dt;
 
     const owned = this.bases.filter(b => b.faction === 'player').length;
     this.money += PASSIVE_INCOME * owned * dt;
@@ -2919,7 +2958,6 @@ export class Game {
       }
 
       if (waitingCount > 0) {
-        console.log(`[DEBUG LOGISTICS] ${faction}: ${waitingCount} troops waiting for transport`);
         // 2. Count ships actively heading to pick up troops
         let activeShips = 0;
         for (const u of units) {
@@ -2928,33 +2966,33 @@ export class Game {
           }
         }
 
-        // 3. Spawn ships until we have enough (1 per 4 troops)
-        const neededShips = Math.ceil(waitingCount / UNIT_TYPES.transport.transportCapacity);
-        if (activeShips < neededShips) {
+        // 3. Spawn ships: 1 per 4 troops, minimum 1
+        const neededShips = Math.max(1, Math.ceil(waitingCount / 4));
+        const shipsToSpawn = neededShips - activeShips;
+        if (shipsToSpawn > 0) {
           const cost = UNIT_TYPES.transport.cost;
-          let money = faction === 'player' ? this.money : Infinity;
+          const bases = this.bases.filter(b => b.faction === faction && b.alive);
+          let spawnPos = null;
 
-          if (money >= cost) {
-            const bases = this.bases.filter(b => b.faction === faction && b.alive);
-            let spawnPos = null;
+          for (const base of bases) {
+            const pos = this.findValidSpawn(base.mesh.position, 'sea');
+            if (pos) { spawnPos = pos; break; }
+          }
 
-            for (const base of bases) {
-              const pos = this.findValidSpawn(base.mesh.position, 'sea');
-              if (pos) { spawnPos = pos; break; }
+          if (!spawnPos && bases.length > 0) {
+            const g = this.pathfinder.worldToGrid(bases[0].mesh.position.x, bases[0].mesh.position.z);
+            const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
+            if (seaTile) {
+              const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
+              spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
             }
+          }
 
-            if (!spawnPos && bases.length > 0) {
-              const g = this.pathfinder.worldToGrid(bases[0].mesh.position.x, bases[0].mesh.position.z);
-              const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-              if (seaTile) {
-                const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
-                spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
-              }
-            }
-
-            if (spawnPos) {
+          if (spawnPos) {
+            for (let i = 0; i < shipsToSpawn; i++) {
+              const money = faction === 'player' ? this.money : Infinity;
+              if (money < cost) break;
               if (faction === 'player') this.money -= cost;
-              console.log(`[DEBUG LOGISTICS] Spawning Transport ship for ${faction} (${activeShips+1}/${neededShips})`);
               this.spawn('transport', faction, spawnPos);
             }
           }
