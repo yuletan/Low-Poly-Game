@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT } from './config.js?v=6';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
-import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage } from './combat.js?v=3';
+import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage, acquireFromPool, releaseToPool } from './combat.js?v=3';
 import { Pathfinder } from './pathfinder.js?v=4';
 import { FogOfWar } from './fogOfWar.js?v=3';
 import { Minimap } from './minimap.js';
@@ -770,12 +770,17 @@ export class Unit {
 
   /** Hit confirm flash — red ring expanding on target */
   _spawnHitConfirm(pos) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(2, 4, 16),
-      new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFromPool('hitConfirm', () => {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(2, 4, 16),
+        new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false })
+      );
+      m.rotation.x = -Math.PI / 2;
+      return m;
+    }, 8);
     ring.position.set(pos.x, 1, pos.z);
+    ring.scale.set(1, 1, 1);
+    ring.material.opacity = 0.9;
     ring.userData = { life: 0.6, maxLife: 0.6 };
     this.game.scene.add(ring);
     this.game.scene.userData.hitConfirms = this.game.scene.userData.hitConfirms || [];
@@ -2053,11 +2058,13 @@ export class Unit {
   }
 
   _spawnFlakPuff(pos) {
-    const puff = new THREE.Mesh(
+    const puff = acquireFromPool('flakPuff', () => new THREE.Mesh(
       new THREE.SphereGeometry(1.5, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.6 })
-    );
+    ), 16);
     puff.position.copy(pos);
+    puff.scale.set(1, 1, 1);
+    puff.material.opacity = 0.6;
     puff.userData.life = 0.5;
     this.game.scene.add(puff);
     this.game.scene.userData.flakPuffs = this.game.scene.userData.flakPuffs || [];
@@ -2438,12 +2445,17 @@ export class Game {
   }
 
   spawnSpawnMarker(pos) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(4, 6, 32),
-      new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
-    );
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFromPool('spawnMarker', () => {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(4, 6, 32),
+        new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.8 })
+      );
+      m.rotation.x = -Math.PI / 2;
+      return m;
+    }, 8);
     ring.position.set(pos.x, 0.5, pos.z);
+    ring.scale.set(1, 1, 1);
+    ring.material.opacity = 0.8;
     ring.userData.life = 2.0;
     this.scene.add(ring);
     this.scene.userData.spawnMarkers = this.scene.userData.spawnMarkers || [];
@@ -2870,11 +2882,12 @@ export class Game {
   queueDeath(u) { this.deadUnits.push(u); }
 
   spawnMuzzleFlash(pos) {
-    const f = new THREE.Mesh(
-      new THREE.SphereGeometry(0.6,6,6),
-      new THREE.MeshBasicMaterial({ color:0xffee44 })
-    );
+    const f = acquireFromPool('muzzleFlash', () => new THREE.Mesh(
+      new THREE.SphereGeometry(0.6, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffee44 })
+    ), 16);
     f.position.copy(pos);
+    f.scale.set(1, 1, 1);
     f.userData.life = 0.08;
     this.scene.add(f);
     this.scene.userData.flashes = this.scene.userData.flashes || [];
@@ -2920,9 +2933,7 @@ export class Game {
       h.scale.setScalar(1 + t * 3);
       h.material.opacity = 0.9 * (1 - t);
       if (h.userData.life <= 0) {
-        this.scene.remove(h);
-        h.geometry.dispose();
-        h.material.dispose();
+        releaseToPool(h);
         hitConfirms.splice(i, 1);
       }
     }
@@ -2932,7 +2943,7 @@ export class Game {
       flashes[i].userData.life -= dt;
       flashes[i].scale.multiplyScalar(0.9);
       if (flashes[i].userData.life <= 0) {
-        this.scene.remove(flashes[i]); flashes.splice(i,1);
+        releaseToPool(flashes[i]); flashes.splice(i,1);
       }
     }
 
@@ -2943,7 +2954,7 @@ export class Game {
       m.material.opacity = 0.8 * (m.userData.life / 2.0);
       m.scale.multiplyScalar(1.02);
       if (m.userData.life <= 0) {
-        this.scene.remove(m); spawnMarkers.splice(i,1);
+        releaseToPool(m); spawnMarkers.splice(i,1);
       }
     }
 
@@ -2955,7 +2966,7 @@ export class Game {
       p.material.opacity = 0.6 * (p.userData.life / 0.5);
       p.scale.multiplyScalar(1.05);
       if (p.userData.life <= 0) {
-        this.scene.remove(p); flakPuffs.splice(i,1);
+        releaseToPool(p); flakPuffs.splice(i,1);
       }
     }
 

@@ -29,6 +29,7 @@ renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = !isMobile;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('gameCanvas').appendChild(renderer.domElement);
+scene.userData.renderer = renderer;
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambient);
@@ -142,6 +143,8 @@ function startGame(difficulty, saveData) {
     initAI(game);
     console.log('[INIT] AI initialized');
     initUI(game);
+    // Apply saved settings
+    if (window.__applySettings) window.__applySettings();
     console.log('[INIT] UI initialized — game ready!');
   } catch(err) {
     console.error('[INIT] CRASH:', err);

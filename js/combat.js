@@ -1,7 +1,65 @@
 // combat.js — Handles projectile flight, damage rolls, and FX.
 import * as THREE from 'three';
-import { createProjectileMesh } from './unitFactory.js?v=3';
+
 import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS } from './config.js?v=4';
+
+// Object Pooling
+const POOL = {};
+
+function getPool(key, createFn, initialSize = 16) {
+  if (!POOL[key]) {
+    POOL[key] = [];
+    for (let i = 0; i < initialSize; i++) {
+      const obj = createFn();
+      obj.visible = false;
+      obj.userData._inPool = true;
+      POOL[key].push(obj);
+    }
+  }
+  return POOL[key];
+}
+
+export function acquireFromPool(key, createFn, initialSize = 16) {
+  const pool = getPool(key, createFn, initialSize);
+  for (const obj of pool) {
+    if (!obj.visible) {
+      obj.visible = true;
+      obj.userData._inPool = false;
+      return obj;
+    }
+  }
+  const obj = createFn();
+  obj.userData._inPool = true;
+  pool.push(obj);
+  obj.visible = true;
+  obj.userData._inPool = false;
+  return obj;
+}
+
+export function releaseToPool(obj) {
+  if (obj.parent) obj.parent.remove(obj);
+  obj.visible = false;
+  obj.userData._inPool = true;
+}
+
+const PROJECTILE_POOL_KEY = 'projectile_land';
+function createLandProjectile() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 0.8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+  );
+  body.rotation.x = Math.PI / 2;
+  g.add(body);
+  const trail = new THREE.Mesh(
+    new THREE.ConeGeometry(0.15, 1.5, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.6 })
+  );
+  trail.rotation.x = -Math.PI / 2;
+  trail.position.z = -1;
+  g.add(trail);
+  return g;
+}
 
 export class Projectile {
   constructor(scene, from, target, damage, hitChance, type = 'land', pattern = 'default', splashRadius = 0, splashFalloff = 1) {
@@ -15,8 +73,18 @@ export class Projectile {
     this.splashRadius = splashRadius;
     this.splashFalloff = splashFalloff;
     this.alive = true;
-    this.mesh = createProjectileMesh(type);
+    this.mesh = acquireFromPool('projectile_' + type, () => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, 0.6, 6),
+        new THREE.MeshBasicMaterial({ color: type === 'land' ? 0xffaa00 : type === 'sea' ? 0x444466 : 0xff4400 })
+      );
+      body.rotation.x = Math.PI / 2;
+      g.add(body);
+      return g;
+    }, 64);
     this.mesh.position.copy(from);
+    this.mesh.visible = true;
     scene.add(this.mesh);
 
     // Pattern-specific init
@@ -138,16 +206,21 @@ export class Projectile {
 
   destroy() {
     this.alive = false;
-    this.scene.remove(this.mesh);
+    if (this.mesh.parent) {
+      releaseToPool(this.mesh);
+    }
   }
 
   spawnAirTrail() {
-    const trailMesh = new THREE.Mesh(new THREE.SphereGeometry(0.1, 4, 4), new THREE.MeshBasicMaterial({ color: 0xff9900, transparent: true, opacity: 0.8 }));
-    trailMesh.position.copy(this.mesh.position);
-    trailMesh.userData.life = 0.3;
-    this.scene.add(trailMesh);
+    const trail = acquireFromPool('airTrail', () => new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 4, 4),
+      new THREE.MeshBasicMaterial({ color: 0xff9900, transparent: true, opacity: 0.8 })
+    ), 32);
+    trail.position.copy(this.mesh.position);
+    trail.userData.life = 0.3;
+    this.scene.add(trail);
     this.scene.userData.airTrails = this.scene.userData.airTrails || [];
-    this.scene.userData.airTrails.push(trailMesh);
+    this.scene.userData.airTrails.push(trail);
   }
 }
 
@@ -202,39 +275,50 @@ function cleanupAirTrails(scene, dt) {
     p.userData.life -= dt;
     p.scale.multiplyScalar(0.9);
     p.material.opacity -= 0.3 * dt;
-    if (p.userData.life <= 0) { scene.remove(p); list.splice(i,1); }
+    if (p.userData.life <= 0) { releaseToPool(p); list.splice(i,1); }
   }
 }
 
+function createExplosionParticle() {
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.6, 0.6),
+    new THREE.MeshBasicMaterial({ transparent: true })
+  );
+}
+
 export function spawnExplosion(scene, pos, splashRadius = 0) {
+  const particleCount = (splashRadius > 0 ? 16 : 8);
   const particles = [];
-  const particleCount = splashRadius > 0 ? 16 : 8;
   for (let i = 0; i < particleCount; i++) {
-    const p = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6,0.6,0.6),
-      new THREE.MeshBasicMaterial({ color: i%2 ? 0xff6600 : 0xffcc00 })
-    );
+    const p = acquireFromPool('explosion', createExplosionParticle, 24);
     p.position.copy(pos);
+    p.material.color.setHex(i % 2 ? 0xff6600 : 0xffcc00);
+    p.material.opacity = 1;
+    p.scale.set(1, 1, 1);
     const v = new THREE.Vector3(
-      (Math.random()-0.5)*20, Math.random()*15, (Math.random()-0.5)*20
+      (Math.random() - 0.5) * 20, Math.random() * 15, (Math.random() - 0.5) * 20
     );
-    p.userData = { v, life:0.6 };
+    p.userData = { v, life: 0.6 };
     scene.add(p);
     particles.push(p);
   }
   scene.userData.explosions = scene.userData.explosions || [];
   scene.userData.explosions.push(...particles);
 
-  // Splash radius visual ring
+  // Splash ring
   if (splashRadius > 0) {
-    const ringGeom = new THREE.RingGeometry(splashRadius * 0.9, splashRadius * 1.1, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xff8800, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthTest: false
-    });
-    const ring = new THREE.Mesh(ringGeom, ringMat);
-    ring.rotation.x = -Math.PI / 2;
+    const ring = acquireFromPool('splashRing', () => {
+      const g = new THREE.RingGeometry(1, 1, 32);
+      const m = new THREE.MeshBasicMaterial({
+        color: 0xff8800, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthTest: false
+      });
+      const r = new THREE.Mesh(g, m);
+      r.rotation.x = -Math.PI / 2;
+      return r;
+    }, 4);
     ring.position.set(pos.x, 0.2, pos.z);
     ring.userData = { life: 0.4, maxRadius: splashRadius };
+    ring.scale.set(splashRadius, splashRadius, splashRadius);
     scene.add(ring);
     scene.userData.splashRings = scene.userData.splashRings || [];
     scene.userData.splashRings.push(ring);
@@ -250,11 +334,10 @@ export function updateExplosions(scene, dt) {
     p.position.addScaledVector(p.userData.v, dt);
     p.scale.multiplyScalar(0.96);
     if (p.userData.life <= 0) {
-      scene.remove(p);
-      list.splice(i,1);
+      releaseToPool(p);
+      list.splice(i, 1);
     }
   }
-  // Update splash rings
   const rings = scene.userData.splashRings || [];
   for (let i = rings.length - 1; i >= 0; i--) {
     const r = rings[i];
@@ -262,8 +345,8 @@ export function updateExplosions(scene, dt) {
     r.material.opacity = THREE.MathUtils.lerp(0, 0.5, r.userData.life / 0.4);
     r.scale.multiplyScalar(1.02);
     if (r.userData.life <= 0) {
-      scene.remove(r);
-      rings.splice(i,1);
+      releaseToPool(r);
+      rings.splice(i, 1);
     }
   }
 }

@@ -36,9 +36,10 @@ export function buildTerrain(scene) {
     scene.add(m);
   }
 
-  // === MOUNTAINS ===
+  // === MOUNTAINS (InstancedMesh) ===
   const mountains = [];
   const MOUNTAIN_COUNT = 18;
+  const mtData = [];
   for (let i = 0; i < MOUNTAIN_COUNT; i++) {
     let attempts = 0, x, z;
     do {
@@ -50,17 +51,31 @@ export function buildTerrain(scene) {
 
     const h = 10 + Math.random() * 12;
     const r = 10 + Math.random() * 6;
-    const m = new THREE.Mesh(
-      new THREE.ConeGeometry(r, h, 5),
-      // flatShading: true gives crisp low-poly edges!
-      new THREE.MeshLambertMaterial({ color: 0x6b5b3a, flatShading: true })
-    );
-    // Sit mountain directly on top of the land
-    m.position.set(x, LAND_HEIGHT + h / 2, z);
-    m.castShadow = true;
-    scene.add(m);
+    mtData.push({ x, z, r, h });
+  }
+
+  const mtGeom = new THREE.ConeGeometry(1, 1, 5);
+  mtGeom.computeVertexNormals();
+  const mtMat = new THREE.MeshLambertMaterial({ color: 0x6b5b3a, flatShading: true });
+  const mtInstanced = new THREE.InstancedMesh(mtGeom, mtMat, MOUNTAIN_COUNT);
+  mtInstanced.castShadow = true;
+  mtInstanced.receiveShadow = true;
+
+  const dummy = new THREE.Object3D();
+  const mtColor = new THREE.Color();
+  for (let i = 0; i < MOUNTAIN_COUNT; i++) {
+    const { x, z, r, h } = mtData[i];
+    dummy.position.set(x, LAND_HEIGHT + h / 2, z);
+    dummy.scale.set(r / 10, h / 16, r / 10);
+    dummy.updateMatrix();
+    mtInstanced.setMatrixAt(i, dummy.matrix);
+    mtColor.setHSL(0.08, 0.25 + Math.random() * 0.1, 0.35 + Math.random() * 0.08);
+    mtInstanced.setColorAt(i, mtColor);
     mountains.push({ x, z, r });
   }
+  mtInstanced.instanceMatrix.needsUpdate = true;
+  mtInstanced.instanceColor.needsUpdate = true;
+  scene.add(mtInstanced);
 
   // === BEACHES on large landmasses (area > 100k sq units) ===
   for (const lm of landmasses) {
@@ -96,29 +111,44 @@ export function buildTerrain(scene) {
     scene.add(beachTop, beachBottom, beachLeft, beachRight);
   }
 
-  // === TREES ===
-  for (let i = 0; i < 80; i++) {
+  // === TREES (InstancedMesh) ===
+  const trunkGeom = new THREE.CylinderGeometry(0.4, 0.4, 2, 5);
+  trunkGeom.computeVertexNormals();
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true });
+  const leafGeom = new THREE.ConeGeometry(1, 1, 6);
+  leafGeom.computeVertexNormals();
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2d5a1f, flatShading: true });
+
+  const TREE_COUNT = 80;
+  const trunkInstanced = new THREE.InstancedMesh(trunkGeom, trunkMat, TREE_COUNT);
+  trunkInstanced.castShadow = true;
+  trunkInstanced.receiveShadow = true;
+  const leafInstanced = new THREE.InstancedMesh(leafGeom, leafMat, TREE_COUNT);
+  leafInstanced.castShadow = true;
+  leafInstanced.receiveShadow = true;
+
+  const treeDummy = new THREE.Object3D();
+  for (let i = 0; i < TREE_COUNT; i++) {
     const lm = landmasses[Math.floor(Math.random() * landmasses.length)];
     const x = lm.x + (Math.random() - 0.5) * lm.w * 0.9;
     const z = lm.z + (Math.random() - 0.5) * lm.d * 0.9;
     
-    const trunkHeight = 2;
-    const leavesHeight = 4;
-    
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.4, 0.4, trunkHeight, 5),
-      new THREE.MeshLambertMaterial({ color: 0x5c3a1e, flatShading: true })
-    );
-    trunk.position.set(x, LAND_HEIGHT + trunkHeight / 2, z);
-    
-    const leaves = new THREE.Mesh(
-      new THREE.ConeGeometry(2, leavesHeight, 6),
-      new THREE.MeshLambertMaterial({ color: 0x2d5a1f, flatShading: true })
-    );
-    leaves.position.set(x, LAND_HEIGHT + trunkHeight + leavesHeight / 2, z);
-    
-    scene.add(trunk, leaves);
+    // Trunk instance
+    treeDummy.position.set(x, LAND_HEIGHT + 1, z);
+    treeDummy.scale.set(1, 1, 1);
+    treeDummy.updateMatrix();
+    trunkInstanced.setMatrixAt(i, treeDummy.matrix);
+
+    // Leaves instance
+    treeDummy.position.set(x, LAND_HEIGHT + 2 + 2, z);
+    treeDummy.scale.set(2, 4, 2);
+    treeDummy.updateMatrix();
+    leafInstanced.setMatrixAt(i, treeDummy.matrix);
   }
+  trunkInstanced.instanceMatrix.needsUpdate = true;
+  leafInstanced.instanceMatrix.needsUpdate = true;
+  scene.add(trunkInstanced);
+  scene.add(leafInstanced);
 
   return {
     landmasses,
