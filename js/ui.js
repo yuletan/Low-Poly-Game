@@ -328,8 +328,12 @@ function createUpgradeButton(stat, game) {
   const mult = def.tiers[tier];
 
   btn.innerHTML = `
-    <span>${def.icon} ${def.name} T${tier} (x${mult.toFixed(2)})</span>
-    <span>${cost === null ? 'MAX' : '$' + cost}</span>
+    <span class="unit-icon" style="font-size:28px;display:flex;align-items:center;justify-content:center;">${def.icon}</span>
+    <div class="unit-info">
+      <span class="unit-name">${def.name}</span>
+      <span class="unit-domain">T${tier} x${mult.toFixed(2)}</span>
+    </div>
+    <div class="unit-cost" style="${cost === null ? 'color:var(--text-muted)' : ''}">${cost === null ? 'MAX' : '$' + cost}</div>
   `;
 
   btn.addEventListener('click', () => {
@@ -481,9 +485,7 @@ export function initUI(game) {
     panel.dataset.tab = tab.id;
 
     if (tab.id === 'upgrades') {
-      panel.style.flexDirection = 'column';
-      panel.style.flexWrap = 'nowrap';
-      panel.style.alignContent = 'flex-start';
+      panel.className = 'armory-tab-panel upgrades-grid' + (i === 0 ? ' active' : '');
       for (const [stat] of Object.entries(UPGRADES)) {
         panel.appendChild(createUpgradeButton(stat, game));
       }
