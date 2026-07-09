@@ -407,7 +407,26 @@ export function initInput(game, camera, renderer) {
       const maxHp = Math.ceil(target.maxHp || 0);
       const pct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0;
       const typeName = target.type || target.name || 'Unit';
-      hoverTooltip.innerHTML = `<strong>${typeName.toUpperCase()}</strong><br>❤ HP: ${hp} / ${maxHp} <span style="color:${pct > 50 ? '#4f4' : pct > 25 ? '#fa0' : '#f44'}">(${pct}%)</span>`;
+      let tooltipContent = `<strong>${typeName.toUpperCase()}</strong><br>HP: ${hp} / ${maxHp} <span style="color:${pct > 50 ? '#4f4' : pct > 25 ? '#fa0' : '#f44'}">(${pct}%)</span>`;
+
+      // Transport cargo manifest
+      if (target.isTransport && target.carriedUnits && target.carriedUnits.length > 0) {
+        const cap = target.transportCapacity || 10;
+        const cargoCount = target.carriedUnits.length;
+        const typeCounts = {};
+        for (const cu of target.carriedUnits) {
+          typeCounts[cu.type] = (typeCounts[cu.type] || 0) + 1;
+        }
+        const cargoLines = Object.entries(typeCounts)
+          .map(([t, c]) => `- ${c}x ${t}`)
+          .join('<br>');
+        tooltipContent += `<br><span style="color:#fa0;">Cargo: ${cargoCount}/${cap} units</span><br><span style="color:#aaa;font-size:0.9em;">${cargoLines}</span>`;
+      } else if (target.isTransport) {
+        const cap = target.transportCapacity || 10;
+        tooltipContent += `<br><span style="color:#aaa;">Cargo: 0/${cap} units</span>`;
+      }
+
+      hoverTooltip.innerHTML = tooltipContent;
       hoverTooltip.style.left = (e.clientX + 16) + 'px';
       hoverTooltip.style.top = (e.clientY + 16) + 'px';
       hoverTooltip.classList.add('visible');

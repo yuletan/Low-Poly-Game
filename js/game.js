@@ -242,33 +242,9 @@ export class Unit {
       const result = this.game.pathfinder.findTransportPath(this.mesh.position, targetPos);
       if (result) {
         if (result.needsTransport) {
-          // Override disembark: use nearest friendly base coast instead of enemy base coast
-          const friendlyBases = this.game.bases.filter(b => b.faction === this.faction && b.alive);
-          if (friendlyBases.length > 0) {
-            // Find nearest friendly base to the TARGET destination
-            let nearestFriendly = friendlyBases[0];
-            let nearestDist = Infinity;
-            for (const fb of friendlyBases) {
-              const d = Math.hypot(fb.mesh.position.x - targetPos.x, fb.mesh.position.z - targetPos.z);
-              if (d < nearestDist) { nearestDist = d; nearestFriendly = fb; }
-            }
-            // Find coast near friendly base
-            const g = this.game.pathfinder.worldToGrid(nearestFriendly.mesh.position.x, nearestFriendly.mesh.position.z);
-            const coastResult = this.game.pathfinder.findNearestCoast(g.gx, g.gy, 'land');
-            if (coastResult) {
-              const groundW = this.game.pathfinder.gridToWorld(coastResult.groundTile.gx, coastResult.groundTile.gy);
-              const seaW = this.game.pathfinder.gridToWorld(coastResult.seaTile.gx, coastResult.seaTile.gy);
-              result.disembarkPoint = new THREE.Vector3(groundW.x, 0, groundW.z);
-              result.shipDisembarkPoint = new THREE.Vector3(seaW.x, 0, seaW.z);
-              // Re-calculate the walk-to-target segment from friendly base coast
-              const newWalkPath = this.game.pathfinder.findPath(
-                result.disembarkPoint, targetPos, 'land'
-              );
-              if (newWalkPath && newWalkPath.length > 0) {
-                result.segments.walkToTarget = newWalkPath;
-              }
-            }
-          }
+          // The pathfinder already calculated the correct disembark point
+          // (nearest enemy coast to the target destination). Use it directly.
+          console.log(`[DEBUG PATH] Disembark at (${result.disembarkPoint.x.toFixed(0)},${result.disembarkPoint.z.toFixed(0)}) — enemy coast near target`);
           // Store transport plan, walk to embark point first
           this._transportData = result;
           this.path = result.segments.walkToShip;
@@ -1045,11 +1021,24 @@ export class Unit {
           this.path = sailPath.map(p => p.clone());
           this.moveTarget = this.path.shift();
           this.state = 'moving';
+
+          // Visual path validation: warn if ship path contains non-sea tiles
+          for (const wp of this.path) {
+            const { gx, gy } = this.game.pathfinder.worldToGrid(wp.x, wp.z);
+            const t = this.game.pathfinder.terrainGrid[gy * this.game.pathfinder.size + gx];
+            if (t !== TERRAIN.SEA && t !== TERRAIN.COAST) {
+              console.warn(`[DEBUG TRANSPORT] Ship path invalid: waypoint at (${wp.x.toFixed(0)},${wp.z.toFixed(0)}) is terrain type ${t}`);
+            }
+          }
         } else if (this._transportData?.shipDisembarkPoint) {
           this.moveTo(this._transportData.shipDisembarkPoint.clone());
         }
         this._disembarkPoint = disembarkPt;
         this._assignedEmbarkPoint = null;
+
+        // Debug visualization: mark embark and disembark points
+        this._debugMarkPoint(this._transportData?.shipEmbarkPoint || this.mesh.position, 0x44ff88, 'embark');
+        this._debugMarkPoint(this._transportData?.shipDisembarkPoint || this._disembarkPoint, 0xff4444, 'disembark');
 
         // Unclaim any troops that didn't make it
         for (const u of allUnits) {
@@ -1200,6 +1189,23 @@ export class Unit {
       this._pathArrowHead.material.dispose();
       this._pathArrowHead = null;
     }
+  }
+
+  /** Debug: place a colored marker at a world position (green=embark, red=disembark) */
+  _debugMarkPoint(pos, color, label) {
+    if (!pos) return;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(3, 4.5, 24),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthTest: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(pos.x, 0.5, pos.z);
+    ring.renderOrder = 892;
+    ring.userData.life = 8;
+    ring.userData.maxLife = 8;
+    this.game.scene.add(ring);
+    this.game.scene.userData.hitConfirms = this.game.scene.userData.hitConfirms || [];
+    this.game.scene.userData.hitConfirms.push(ring);
   }
 
   _retreatToFriendlyBase() {

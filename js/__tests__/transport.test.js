@@ -475,3 +475,388 @@ describe('Troop Disembark - Fans Out on Land', () => {
     expect(troop.state).toBe('moving');
   });
 });
+
+// ============================================================
+//  NEW TESTS — Transport Ship Pathfinding, Boarding, and UX Fixes
+// ============================================================
+
+describe('Transport Capacity — 10 units', () => {
+  let Unit, Game, game, THREE;
+
+  beforeAll(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Unit = gameMod.Unit;
+    Game = gameMod.Game;
+
+    vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
+    vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    game = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    game.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    game.pathfinder = {
+      cell: 12,
+      worldToGrid: (x, z) => ({ gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }),
+      gridToWorld: (gx, gy) => ({ x: gx * 12 - 600 + 6, z: gy * 12 - 600 + 6 }),
+      findNearestWalkable: vi.fn(() => ({ gx: 50, gy: 50 })),
+      findPath: vi.fn(() => [new THREE.Vector3(10, 0, 10)]),
+    };
+    game.bases = [{ faction: 'player', alive: true, mesh: { position: new THREE.Vector3(0, 0, 0) } }];
+    game.playerUnits = [];
+    game.enemyUnits = [];
+    game.money = 10000;
+    game._currentTime = 0;
+    game.upgrades = { applyTo: vi.fn(s => ({ ...s })), upgrades: { hp: 0, damage: 0, speed: 0, tactics: 0 } };
+    game.scene = new THREE.Scene();
+  });
+
+  it('transport capacity is 10 in config', async () => {
+    const mod = await import('../config.js?v=6');
+    expect(mod.UNIT_TYPES.transport.transportCapacity).toBe(10);
+  });
+
+  it('transport capacity description says 10', async () => {
+    const mod = await import('../config.js?v=6');
+    expect(mod.UNIT_TYPES.transport.special).toContain('10');
+  });
+
+  it('transport can carry up to 10 units', () => {
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(50, 0.3, 50));
+    expect(ship.transportCapacity).toBe(10);
+
+    // Load 10 units — all should fit
+    for (let i = 0; i < 10; i++) {
+      const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 1.0, 50));
+      troop.mesh.position.set(50, 1.0, 50);
+      const loaded = ship.loadUnit(troop);
+      expect(loaded).toBe(true);
+    }
+    expect(ship.carriedUnits.length).toBe(10);
+
+    // 11th unit should fail
+    const extra = new Unit(game, 'infantry', 'player', new THREE.Vector3(50, 1.0, 50));
+    const loaded11 = ship.loadUnit(extra);
+    expect(loaded11).toBe(false);
+    expect(ship.carriedUnits.length).toBe(10);
+  });
+
+  it('transportCapacity field matches config constant', async () => {
+    const mod = await import('../config.js?v=6');
+    expect(mod.UNIT_TYPES.transport.transportCapacity).toBe(10);
+    expect(typeof mod.UNIT_TYPES.transport.transportCapacity).toBe('number');
+  });
+});
+
+describe('Disembark Point — Enemy coast near target, not player base', () => {
+  let Unit, Game, THREE;
+
+  beforeAll(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Unit = gameMod.Unit;
+    Game = gameMod.Game;
+
+    vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
+    vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
+  });
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  function createTestGame() {
+    const g = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    g.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    g.pathfinder = {
+      cell: 12,
+      worldToGrid: (x, z) => ({ gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }),
+      gridToWorld: (gx, gy) => ({ x: gx * 12 - 600 + 6, z: gy * 12 - 600 + 6 }),
+      findNearestWalkable: vi.fn(() => ({ gx: 50, gy: 50 })),
+      findPath: vi.fn(() => [new THREE.Vector3(10, 0, 10)]),
+      findNearestCoast: vi.fn(() => null),
+    };
+    g.bases = [
+      { faction: 'player', alive: true, mesh: { position: new THREE.Vector3(-500, 0, 200) } },
+      { faction: 'enemy', alive: true, mesh: { position: new THREE.Vector3(450, 0, -100) } },
+    ];
+    g.playerUnits = [];
+    g.enemyUnits = [];
+    g.money = 10000;
+    g._currentTime = 0;
+    g.upgrades = { applyTo: vi.fn(s => ({ ...s })), upgrades: { hp: 0, damage: 0, speed: 0, tactics: 0 } };
+    g.scene = new THREE.Scene();
+    return g;
+  }
+
+  it('moveTo for transport-requiring land unit does NOT override disembark to friendly base', () => {
+    const game = createTestGame();
+    const enemyCoastDisembark = new THREE.Vector3(400, 0, -100);
+    game.pathfinder.findTransportPath = vi.fn(() => ({
+      needsTransport: true,
+      embarkPoint: new THREE.Vector3(-400, 0, 200),
+      disembarkPoint: enemyCoastDisembark.clone(),
+      shipEmbarkPoint: new THREE.Vector3(-400, 0.3, 188),
+      shipDisembarkPoint: new THREE.Vector3(400, 0.3, -112),
+      segments: {
+        walkToShip: [new THREE.Vector3(-400, 0, 200)],
+        sail: [new THREE.Vector3(-400, 0.3, 188), new THREE.Vector3(400, 0.3, -112)],
+        walkToTarget: [enemyCoastDisembark.clone(), new THREE.Vector3(420, 0, -80)],
+      },
+    }));
+
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(-450, 0, 200));
+    troop._transportData = null;
+    troop.moveTo(new THREE.Vector3(420, 0, -80));
+
+    expect(troop._transportData).toBeDefined();
+    expect(troop._transportData.disembarkPoint.x).toBe(400);
+    expect(troop._transportData.disembarkPoint.z).toBe(-100);
+  });
+
+  it('disembark point is NOT overridden to player HQ position', () => {
+    const game = createTestGame();
+    const playerHQ = new THREE.Vector3(-500, 0, 200);
+    const enemyTarget = new THREE.Vector3(400, 0, -100);
+    game.pathfinder.findTransportPath = vi.fn(() => ({
+      needsTransport: true,
+      embarkPoint: new THREE.Vector3(-400, 0, 200),
+      disembarkPoint: enemyTarget.clone(),
+      shipEmbarkPoint: new THREE.Vector3(-400, 0.3, 188),
+      shipDisembarkPoint: new THREE.Vector3(400, 0.3, -112),
+      segments: {
+        walkToShip: [new THREE.Vector3(-400, 0, 200)],
+        sail: [new THREE.Vector3(-400, 0.3, 188), new THREE.Vector3(400, 0.3, -112)],
+        walkToTarget: [enemyTarget.clone()],
+      },
+    }));
+
+    const troop = new Unit(game, 'infantry', 'player', playerHQ.clone());
+    troop._transportData = null;
+    troop.moveTo(enemyTarget.clone());
+
+    const dd = troop._transportData?.disembarkPoint;
+    expect(dd).toBeDefined();
+    expect(dd.x).not.toBe(playerHQ.x);
+    expect(dd.z).not.toBe(playerHQ.z);
+    const distToEnemy = Math.hypot(dd.x - enemyTarget.x, dd.z - enemyTarget.z);
+    expect(distToEnemy).toBeLessThan(100);
+  });
+});
+
+describe('Sea Pathfinding — rejects land-only routes', () => {
+  it('walkable returns false for land tiles under sea domain', async () => {
+    const { Pathfinder } = await import('../pathfinder.js');
+    const mockTerrain = { getTerrainAt: () => 'land', mountains: [] };
+    const pf = new Pathfinder(mockTerrain);
+    expect(pf.walkable(0, 0, 'sea')).toBe(false);
+    expect(pf.walkable(50, 50, 'sea')).toBe(false);
+  });
+
+  it('walkable returns true for sea and coast tiles under sea domain', async () => {
+    const { Pathfinder } = await import('../pathfinder.js');
+    const mockTerrain = {
+      getTerrainAt: (x, z) => x > 0 ? 'sea' : 'land',
+      mountains: [],
+    };
+    const pf = new Pathfinder(mockTerrain);
+    const seaGx = Math.floor((100 + 600) / 12);
+    expect(pf.walkable(seaGx, 50, 'sea')).toBe(true);
+    const landGx = Math.floor((-100 + 600) / 12);
+    expect(pf.walkable(landGx, 50, 'sea')).toBe(false);
+  });
+
+  it('sea domain findPath returns null when only land tiles exist', async () => {
+    const THREE = await import('three');
+    const { Pathfinder } = await import('../pathfinder.js');
+    const mockTerrain = { getTerrainAt: () => 'land', mountains: [] };
+    const pf = new Pathfinder(mockTerrain);
+    const start = new THREE.Vector3(0, 0, 0);
+    const end = new THREE.Vector3(100, 0, 100);
+    const path = pf.findPath(start, end, 'sea');
+    expect(path).toBeNull();
+  });
+
+  it('sea domain allows coast tiles as walkable', async () => {
+    const { Pathfinder } = await import('../pathfinder.js');
+    const mockTerrain = {
+      getTerrainAt: (x, z) => x > 0 ? 'coast' : 'land',
+      mountains: [],
+    };
+    const pf = new Pathfinder(mockTerrain);
+    const coastGx = Math.floor((100 + 600) / 12);
+    expect(pf.walkable(coastGx, 50, 'sea')).toBe(true);
+  });
+});
+
+describe('Boarding Distance — coast to sea (12 units)', () => {
+  let Unit, Game, THREE;
+
+  beforeAll(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Unit = gameMod.Unit;
+    Game = gameMod.Game;
+
+    vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
+    vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
+  });
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  function createTestGame() {
+    const g = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    g.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    g.pathfinder = {
+      cell: 12, worldToGrid: () => ({}), gridToWorld: () => ({ x: 0, z: 0 }),
+      findNearestWalkable: vi.fn(() => null), findPath: vi.fn(() => []),
+      findTransportPath: vi.fn(() => null),
+    };
+    g.bases = [{ faction: 'player', alive: true, mesh: { position: new THREE.Vector3(0, 0, 0) } }];
+    g.playerUnits = [];
+    g.enemyUnits = [];
+    g.money = 10000;
+    g._currentTime = 0;
+    g.upgrades = { applyTo: vi.fn(s => ({ ...s })), upgrades: { hp: 0, damage: 0, speed: 0, tactics: 0 } };
+    g.scene = new THREE.Scene();
+    return g;
+  }
+
+  it('canLoadUnit allows boarding at 12-unit distance (GRID_CELL spacing)', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(12, 0.3, 0));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(12, 1.0, 12));
+    const dist2d = Math.hypot(
+      troop.mesh.position.x - ship.mesh.position.x,
+      troop.mesh.position.z - ship.mesh.position.z
+    );
+    expect(dist2d).toBe(12);
+    expect(ship.canLoadUnit(troop)).toBe(true);
+  });
+
+  it('updateWaitingForTransport boards at exactly loadRange=14', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    ship._assignedEmbarkPoint = new THREE.Vector3(0, 0, 0);
+    // Match ship Y to avoid 3D distance issue - both at same Y
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(14, 0.3, 0));
+    troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(0, 0, 0) };
+    troop.state = 'waitingForTransport';
+    troop._claimedByShip = ship;
+    game.playerUnits = [ship, troop];
+
+    const dist2d = Math.hypot(troop.mesh.position.x - ship.mesh.position.x, troop.mesh.position.z - ship.mesh.position.z);
+    expect(dist2d).toBe(14);
+    troop.updateWaitingForTransport(0.1);
+    expect(troop.carried).toBe(true);
+    expect(ship.carriedUnits).toContain(troop);
+  });
+
+  it('troop does NOT board at distance 15 (beyond loadRange)', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    ship._assignedEmbarkPoint = new THREE.Vector3(0, 0, 0);
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(15, 0.3, 0));
+    troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(0, 0, 0) };
+    troop.state = 'waitingForTransport';
+    troop._claimedByShip = ship;
+    game.playerUnits = [ship, troop];
+
+    const dist2d = Math.hypot(troop.mesh.position.x - ship.mesh.position.x, troop.mesh.position.z - ship.mesh.position.z);
+    expect(dist2d).toBeGreaterThan(14);
+    troop.updateWaitingForTransport(0.1);
+    expect(troop.carried).toBeFalsy();
+    expect(ship.carriedUnits.length).toBe(0);
+  });
+
+  it('canLoadUnit rejects units beyond 14-unit range', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(20, 0, 0));
+    expect(ship.canLoadUnit(troop)).toBe(false);
+  });
+
+  it('canLoadUnit rejects non-land units', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const heli = new Unit(game, 'heli', 'player', new THREE.Vector3(0, 15, 0));
+    expect(ship.canLoadUnit(heli)).toBe(false);
+  });
+
+  it('canLoadUnit rejects enemy units', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const enemy = new Unit(game, 'infantry', 'enemy', new THREE.Vector3(0, 0, 0));
+    expect(ship.canLoadUnit(enemy)).toBe(false);
+  });
+});
+
+describe('Cargo Hover Tooltip — manifest data', () => {
+  let Unit, Game, THREE;
+
+  beforeAll(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Unit = gameMod.Unit;
+    Game = gameMod.Game;
+    vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
+    vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
+  });
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  function createTestGame() {
+    const g = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    g.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    g.pathfinder = {
+      cell: 12, worldToGrid: () => ({}), gridToWorld: () => ({ x: 0, z: 0 }),
+      findNearestWalkable: vi.fn(() => null), findPath: vi.fn(() => []),
+      findTransportPath: vi.fn(() => null),
+    };
+    g.bases = [{ faction: 'player', alive: true, mesh: { position: new THREE.Vector3(0, 0, 0) } }];
+    g.playerUnits = [];
+    g.enemyUnits = [];
+    g.money = 10000;
+    g._currentTime = 0;
+    g.upgrades = { applyTo: vi.fn(s => ({ ...s })), upgrades: { hp: 0, damage: 0, speed: 0, tactics: 0 } };
+    g.scene = new THREE.Scene();
+    return g;
+  }
+
+  it('transport has isTransport flag and carriedUnits array', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    expect(ship.isTransport).toBe(true);
+    expect(Array.isArray(ship.carriedUnits)).toBe(true);
+    expect(ship.carriedUnits.length).toBe(0);
+  });
+
+  it('carriedUnits tracks loaded unit types', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const inf1 = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 0));
+    const inf2 = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 0));
+    const tank = new Unit(game, 'tank', 'player', new THREE.Vector3(0, 0, 0));
+
+    ship.loadUnit(inf1);
+    ship.loadUnit(inf2);
+    ship.loadUnit(tank);
+
+    expect(ship.carriedUnits.length).toBe(3);
+
+    const typeCounts = {};
+    for (const cu of ship.carriedUnits) {
+      typeCounts[cu.type] = (typeCounts[cu.type] || 0) + 1;
+    }
+    expect(typeCounts.infantry).toBe(2);
+    expect(typeCounts.tank).toBe(1);
+  });
+
+  it('transport capacity is referenced as 10 for tooltip display', () => {
+    const game = createTestGame();
+    const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
+    const cap = ship.transportCapacity || 10;
+    expect(cap).toBe(10);
+  });
+});

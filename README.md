@@ -33,7 +33,7 @@ A web-based, PvE **3D Real-Time Strategy** game built with **Three.js** and vani
 - **Fog of War** — 3-state visibility (unexplored / explored / visible)
 - **Minimap** — Real-time tactical overview with click-to-jump camera
 - **Carrier Ability** — Launch fighter squadrons (cooldown: 30s)
-- **Naval Transport** — Transport ships carry 8 land units across water with auto-embark/disembark
+- **Naval Transport** — Transport ships carry 10 land units across water with auto-embark/disembark
 - **Healer Truck** — Auto-heals nearby damaged allied units
 - **Submarine Stealth** — Invisible until first attack, 3x first-strike damage
 - **Save / Load** — Full game state persistence via localStorage
@@ -280,7 +280,7 @@ npx cap sync android
 | Battleship | 600 | 130 | 160 | 9 | $600 | Shore bombardment |
 | Carrier | 800 | 15 | 60 | 10 | $1800 | Launches 12 fighters |
 | Submarine | 100 | 90 | 50 | 11 | $400 | Stealth + 3x first strike |
-| Transport | 400 | 0 | 0 | 42 | $350 | Carries 8 land units |
+| Transport | 400 | 0 | 0 | 42 | $350 | Carries 10 land units |
 
 ### Air Units
 | Unit | HP | DMG | Range | Speed | Cost | Special |
