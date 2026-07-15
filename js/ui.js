@@ -351,29 +351,164 @@ function createUpgradeButton(stat, game) {
   return btn;
 }
 
+
+const FORMATION_DETAILS = {
+  line: {
+    name: 'Line',
+    hotkey: 'F1',
+    summary: 'Wide front for maximum firing coverage.',
+    detail: 'Best when you want many units shooting at once across open ground.'
+  },
+  wedge: {
+    name: 'Wedge',
+    hotkey: 'F2',
+    summary: 'Point-first advance that keeps damage dealers grouped.',
+    detail: 'Useful for pushing into contact while keeping the group compact.'
+  },
+  square: {
+    name: 'Square',
+    hotkey: 'F3',
+    summary: 'Compact grid for holding space and reducing stragglers.',
+    detail: 'Good for mixed groups that need to arrive together or defend a spot.'
+  },
+  column: {
+    name: 'Column',
+    hotkey: 'F4',
+    summary: 'Narrow travel shape for bridges, beaches, and tight gaps.',
+    detail: 'Use this when pathing through chokepoints or around mountains.'
+  }
+};
+
+const FORMATION_HINT_SESSION_KEY = 'lowPolyCommand.formationHint.seenThisSession';
+
+function formationHintSeenThisSession() {
+  try { return sessionStorage.getItem(FORMATION_HINT_SESSION_KEY) === '1'; }
+  catch (_) { return false; }
+}
+
+function markFormationHintSeen() {
+  try { sessionStorage.setItem(FORMATION_HINT_SESSION_KEY, '1'); }
+  catch (_) { /* sessionStorage can be unavailable in private/file contexts */ }
+}
+
+function selectedMovableUnitCount(game) {
+  return game.selectedUnits.filter(u => u && u.alive && !u.carried).length;
+}
+
+function dismissFormationHint(selectionPanel) {
+  const hint = selectionPanel?.querySelector('#formationHint');
+  if (hint) hint.remove();
+  markFormationHintSeen();
+}
+
+function maybeShowFormationHint(game, selectionPanel) {
+  if (!selectionPanel) return;
+  const existing = selectionPanel.querySelector('#formationHint');
+  if (selectedMovableUnitCount(game) < 2) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+  if (formationHintSeenThisSession()) return;
+
+  const hint = document.createElement('div');
+  hint.id = 'formationHint';
+  hint.className = 'formation-onboarding-hint';
+  hint.innerHTML = `
+    <div>
+      <strong>Formations unlocked</strong>
+      <span>Pick Line, Wedge, Square, or Column before ordering a group move.</span>
+    </div>
+    <button type="button" class="formation-hint-dismiss" aria-label="Dismiss formation hint">×</button>
+  `;
+
+  const buttons = selectionPanel.querySelector('.formation-options');
+  selectionPanel.insertBefore(hint, buttons || null);
+  hint.querySelector('.formation-hint-dismiss')?.addEventListener('click', () => dismissFormationHint(selectionPanel));
+  markFormationHintSeen();
+}
+
+function updateFormationHelpText(formation, helpEl) {
+  if (!helpEl) return;
+  const info = FORMATION_DETAILS[formation] || FORMATION_DETAILS.line;
+  helpEl.innerHTML = `
+    <strong>${info.name} <span>${info.hotkey}</span></strong>
+    <span>${info.summary}</span>
+    <small>${info.detail}</small>
+  `;
+}
+
+function flashMessage(msg) {
+  let el = document.getElementById('flashMsg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'flashMsg';
+    el.className = 'flash-msg';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove('visible'), 3000);
+}
+
 // Update selection panel UI
-function updateSelectionUI(game, selectionInfo) {
-  if (game.selectedUnits.length === 0) {
-    selectionInfo.innerHTML = `
-      <div style="color:var(--text-muted);text-align:center;padding:20px;">
-        Click or drag to select units
-      </div>
-    `;
+function updateSelectionUI(game, selectionInfo, selectionPanel) {
+  if (!selectionInfo) return;
+
+  const selected = game.selectedUnits.filter(u => u && u.alive && !u.carried);
+  if (selected.length !== game.selectedUnits.length) {
+    game.selectedUnits = selected;
+  }
+
+  if (selected.length === 0) {
+    if (game.selectedBuilding) {
+      const sb = game.selectedBuilding;
+      selectionInfo.innerHTML = `
+        <div class="selection-building">
+          <strong>${sb.base.name}</strong>
+          <span>${sb.isShipyard ? 'Shipyard' : 'Barracks'}</span>
+        </div>
+      `;
+    } else {
+      selectionInfo.innerHTML = `
+        <div class="selection-empty">
+          <strong>No units selected</strong>
+          <span>Click, Shift-click, drag-box, or double-click a unit type.</span>
+        </div>
+      `;
+    }
+    maybeShowFormationHint(game, selectionPanel);
     return;
   }
 
+  maybeShowFormationHint(game, selectionPanel);
+
   const counts = {};
-  game.selectedUnits.forEach(u => {
+  const domainCounts = {};
+  selected.forEach(u => {
     counts[u.type] = (counts[u.type] || 0) + 1;
+    const domain = u.domain || UNIT_TYPES[u.type]?.domain || 'mixed';
+    domainCounts[domain] = (domainCounts[domain] || 0) + 1;
   });
 
-  let html = '';
+  const typeSummary = Object.entries(counts).map(([type, count]) => `${count} ${type}`).join(' • ');
+  const domainSummary = Object.entries(domainCounts).map(([domain, count]) => `${count} ${domain}`).join(' • ');
+
+  let html = `
+    <div class="selection-summary">
+      <strong>${selected.length}</strong> selected
+      <span>${typeSummary}</span>
+      <small>${domainSummary}</small>
+    </div>
+  `;
+
   for (const [type, count] of Object.entries(counts)) {
     const stats = UNIT_TYPES[type];
-    const iconDataUrl = generateUnitIcon(type, stats.color);
+    const iconDataUrl = generateUnitIcon(type, stats?.color || 0x4a9eff);
 
     let typeHp = 0, typeDmg = 0, typeRange = 0;
-    game.selectedUnits.forEach(u => {
+    selected.forEach(u => {
       if (u.type === type) {
         typeHp += u.hp;
         typeDmg += u.stats.damage;
@@ -382,22 +517,24 @@ function updateSelectionUI(game, selectionInfo) {
     });
 
     const avgHp = Math.round(typeHp / count);
+    const avgDmg = Math.round(typeDmg / count);
 
     html += `
       <div class="selection-item">
         <img class="selection-icon" src="${iconDataUrl}" alt="${type}">
         <div style="flex:1;">
-          <div class="selection-type">${type}</div>
-          <div class="selection-stats">HP: ${avgHp} | DMG: ${Math.round(typeDmg / count)} | RNG: ${typeRange}</div>
+          <div class="selection-type">${type.toUpperCase()}</div>
+          <div class="selection-stats">HP: ${avgHp} | DMG: ${avgDmg} | RNG: ${typeRange}</div>
         </div>
-        <div class="selection-count">x${count}</div>
+        <div class="selection-count">×${count}</div>
       </div>
     `;
   }
 
-  const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
-  if (hasTransport) {
-    const transport = game.selectedUnits.find(u => u.isTransport);
+  html += `<div class="selection-tip">Shift-click toggles units • Drag/touch-drag box-selects friendly units only • Touch: long-press destination to move/attack</div>`;
+
+  const transport = selected.find(u => u.isTransport && u.alive);
+  if (transport) {
     const nearbyLand = game.playerUnits.filter(u =>
       u.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit(u)
     );
@@ -407,7 +544,7 @@ function updateSelectionUI(game, selectionInfo) {
     html += `
       <div class="transport-actions">
         <button class="action-btn" id="loadBtn" ${canLoad ? '' : 'disabled'}>
-          Load${canLoad ? '' : ' (no units)'}
+          Load${canLoad ? ` (${nearbyLand.length})` : ' (no units)'}
         </button>
         <button class="action-btn" id="unloadBtn" ${canUnload ? '' : 'disabled'}>
           Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (empty)'}
@@ -427,7 +564,7 @@ function updateSelectionUI(game, selectionInfo) {
         u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
       );
       for (const u of toLoad) t.loadUnit(u);
-      updateSelectionUI(game, selectionInfo);
+      game.updateSelectionUI?.();
     });
   }
 
@@ -436,7 +573,7 @@ function updateSelectionUI(game, selectionInfo) {
     unloadBtn.addEventListener('click', () => {
       const t = game.selectedUnits.find(u => u.isTransport);
       if (t) t.unloadAll();
-      updateSelectionUI(game, selectionInfo);
+      game.updateSelectionUI?.();
     });
   }
 }
@@ -527,47 +664,57 @@ export function initUI(game) {
     </div>
     <div id="selectionInfo">
       <div style="color:var(--text-muted);text-align:center;padding:20px;">
-        Click or drag to select units
+        Click/tap or drag to select units
       </div>
     </div>
-    <div class="formation-options">
-      <button class="formation-btn active" data-formation="line" title="Line (F1)">
+    <div class="formation-options" aria-label="Formation controls">
+      <button type="button" class="formation-btn active" data-formation="line" title="Line (F1) - Wide firing front" aria-label="Line formation: wide firing front">
         <svg viewBox="0 0 24 24"><rect x="2" y="10" width="20" height="4" rx="1"/></svg>
+        <span class="formation-label">Line</span>
       </button>
-      <button class="formation-btn" data-formation="wedge" title="Wedge (F2)">
+      <button type="button" class="formation-btn" data-formation="wedge" title="Wedge (F2) - Compact spearhead" aria-label="Wedge formation: compact spearhead">
         <svg viewBox="0 0 24 24"><path d="M12 2 L22 20 L2 20 Z"/></svg>
+        <span class="formation-label">Wedge</span>
       </button>
-      <button class="formation-btn" data-formation="square" title="Square (F3)">
+      <button type="button" class="formation-btn" data-formation="square" title="Square (F3) - Defensive grid" aria-label="Square formation: defensive grid">
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        <span class="formation-label">Square</span>
       </button>
-      <button class="formation-btn" data-formation="column" title="Column (F4)">
+      <button type="button" class="formation-btn" data-formation="column" title="Column (F4) - Narrow travel line" aria-label="Column formation: narrow travel line">
         <svg viewBox="0 0 24 24"><rect x="10" y="2" width="4" height="20" rx="1"/></svg>
+        <span class="formation-label">Column</span>
       </button>
     </div>
+    <div id="formationHelpText" class="formation-help-text" role="status" aria-live="polite"></div>
   `;
   document.body.appendChild(selectionPanel);
 
   const selectionInfo = document.getElementById('selectionInfo');
-  game.updateSelectionUI = () => updateSelectionUI(game, selectionInfo);
+  const formationHelpText = selectionPanel.querySelector('#formationHelpText');
+  game.updateSelectionUI = () => updateSelectionUI(game, selectionInfo, selectionPanel);
 
   const formationBtns = selectionPanel.querySelectorAll('.formation-btn');
-  function setFormation(formation) {
-    game.formation = formation;
-    formationBtns.forEach(b => b.classList.toggle('active', b.dataset.formation === formation));
+  function setFormation(formation, announce = true) {
+    const normalized = FORMATION_DETAILS[formation] ? formation : 'line';
+    game.formation = normalized;
+    formationBtns.forEach(b => b.classList.toggle('active', b.dataset.formation === normalized));
+    updateFormationHelpText(normalized, formationHelpText);
+    dismissFormationHint(selectionPanel);
+    if (announce) game.flashMessage(`Formation: ${FORMATION_DETAILS[normalized].name} — ${FORMATION_DETAILS[normalized].summary}`);
   }
   formationBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      setFormation(btn.dataset.formation);
-      game.flashMessage(`Formation: ${btn.dataset.formation}`);
-    });
+    btn.addEventListener('click', () => setFormation(btn.dataset.formation));
   });
+  updateFormationHelpText(game.formation || 'line', formationHelpText);
 
   document.getElementById('selectAllBtn').addEventListener('click', () => {
-    const aliveUnits = game.playerUnits.filter(u => u.alive);
+    const aliveUnits = game.playerUnits.filter(u => u.alive && u.selectable !== false && !u.carried);
     if (aliveUnits.length === 0) { game.flashMessage('No units to select'); return; }
     for (const u of game.selectedUnits) u.setSelected(false);
+    game.selectedBuilding = null;
     game.selectedUnits = aliveUnits;
     for (const u of game.selectedUnits) u.setSelected(true);
+    game.updateSelectionUI?.();
     game.flashMessage(`Selected ${aliveUnits.length} units`);
   });
 
@@ -686,7 +833,7 @@ export function initUI(game) {
               <h3>Core Mechanics</h3>
               <div class="help-row"><span class="help-key">Build Units</span><span>Click unit buttons in Armory (bottom). Units spawn near your HQ.</span></div>
               <div class="help-row"><span class="help-key">Capture Bases</span><span>Move units to enemy bases. When HP reaches 0, base switches to your faction.</span></div>
-              <div class="help-row"><span class="help-key">Formations</span><span>Select units, choose formation (F1-F4), right-click to move in formation.</span></div>
+              <div class="help-row"><span class="help-key">Formations</span><span>Select 2+ units, tap a formation button for an explanation, then move to send each unit to its own slot.</span></div>
               <div class="help-row"><span class="help-key">Upgrades</span><span>Buy upgrades in Armory to permanently buff all player units.</span></div>
               <div class="help-row"><span class="help-key">Income</span><span>Earn passive income per owned base.</span></div>
             </div>
@@ -695,7 +842,7 @@ export function initUI(game) {
               <div class="help-row"><span class="help-key">Top Bar</span><span>Money, Bases, Units, Enemy count, and action buttons</span></div>
               <div class="help-row"><span class="help-key">Armory (bottom)</span><span>Build units and buy upgrades with hotkeys 1-9</span></div>
               <div class="help-row"><span class="help-key">Selection (left)</span><span>Shows selected unit portraits, types, combined stats</span></div>
-              <div class="help-row"><span class="help-key">Formations</span><span>Visual buttons in Selection panel for Line/Wedge/Square/Column</span></div>
+              <div class="help-row"><span class="help-key">Formations</span><span>Line = wide fire, Wedge = push, Square = compact hold, Column = chokepoints.</span></div>
             </div>
             <div class="help-panel-content" id="tab-quickstart" role="tabpanel" hidden>
               <h3>Quick Start</h3>
@@ -786,10 +933,10 @@ export function initUI(game) {
       }
       return;
     }
-    if (e.key === 'F1') { setFormation('line'); game.flashMessage('Formation: Line'); return; }
-    if (e.key === 'F2') { setFormation('wedge'); game.flashMessage('Formation: Wedge'); return; }
-    if (e.key === 'F3') { setFormation('square'); game.flashMessage('Formation: Square'); return; }
-    if (e.key === 'F4') { setFormation('column'); game.flashMessage('Formation: Column'); return; }
+    if (e.key === 'F1') { e.preventDefault(); setFormation('line'); return; }
+    if (e.key === 'F2') { e.preventDefault(); setFormation('wedge'); return; }
+    if (e.key === 'F3') { e.preventDefault(); setFormation('square'); return; }
+    if (e.key === 'F4') { e.preventDefault(); setFormation('column'); return; }
   });
 
   // === Affordability Check (200ms) ===
@@ -854,7 +1001,7 @@ export function initUI(game) {
     { title: 'Welcome to Low-Poly Command!', text: 'This tutorial will walk you through the basics. Click "Next" or "Skip" to begin.', highlight: null },
     { title: 'Step 1: Build Your Army', text: 'Click <strong>TANK</strong> or <strong>INFANTRY</strong> in the Armory (bottom) to build units. Press <span class="help-key">1</span> or <span class="help-key">2</span> as hotkeys.', highlight: '#armoryPanel' },
     { title: 'Step 2: Select Units', text: 'Click a unit or drag a box to select. Press <span class="help-key">Ctrl+A</span> for all. Selected units appear in the Selection panel.', highlight: '#selectionPanel' },
-    { title: 'Step 3: Move & Attack', text: 'Right-click to move. Right-click enemy to attack. Use <span class="help-key">F1-F4</span> for formations.', highlight: '#selectionPanel .formation-options' },
+    { title: 'Step 3: Move & Attack', text: 'Right-click or long-press to move/attack. Select 2+ units and tap a formation button to see what Line, Wedge, Square, or Column does.', highlight: '#selectionPanel .formation-options' },
     { title: 'Step 4: Capture Bases', text: 'Move units onto enemy bases to capture them. Earn income per base. Capture all to win!', highlight: null },
     { title: 'Step 5: Win the Game!', text: 'Destroy all enemy bases. Press <span class="help-key">H</span> for help anytime. Good luck, Commander!', highlight: null },
   ];
@@ -1025,6 +1172,7 @@ export function initUI(game) {
           </div>
         </div>
         <div class="settings-footer">
+          <button id="settingsRunTestsBtn" class="btn btn-green">Run Tests</button>
           <button id="settingsDefaultsBtn" class="btn btn-amber">Reset to Defaults</button>
         </div>
       </div>
@@ -1077,6 +1225,11 @@ export function initUI(game) {
       applySettings();
       game.flashMessage('Settings reset to defaults');
     });
+
+    // === Run Tests button ===
+    document.getElementById('settingsRunTestsBtn').addEventListener('click', function() {
+      runGameTests();
+    });
   }
 
   function toggleSettings(open) {
@@ -1088,6 +1241,168 @@ export function initUI(game) {
       modal.classList.add('hidden');
       game.paused = false;
     }
+  }
+
+  // === In-Browser Test Runner ===
+  function runGameTests() {
+    const results = [];
+    let passed = 0, failed = 0;
+
+    function test(name, fn) {
+      try {
+        const result = fn();
+        if (result === false) {
+          results.push({ name, ok: false, err: 'returned false' });
+          failed++;
+        } else {
+          results.push({ name, ok: true });
+          passed++;
+        }
+      } catch (e) {
+        results.push({ name, ok: false, err: e.message || String(e) });
+        failed++;
+      }
+    }
+
+    // ── DOM Elements ──
+    test('DOM: #armoryPanel exists', () => !!document.getElementById('armoryPanel'));
+    test('DOM: #selectionPanel exists', () => !!document.getElementById('selectionPanel'));
+    test('DOM: #topBar exists', () => !!document.getElementById('topBar'));
+    test('DOM: #settingsModal exists', () => !!document.getElementById('settingsModal'));
+    test('DOM: #helpModal exists', () => !!document.getElementById('helpModal'));
+    test('DOM: #selectionBox exists', () => !!document.getElementById('selectionBox'));
+    test('DOM: #money display exists', () => !!document.getElementById('money'));
+    test('DOM: #basesOwned display exists', () => !!document.getElementById('basesOwned'));
+    test('DOM: #unitCount display exists', () => !!document.getElementById('unitCount'));
+    test('DOM: Formation buttons exist', () => document.querySelectorAll('.formation-btn').length >= 4);
+    test('DOM: Unit buttons exist', () => document.querySelectorAll('.unitBtn').length > 0);
+    test('DOM: Tab buttons exist', () => document.querySelectorAll('.tab-btn').length >= 3);
+
+    // ── Game Systems ──
+    test('Game: pathfinder initialized', () => !!game.pathfinder);
+    test('Game: pathfinder has grid', () => !!game.pathfinder.grid || !!game.pathfinder.terrainGrid);
+    test('Game: terrain system exists', () => !!game.terrain);
+    test('Game: scene exists', () => !!game.scene);
+    test('Game: camera exists', () => !!game.camera);
+    test('Game: playerUnits is array', () => Array.isArray(game.playerUnits));
+    test('Game: enemyUnits is array', () => Array.isArray(game.enemyUnits));
+    test('Game: bases is array', () => Array.isArray(game.bases));
+    test('Game: selectedUnits is array', () => Array.isArray(game.selectedUnits));
+    test('Game: projectiles is array', () => Array.isArray(game.projectiles));
+
+    // ── Config / Unit Types ──
+    test('Config: UNIT_TYPES infantry exists', () => !!UNIT_TYPES.infantry);
+    test('Config: UNIT_TYPES tank exists', () => !!UNIT_TYPES.tank);
+    test('Config: UNIT_TYPES transport exists', () => !!UNIT_TYPES.transport);
+    test('Config: UNIT_TYPES destroyer exists', () => !!UNIT_TYPES.destroyer);
+    test('Config: UNIT_TYPES fighter exists', () => !!UNIT_TYPES.fighter);
+    test('Config: Transport capacity is 10', () => (UNIT_TYPES.transport && UNIT_TYPES.transport.transportCapacity) === 10);
+    test('Config: All land units have range', () => ['infantry','tank','artillery'].every(t => UNIT_TYPES[t] && UNIT_TYPES[t].range > 0));
+    test('Config: All units have hp > 0', () => Object.values(UNIT_TYPES).every(u => u.hp > 0));
+    test('Config: All units have speed >= 0', () => Object.values(UNIT_TYPES).every(u => u.speed >= 0));
+    test('Config: Combat units have damage', () => Object.values(UNIT_TYPES).filter(u => !u.nonCombatant && !u.healer && !u.escortBomber && u.damage !== undefined).every(u => u.damage > 0));
+
+    // ── Pathfinder ──
+    test('Pathfinder: findPath is function', () => typeof game.pathfinder.findPath === 'function');
+    test('Pathfinder: worldToGrid is function', () => typeof game.pathfinder.worldToGrid === 'function');
+    test('Pathfinder: gridToWorld is function', () => typeof game.pathfinder.gridToWorld === 'function');
+    test('Pathfinder: findNearestWalkable is function', () => typeof game.pathfinder.findNearestWalkable === 'function');
+
+    // ── Unit Methods ──
+    test('Unit: moveTo is function', () => {
+      const u = game.playerUnits[0] || game.enemyUnits[0];
+      return u ? typeof u.moveTo === 'function' : true; // skip if no units
+    });
+    test('Unit: update is function', () => {
+      const u = game.playerUnits[0] || game.enemyUnits[0];
+      return u ? typeof u.update === 'function' : true;
+    });
+    test('Unit: attack is function', () => {
+      const u = game.playerUnits[0] || game.enemyUnits[0];
+      return u ? typeof u.attack === 'function' : true;
+    });
+
+    // ── Game Methods ──
+    test('Game: computeFormation is function', () => typeof game.computeFormation === 'function');
+    test('Game: assignFormationMoveTargets is function', () => typeof game.assignFormationMoveTargets === 'function');
+    test('Game: flashMessage is function', () => typeof game.flashMessage === 'function');
+    test('Game: createBases is function', () => typeof game.createBases === 'function');
+    test('Game: update is function', () => typeof game.update === 'function');
+
+    // ── Pathfinder Integration ──
+    test('Pathfinder: land path findable', () => {
+      if (!game.pathfinder || !game.bases || game.bases.length < 2) return true;
+      const b1 = game.bases[0];
+      const b2 = game.bases.find(b => b !== b1 && b.alive);
+      if (!b2) return true;
+      const p = game.pathfinder.findPath(b1.mesh.position, b2.mesh.position, 'land');
+      return Array.isArray(p);
+    });
+
+    // ── Formation Computation ──
+    test('Formation: computeFormation returns array', () => {
+      if (!game.computeFormation) return true;
+      const pos = new THREE.Vector3(0, 0, 0);
+      const result = game.computeFormation(pos, 4, 'line');
+      return Array.isArray(result);
+    });
+    test('Formation: computeFormation correct count', () => {
+      if (!game.computeFormation) return true;
+      const pos = new THREE.Vector3(0, 0, 0);
+      const result = game.computeFormation(pos, 6, 'square');
+      return result.length === 6;
+    });
+
+    // ── UI Functions ──
+    test('UI: flashMessage callable', () => typeof flashMessage === 'function');
+    test('UI: toggleSettings callable', () => typeof toggleSettings === 'function');
+
+    // ── Button Event Handlers ──
+    test('Buttons: settings button clickable', () => {
+      const btn = document.querySelector('[id*="settings"]') || document.querySelector('.topBtn');
+      return !!btn;
+    });
+
+    // ── Build results panel ──
+    let existing = document.getElementById('testResultsPanel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'testResultsPanel';
+    panel.className = 'test-results-panel';
+
+    const total = passed + failed;
+    const summaryClass = failed === 0 ? 'test-summary pass' : 'test-summary fail';
+
+    let html = `
+      <div class="test-results-header">
+        <h2>Test Results</h2>
+        <button id="testResultsClose" class="settings-close" title="Close">×</button>
+      </div>
+      <div class="${summaryClass}">
+        <span class="test-count">${passed}/${total} passed</span>
+        ${failed > 0 ? `<span class="test-failed-count">${failed} failed</span>` : '<span class="test-all-pass">ALL PASS</span>'}
+      </div>
+      <div class="test-results-list">
+    `;
+
+    for (const r of results) {
+      const icon = r.ok ? '✓' : '✗';
+      const cls = r.ok ? 'test-pass' : 'test-fail';
+      html += `<div class="test-row ${cls}"><span class="test-icon">${icon}</span><span class="test-name">${r.name}</span>`;
+      if (r.err) html += `<span class="test-err">${r.err}</span>`;
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+    panel.innerHTML = html;
+
+    const settingsModal = document.getElementById('settingsModal');
+    settingsModal.appendChild(panel);
+
+    document.getElementById('testResultsClose').addEventListener('click', () => panel.remove());
+
+    game.flashMessage(`Tests: ${passed}/${total} passed${failed > 0 ? `, ${failed} FAILED` : ''}`);
   }
 
   createSettingsModal();

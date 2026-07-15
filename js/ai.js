@@ -1,6 +1,6 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS } from './config.js?v=5';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD } from './config.js?v=7';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
@@ -353,6 +353,52 @@ export function initAI(game) {
     reinforceBase(base);
   };
 
+  // ===== Task 9: Amphibious attack-wave synchronization =====
+  let _nextAIWaveId = 1;
+
+  function dispatchGroundWave(groundAttackers, target) {
+    if (!groundAttackers.length) return;
+
+    // Split the wave into "can already walk there" vs. "needs a sea crossing".
+    const walksThere = [];
+    const needsShip = [];
+    for (const u of groundAttackers) {
+      const landPath = game.pathfinder.findPath(u.mesh.position, target.mesh.position, 'land');
+      (landPath ? walksThere : needsShip).push(u);
+    }
+
+    for (const u of walksThere) u.moveTo(target.mesh.position.clone(), true);
+    if (!needsShip.length) return;
+
+    // One shared embark/disembark plan for the whole boatload
+    const centroid = needsShip
+      .reduce((acc, u) => acc.add(u.mesh.position), new THREE.Vector3())
+      .divideScalar(needsShip.length);
+    const plan = game.pathfinder.findTransportPath(centroid, target.mesh.position);
+
+    if (!plan || !plan.needsTransport) {
+      for (const u of needsShip) u.moveTo(target.mesh.position.clone(), true);
+      return;
+    }
+
+    const waveId = _nextAIWaveId++;
+    let boarded = 0;
+    for (const u of needsShip) {
+      if (u.assignSharedTransportPlan(plan, target.mesh.position)) {
+        u._aiWaveId = waveId;
+        boarded++;
+      } else {
+        u.moveTo(target.mesh.position.clone(), true);
+      }
+    }
+
+    if (boarded > 0) {
+      const shipsNeeded = Math.max(1, Math.ceil(boarded / UNIT_TYPES.transport.transportCapacity));
+      game.registerAIWave(waveId, shipsNeeded);
+      console.log(`[DEBUG AI] Amphibious wave #${waveId}: ${boarded} troops need ${shipsNeeded} transport(s), shared landing (${plan.disembarkPoint.x.toFixed(0)}, ${plan.disembarkPoint.z.toFixed(0)})`);
+    }
+  }
+
   // NEW: Launch staged attack
   function launchStagedAttack() {
     const playerBases = game.bases.filter(b => b.faction === 'player');
@@ -371,7 +417,7 @@ export function initAI(game) {
 
     // Ground units: attack-move toward target so they engage enemies along the path
     const groundAttackers = available.filter(u => u.domain !== 'air');
-    for (const u of groundAttackers) u.moveTo(target.mesh.position.clone(), true);
+    dispatchGroundWave(groundAttackers, target);
 
     game.flashMessage(`Enemy attack inbound! ${available.length} units detected`);
 

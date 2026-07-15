@@ -1,6 +1,6 @@
 // game.js — Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT } from './config.js?v=6';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT, AI_WAVE_MAX_HOLD } from './config.js?v=7';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage, acquireFromPool, releaseToPool } from './combat.js?v=3';
@@ -63,6 +63,12 @@ export class Unit {
 
     // Transport path data (from findTransportPath)
     this._transportData = null;
+    // Task 7: prevents _updateTransport() from hijacking a manual order
+    this._manualOrder = false;
+    // Task 8: land unit tagged with the transport it should board
+    this._boardingTarget = null;
+    // Task 9: set by enemy AI (ai.js dispatchGroundWave()) for synchronized amphibious waves
+    this._aiWaveId = null;
 
     // Path arrow line visualization
     this._pathLine = null;
@@ -186,6 +192,14 @@ export class Unit {
     this._lastDx = 0;
     this._lastDz = 0;
 
+    // Task 10: opportunistic target during plain moves
+    this._opportunisticTarget = null;
+    this._savedMoveTarget = null;
+    // Task 11: base-range target during plain moves
+    this._baseRangeTarget = null;
+    this._savedMoveTargetBase = undefined;
+    this._savedPathBase = null;
+
     game.scene.add(this.mesh);
   }
 
@@ -306,6 +320,24 @@ export class Unit {
     this.state = 'moving';
   }
 
+  /**
+   * Task 9: sibling of moveTo()'s needsTransport branch, but takes a
+   * transport plan that's already been computed ONCE for a whole AI attack
+   * wave (see ai.js dispatchGroundWave()) instead of calling
+   * findTransportPath() from this unit's own position.
+   */
+  assignSharedTransportPlan(plan, finalTargetPos, attackMove = true) {
+    const walkToShip = this.game.pathfinder.findPath(this.mesh.position, plan.embarkPoint, 'land');
+    if (!walkToShip || walkToShip.length === 0) return false;
+    this.attackMove = attackMove;
+    this.attackMoveDest = finalTargetPos.clone();
+    this._transportData = plan;
+    this.path = walkToShip;
+    this.moveTarget = this.path.shift();
+    this.state = 'moving';
+    return true;
+  }
+
   attack(enemy) {
     console.log(`[DEBUG UNIT] ${this.type} (${this.faction}) attacking ${enemy.type || 'base'}`);
     this.target = enemy;
@@ -412,6 +444,20 @@ export class Unit {
 
   update(dt) {
     if (!this.alive) { this.updateDeath(dt); return; }
+    // Task 10: opportunistic target check while moving
+    this._acquireOpportunisticTarget(this.game);
+    this._restoreMoveTargetIfClear();
+    // Task 11: stop at own weapon range vs bases
+    this._acquireBaseRangeTarget();
+    // Task 8: auto-board if close to boarding target
+    if (this.domain === 'land' && !this.carried && this._boardingTarget && this._boardingTarget.alive) {
+      const d = this.mesh.position.distanceTo(this._boardingTarget.mesh.position);
+      if (d < 14) {
+        if (this._boardingTarget.loadUnit(this)) {
+          this._boardingTarget = null;
+        }
+      }
+    }
     this.cooldown -= dt;
     if (this.canLaunch) this.launchCooldown -= dt;
     if (this._pushCooldown > 0) this._pushCooldown -= dt;
@@ -948,6 +994,8 @@ export class Unit {
 
     // Phase 1: Empty ship looking for unclaimed troops
     if (this.carriedUnits.length === 0 && !this._disembarkPoint && !this._assignedEmbarkPoint) {
+      // Task 7: respect explicit player orders — don't hijack a ship mid-journey
+      if (this._manualOrder && this.state === 'moving') return;
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       let bestDist = Infinity;
       let bestUnit = null;
@@ -979,18 +1027,24 @@ export class Unit {
         this._assignedEmbarkPoint = embarkTarget;
         this._transportData = bestUnit._transportData;
         this._boardingTimer = 0;
-        // Claim ALL units waiting at this embark point
+        // Task 9: reset before re-claiming
+        this._aiWaveId = null;
+        // Claim units waiting at this embark point, up to this ship's capacity
+        let claimed = 0;
         for (const u of allUnits) {
+          if (claimed >= this.transportCapacity) break;
           if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip) {
             const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
-            if (embarkDist < 5) { // same embark point
+            if (embarkDist < 5) {
               u._claimedByShip = this;
+              if (u._aiWaveId != null) this._aiWaveId = u._aiWaveId;
+              claimed++;
             }
           }
         }
         console.log(`[DEBUG TRANSPORT] Ship moving to pick up troops at (${this._assignedEmbarkPoint.x.toFixed(0)}, ${this._assignedEmbarkPoint.z.toFixed(0)})`);
       } else {
-        if (this.state === 'idle') this._retreatToFriendlyBase();
+        if (this.state === 'idle' && !this._manualOrder) this._retreatToFriendlyBase();
       }
       return;
     }
@@ -1012,6 +1066,8 @@ export class Unit {
       // Sail when: all claimed troops are aboard, ship is full, or timed out
       const allClaimedBoarded = claimedWaiting === 0 && this.carriedUnits.length > 0;
       if (allClaimedBoarded || isFull || (timedOut && this.carriedUnits.length > 0)) {
+        // Task 9: hold for sibling ships in the same AI wave
+        if (this.game.shouldHoldForAIWave(this)) return;
         console.log(`[DEBUG TRANSPORT] Setting sail! Troops aboard: ${this.carriedUnits.length}, claimed remaining: ${claimedWaiting}`);
         // Save disembark data before any moveTo() might clear _transportData
         const disembarkPt = this._transportData?.disembarkPoint?.clone();
@@ -2128,6 +2184,89 @@ export class Unit {
       this._deathLabel = null;
     }
   }
+
+  // Task 10: opportunistic target acquisition while moving
+  _acquireOpportunisticTarget(game) {
+    if (this.attackOrder) return;
+    if (UNIT_TYPES[this.type]?.nonCombatant) return;
+    if (['embarking', 'embarked', 'disembarking'].includes(this.state)) return;
+    const myRange = UNIT_TYPES[this.type]?.range ?? 0;
+    if (myRange <= 0) return;
+    if (this._opportunisticTarget && !this._opportunisticTarget.isDead && this._distanceTo(this._opportunisticTarget) <= myRange) {
+      this.target = this._opportunisticTarget;
+      return;
+    }
+    if (this._opportunisticTarget) {
+      this._opportunisticTarget = null;
+      this.target = null;
+    }
+    if (!this.moveTarget) return;
+    const myEnemies = this.faction === 'player' ? (game.enemyUnits || []) : (game.playerUnits || []);
+    const enemies = myEnemies.filter(u => u.owner !== this.owner && !u.isDead && (UNIT_TYPES[this.type]?.targetDomains ?? []).includes(u.domain ?? UNIT_TYPES[u.type]?.domain));
+    let closest = null;
+    let closestDist = Infinity;
+    for (const enemy of enemies) {
+      const d = this._distanceTo(enemy);
+      if (d <= myRange && d < closestDist) { closest = enemy; closestDist = d; }
+    }
+    if (closest) {
+      this._opportunisticTarget = closest;
+      this.target = closest;
+      if (!this._savedMoveTarget) this._savedMoveTarget = { ...this.moveTarget };
+      this.moveTarget = null;
+    }
+  }
+
+  _restoreMoveTargetIfClear() {
+    if (!this._savedMoveTarget) return;
+    if (!this._opportunisticTarget && !this.target) {
+      this.moveTarget = this._savedMoveTarget;
+      this._savedMoveTarget = null;
+    }
+  }
+
+  // Task 11: stop at own weapon range when an enemy base is in range
+  _acquireBaseRangeTarget() {
+    if (this._opportunisticTarget && !this._opportunisticTarget.isDead) return;
+    if (this.attackOrder) return;
+    if (UNIT_TYPES[this.type]?.nonCombatant) return;
+    if (['embarking', 'embarked', 'disembarking'].includes(this.state)) return;
+    const myRange = UNIT_TYPES[this.type]?.range ?? 0;
+    if (myRange <= 0) return;
+    if (this._baseRangeTarget) {
+      if (!this._baseRangeTarget.alive) {
+        this._baseRangeTarget = null;
+        this.target = null;
+        if (this._savedMoveTargetBase !== undefined) { this.moveTarget = this._savedMoveTargetBase; this._savedMoveTargetBase = undefined; }
+        if (this._savedPathBase) { this.path = this._savedPathBase; this._savedPathBase = null; }
+        return;
+      }
+      const d = this._dist2d(this._baseRangeTarget.mesh.position);
+      if (d <= myRange) { this.target = this._baseRangeTarget; return; }
+      this._baseRangeTarget = null;
+      this.target = null;
+      if (this._savedMoveTargetBase !== undefined) { this.moveTarget = this._savedMoveTargetBase; this._savedMoveTargetBase = undefined; }
+      if (this._savedPathBase) { this.path = this._savedPathBase; this._savedPathBase = null; }
+      return;
+    }
+    if (!this.moveTarget && !(this.path && this.path.length > 0)) return;
+    const enemyBases = (this.game.bases || []).filter(b => b.alive && b.faction !== this.faction);
+    let closest = null;
+    let closestDist = Infinity;
+    for (const base of enemyBases) {
+      const d = this._dist2d(base.mesh.position);
+      if (d <= myRange && d < closestDist) { closest = base; closestDist = d; }
+    }
+    if (closest) {
+      this._baseRangeTarget = closest;
+      this.target = closest;
+      this._savedMoveTargetBase = this.moveTarget ? { ...this.moveTarget } : null;
+      this._savedPathBase = this.path ? [...this.path] : [];
+      this.moveTarget = null;
+      this.path = [];
+      this.state = 'attacking';
+    }
+  }
 }
 
 // ============================================================
@@ -2332,6 +2471,8 @@ export class Game {
     this.bases = [];
     this.projectiles = [];
     this.deadUnits = [];
+    // Task 9: registry of in-flight AI amphibious attack waves
+    this._aiWaves = new Map();
 
     this.selectedUnits = [];
     this.formation = 'line';
@@ -3040,7 +3181,7 @@ export class Game {
         }
 
         // 3. Spawn ships: 1 per 4 troops, minimum 1
-        const neededShips = Math.max(1, Math.ceil(waitingCount / 4));
+        const neededShips = Math.max(1, Math.ceil(waitingCount / (UNIT_TYPES.transport.transportCapacity || 10)));
         const shipsToSpawn = neededShips - activeShips;
         if (shipsToSpawn > 0) {
           const cost = UNIT_TYPES.transport.cost;
@@ -3074,6 +3215,26 @@ export class Game {
     }
   }
 
+  // Task 9: AI attack-wave transport synchronization
+  registerAIWave(waveId, shipsNeeded) {
+    this._aiWaves.set(waveId, { shipsNeeded, readyShips: new Set(), firstReadyAt: null });
+  }
+
+  shouldHoldForAIWave(ship) {
+    if (ship._aiWaveId == null) return false;
+    const wave = this._aiWaves.get(ship._aiWaveId);
+    if (!wave) return false;
+    wave.readyShips.add(ship);
+    if (wave.firstReadyAt == null) wave.firstReadyAt = this._currentTime;
+    const allReady = wave.readyShips.size >= wave.shipsNeeded;
+    const waitedTooLong = (this._currentTime - wave.firstReadyAt) > AI_WAVE_MAX_HOLD;
+    if (allReady || waitedTooLong) {
+      this._aiWaves.delete(ship._aiWaveId);
+      return false;
+    }
+    return true;
+  }
+
   checkWinCondition() {
     const playerBases = this.bases.filter(b => b.faction === 'player').length;
     const enemyBases  = this.bases.filter(b => b.faction === 'enemy').length;
@@ -3089,38 +3250,199 @@ export class Game {
     document.getElementById('endTitle').textContent = victory ? '🏆 Victory!' : '💀 Defeat';
   }
 
-  computeFormation(center, count, formation) {
-    const spacing = 6;
-    const positions = [];
-    switch (formation) {
-      case 'line':
-        for (let i=0;i<count;i++)
-          positions.push(new THREE.Vector3(center.x + (i-(count-1)/2)*spacing, 0, center.z));
-        break;
-      case 'column':
-        for (let i=0;i<count;i++)
-          positions.push(new THREE.Vector3(center.x, 0, center.z + (i-(count-1)/2)*spacing));
-        break;
-      case 'wedge':
-        for (let i=0;i<count;i++) {
-          const row = Math.floor(i/2);
-          const side = i%2 === 0 ? -1 : 1;
-          positions.push(new THREE.Vector3(center.x + side*row*spacing, 0, center.z - row*spacing));
-        }
-        break;
-      case 'square':
-        const cols = Math.ceil(Math.sqrt(count));
-        for (let i=0;i<count;i++) {
-          const r = Math.floor(i/cols), c = i%cols;
-          positions.push(new THREE.Vector3(
-            center.x + (c-(cols-1)/2)*spacing,
-            0,
-            center.z + (r-(cols-1)/2)*spacing
-          ));
-        }
-        break;
+  _formationUnitsCenter(units) {
+    const live = (units || []).filter(u => u?.alive && u.mesh);
+    if (live.length === 0) return new THREE.Vector3();
+    const center = new THREE.Vector3();
+    for (const u of live) center.add(u.mesh.position);
+    return center.multiplyScalar(1 / live.length);
+  }
+
+  _formationForward(units, targetCenter) {
+    const from = this._formationUnitsCenter(units);
+    const dx = targetCenter.x - from.x;
+    const dz = targetCenter.z - from.z;
+    const len = Math.hypot(dx, dz);
+    if (len > 0.001) return new THREE.Vector3(dx / len, 0, dz / len);
+    return new THREE.Vector3(0, 0, -1);
+  }
+
+  _formationSpacing(units) {
+    if (!Array.isArray(units) || units.length === 0) return 7;
+    let spacing = 6.5;
+    for (const u of units) {
+      if (u.domain === 'sea') spacing = Math.max(spacing, 13);
+      else if (u.domain === 'air') spacing = Math.max(spacing, 11);
     }
-    return positions;
+    if (units.length > 10) spacing += 1;
+    return spacing;
+  }
+
+  _formationPositionFromOffset(center, localX, localZ, forward) {
+    const f = forward?.clone ? forward.clone() : new THREE.Vector3(0, 0, -1);
+    f.y = 0;
+    if (Math.hypot(f.x, f.z) < 0.001) f.set(0, 0, -1);
+    f.normalize();
+
+    // Right vector on the X/Z plane. localZ is forward/back along travel;
+    // localX is the cross-line offset.
+    const right = new THREE.Vector3(f.z, 0, -f.x);
+    return new THREE.Vector3(
+      center.x + right.x * localX + f.x * localZ,
+      center.y ?? 0,
+      center.z + right.z * localX + f.z * localZ
+    );
+  }
+
+  computeFormation(center, membersOrCount, formation = this.formation, options = {}) {
+    const units = Array.isArray(membersOrCount) ? membersOrCount : null;
+    const count = units ? units.length : membersOrCount;
+    const spacing = options.spacing || this._formationSpacing(units);
+    const forward = options.forward || (units ? this._formationForward(units, center) : new THREE.Vector3(0, 0, -1));
+    const mode = formation && formation !== 'none' ? formation : 'spread';
+    const offsets = [];
+
+    if (count <= 0) return [];
+
+    switch (mode) {
+      case 'line':
+        for (let i = 0; i < count; i++) {
+          offsets.push({ x: (i - (count - 1) / 2) * spacing, z: 0 });
+        }
+        break;
+
+      case 'column':
+        for (let i = 0; i < count; i++) {
+          offsets.push({ x: 0, z: (i - (count - 1) / 2) * -spacing });
+        }
+        break;
+
+      case 'wedge': {
+        offsets.push({ x: 0, z: 0 });
+        let placed = 1;
+        let row = 1;
+        while (placed < count) {
+          const rowDepth = -row * spacing;
+          const rowWidth = row * spacing * 0.75;
+          offsets.push({ x: -rowWidth, z: rowDepth });
+          placed++;
+          if (placed >= count) break;
+          offsets.push({ x: rowWidth, z: rowDepth });
+          placed++;
+          row++;
+        }
+        break;
+      }
+
+      case 'square':
+      case 'spread':
+      default: {
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        for (let i = 0; i < count; i++) {
+          const r = Math.floor(i / cols);
+          const c = i % cols;
+          offsets.push({
+            x: (c - (cols - 1) / 2) * spacing,
+            z: (r - (rows - 1) / 2) * spacing
+          });
+        }
+        break;
+      }
+    }
+
+    return offsets.map(o => this._formationPositionFromOffset(center, o.x, o.z, forward));
+  }
+
+  _formationCellKey(domain, gx, gy) {
+    return `${domain}:${gx}:${gy}`;
+  }
+
+  _resolveFormationTargetForUnit(target, unit, reservedCells) {
+    const out = target.clone();
+    if (!unit || unit.domain === 'air' || !this.pathfinder) {
+      if (unit?.stats?.altitude) out.y = unit.stats.altitude;
+      return out;
+    }
+
+    const domain = unit.domain === 'sea' ? 'sea' : 'land';
+    const start = this.pathfinder.worldToGrid(out.x, out.z);
+    const queue = [{ gx: start.gx, gy: start.gy, dist: 0 }];
+    const visited = new Set([`${start.gx},${start.gy}`]);
+    const dirs = [
+      [0,0], [1,0], [-1,0], [0,1], [0,-1],
+      [1,1], [-1,1], [1,-1], [-1,-1]
+    ];
+    const maxRadius = Math.max(4, Math.ceil(54 / this.pathfinder.cell));
+    let chosen = null;
+
+    let qi = 0;
+    while (qi < queue.length) {
+      const cur = queue[qi++];
+      if (cur.dist > maxRadius) break;
+
+      const key = this._formationCellKey(domain, cur.gx, cur.gy);
+      if (this.pathfinder.walkable(cur.gx, cur.gy, domain) && !reservedCells.has(key)) {
+        chosen = cur;
+        break;
+      }
+
+      for (const [dx, dy] of dirs) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cur.gx + dx;
+        const ny = cur.gy + dy;
+        const visitKey = `${nx},${ny}`;
+        if (!this.pathfinder.inBounds(nx, ny) || visited.has(visitKey)) continue;
+        visited.add(visitKey);
+        queue.push({ gx: nx, gy: ny, dist: cur.dist + 1 });
+      }
+    }
+
+    if (!chosen) chosen = this.pathfinder.findNearestWalkable(start.gx, start.gy, domain);
+    if (!chosen) return out;
+
+    reservedCells.add(this._formationCellKey(domain, chosen.gx, chosen.gy));
+    const w = this.pathfinder.gridToWorld(chosen.gx, chosen.gy);
+    return new THREE.Vector3(w.x, unit.mesh.position.y ?? 0, w.z);
+  }
+
+  assignFormationMoveTargets(units, center, formation = this.formation) {
+    const movable = (units || []).filter(u => u?.alive && !u.carried && u.stats?.speed !== 0);
+    if (movable.length === 0) return [];
+
+    const forward = this._formationForward(movable, center);
+    const rawSlots = this.computeFormation(center, movable, formation, { forward });
+    const remainingUnits = [...movable];
+    const remainingSlots = rawSlots.map((position, index) => ({ position, index }));
+    const reservedCells = new Set();
+    const assignments = [];
+
+    // Stable greedy assignment keeps nearby units heading to nearby slots, so
+    // group movement looks cohesive and avoids units crossing through each other.
+    while (remainingUnits.length > 0 && remainingSlots.length > 0) {
+      let bestU = 0;
+      let bestS = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < remainingUnits.length; i++) {
+        for (let j = 0; j < remainingSlots.length; j++) {
+          const d = remainingUnits[i].mesh.position.distanceTo(remainingSlots[j].position);
+          if (d < bestD) {
+            bestD = d;
+            bestU = i;
+            bestS = j;
+          }
+        }
+      }
+
+      const unit = remainingUnits[bestU];
+      const slot = remainingSlots[bestS];
+      const target = this._resolveFormationTargetForUnit(slot.position, unit, reservedCells);
+      assignments.push({ unit, target, slotIndex: slot.index, formation: formation || 'spread' });
+      remainingUnits.splice(bestU, 1);
+      remainingSlots.splice(bestS, 1);
+    }
+
+    return assignments.sort((a, b) => a.slotIndex - b.slotIndex);
   }
 
   _applySoftCollision(units) {

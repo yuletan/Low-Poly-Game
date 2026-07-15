@@ -9,16 +9,21 @@ export class Pathfinder {
     this.cell    = GRID_CELL;
     this.terrainGrid = new Array(this.size * this.size);
 
-    // Bake terrain and mountains into the grid once for fast lookup
+    // Task 12: keep paths away from obstacle edges.  The grid is still baked
+    // once at startup, so normal path queries do not recompute obstacle data.
+    this.obstacleClearance = Math.max(3, this.cell * 0.45);
+
+    // Bake terrain and an inflated mountain footprint into the grid once for
+    // fast lookup.  The slight inflation prevents units from being smoothed
+    // directly along the visual mountain rim, which caused zigzag/stuck cases.
     for (let gy = 0; gy < this.size; gy++) {
       for (let gx = 0; gx < this.size; gx++) {
         const { x, z } = this.gridToWorld(gx, gy);
         let t = terrain.getTerrainAt(x, z);
 
-        // Bake mountains into the grid as blocking terrain
         if (terrain.mountains) {
           for (const mt of terrain.mountains) {
-            if (Math.hypot(x - mt.x, z - mt.z) < mt.r) {
+            if (Math.hypot(x - mt.x, z - mt.z) < mt.r + this.obstacleClearance) {
               t = TERRAIN.MOUNTAIN;
               break;
             }
@@ -48,19 +53,47 @@ export class Pathfinder {
 
   inBounds(gx, gy) { return gx >= 0 && gy >= 0 && gx < this.size && gy < this.size; }
 
+  terrainAtGrid(gx, gy) {
+    if (!this.inBounds(gx, gy)) return null;
+    return this.terrainGrid[gy * this.size + gx];
+  }
+
+  terrainAllows(t, domain) {
+    if (domain === 'air') return true;
+    if (domain === 'sea') return t === TERRAIN.SEA || t === TERRAIN.COAST;
+
+    // Task 12: keep this in sync with Unit.canEnter().  Land units can fight
+    // over mountain terrain for bonuses, but they should not path through the
+    // baked mountain blockers themselves.
+    if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST;
+    return false;
+  }
+
   walkable(gx, gy, domain) {
     if (!this.inBounds(gx, gy)) return false;
-    const t = this.terrainGrid[gy * this.size + gx];
-    if (domain === 'air') return true;
-    if (domain === 'sea') {
-      const valid = t === TERRAIN.SEA || t === TERRAIN.COAST;
-      if (!valid) {
-        console.warn(`[DEBUG TRANSPORT] Sea pathfinding rejected tile (${gx},${gy}) — terrain: ${t}`);
+    return this.terrainAllows(this.terrainGrid[gy * this.size + gx], domain);
+  }
+
+  // Adds a tiny cost near blocked cells so A* prefers lanes with clearance.
+  // This reduces edge-hugging and visible sawtooth paths around mountains
+  // without changing the baked grid or doing expensive per-query geometry work.
+  terrainPenalty(gx, gy, domain) {
+    if (domain === 'air') return 0;
+
+    let blockedNeighbors = 0;
+    const dirs = [
+      [1,0],[-1,0],[0,1],[0,-1],
+      [1,1],[-1,1],[1,-1],[-1,-1]
+    ];
+
+    for (const [dx, dy] of dirs) {
+      const nx = gx + dx, ny = gy + dy;
+      if (!this.inBounds(nx, ny) || !this.terrainAllows(this.terrainAtGrid(nx, ny), domain)) {
+        blockedNeighbors++;
       }
-      return valid;
     }
-    if (domain === 'land') return t === TERRAIN.LAND || t === TERRAIN.COAST || t === TERRAIN.MOUNTAIN;
-    return false;
+
+    return Math.min(0.75, blockedNeighbors * 0.08);
   }
 
   // Amphibious Pathfinding for Troop Transports
@@ -192,18 +225,28 @@ export class Pathfinder {
 
     let s = this.worldToGrid(startWorld.x, startWorld.z);
     let g = this.worldToGrid(endWorld.x, endWorld.z);
+    let startAnchor = startWorld.clone();
+    let finalTarget = endWorld.clone();
 
     if (!this.walkable(s.gx, s.gy, domain)) {
       s = this.findNearestWalkable(s.gx, s.gy, domain);
       if (!s) return null;
+      const w = this.gridToWorld(s.gx, s.gy);
+      startAnchor = new THREE.Vector3(w.x, startWorld.y ?? 0, w.z);
     }
 
     if (!this.walkable(g.gx, g.gy, domain)) {
       g = this.findNearestWalkable(g.gx, g.gy, domain);
       if (!g) return null;
+      const w = this.gridToWorld(g.gx, g.gy);
+      finalTarget = new THREE.Vector3(w.x, endWorld.y ?? 0, w.z);
     }
 
-    if (s.gx === g.gx && s.gy === g.gy) return [endWorld.clone()];
+    if (s.gx === g.gx && s.gy === g.gy) return [finalTarget.clone()];
+
+    if (smooth && this.hasLineOfSight(startAnchor, finalTarget, domain)) {
+      return [finalTarget.clone()];
+    }
 
     const open = new MinHeap();
     const closed = new Set();
@@ -223,8 +266,9 @@ export class Pathfinder {
     const MAX_ITER = this.size * this.size;
     while (!open.isEmpty() && iterations++ < MAX_ITER) {
       const cur = open.pop();
+      if (closed.has(cur.key)) continue;
       if (cur.gx === g.gx && cur.gy === g.gy) {
-        return this.reconstruct(cameFrom, cur.key, endWorld, domain, smooth);
+        return this.reconstruct(cameFrom, cur.key, startAnchor, finalTarget, domain, smooth);
       }
       closed.add(cur.key);
       for (const [dx, dy, cost] of NEIGHBORS) {
@@ -236,7 +280,9 @@ export class Pathfinder {
         }
         const nk = key(nx, ny);
         if (closed.has(nk)) continue;
-        const tentativeG = (gScore.get(cur.key) ?? Infinity) + cost;
+
+        const clearancePenalty = this.terrainPenalty(nx, ny, domain);
+        const tentativeG = (gScore.get(cur.key) ?? Infinity) + cost + clearancePenalty;
         if (tentativeG < (gScore.get(nk) ?? Infinity)) {
           cameFrom.set(nk, cur.key);
           gScore.set(nk, tentativeG);
@@ -253,7 +299,7 @@ export class Pathfinder {
     return (dx + dy) + (1.414 - 2) * Math.min(dx, dy);
   }
 
-  reconstruct(cameFrom, endKey, endWorld, domain, smooth) {
+  reconstruct(cameFrom, endKey, startWorld, endWorld, domain, smooth) {
     const path = [];
     let k = endKey;
     while (k !== undefined) {
@@ -264,9 +310,33 @@ export class Pathfinder {
       k = cameFrom.get(k);
     }
     path.reverse();
+    if (path.length > 0) path[0] = startWorld.clone();
     if (path.length > 0) path[path.length - 1] = endWorld.clone();
-    if (smooth) return this.smoothPath(path, domain);
-    return path;
+
+    const simplified = this.removeRedundantWaypoints(path);
+    if (smooth) return this.smoothPath(simplified, domain);
+    return simplified;
+  }
+
+  removeRedundantWaypoints(path) {
+    if (path.length < 3) return path;
+
+    const out = [path[0]];
+    for (let i = 1; i < path.length - 1; i++) {
+      const a = out[out.length - 1];
+      const b = path[i];
+      const c = path[i + 1];
+      const abx = b.x - a.x, abz = b.z - a.z;
+      const bcx = c.x - b.x, bcz = c.z - b.z;
+      const abLen = Math.hypot(abx, abz) || 1;
+      const bcLen = Math.hypot(bcx, bcz) || 1;
+      const cross = Math.abs((abx / abLen) * (bcz / bcLen) - (abz / abLen) * (bcx / bcLen));
+
+      // Drop nearly collinear grid jitter before the LOS smoother runs.
+      if (cross > 0.08) out.push(b);
+    }
+    out.push(path[path.length - 1]);
+    return out;
   }
 
   smoothPath(path, domain) {
@@ -282,28 +352,39 @@ export class Pathfinder {
       out.push(path[j]);
       i = j;
     }
-    return out;
+    return this.removeRedundantWaypoints(out);
   }
 
-  // Strict grid-based Bresenham Line of Sight with denser sampling
-  // Prevents the path smoother from cutting corners through land masses.
+  // Clearance-aware line-of-sight.  Samples the centerline and two narrow side
+  // rails so the smoother cannot cut corners through mountains or coastlines.
   hasLineOfSight(a, b, domain) {
     if (domain === 'air') return true;
 
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const dist = Math.hypot(dx, dz);
+    if (dist < 0.001) {
+      const { gx, gy } = this.worldToGrid(a.x, a.z);
+      return this.walkable(gx, gy, domain);
+    }
 
-    const steps = Math.ceil(dist / (this.cell * 0.5));
+    const steps = Math.max(1, Math.ceil(dist / (this.cell * 0.4)));
+    const nx = -dz / dist;
+    const nz = dx / dist;
+    const sideOffset = this.cell * 0.35;
+    const offsets = [0, sideOffset, -sideOffset];
 
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const x = a.x + dx * t;
-      const z = a.z + dz * t;
+      const baseX = a.x + dx * t;
+      const baseZ = a.z + dz * t;
 
-      const { gx, gy } = this.worldToGrid(x, z);
-
-      if (!this.walkable(gx, gy, domain)) return false;
+      for (const offset of offsets) {
+        const x = baseX + nx * offset;
+        const z = baseZ + nz * offset;
+        const { gx, gy } = this.worldToGrid(x, z);
+        if (!this.walkable(gx, gy, domain)) return false;
+      }
     }
 
     return true;
@@ -311,6 +392,9 @@ export class Pathfinder {
 
   // BFS for finding nearest walkable tile — navigates around obstacles
   findNearestWalkable(gx, gy, domain) {
+    gx = THREE.MathUtils.clamp(gx, 0, this.size - 1);
+    gy = THREE.MathUtils.clamp(gy, 0, this.size - 1);
+
     const queue = [{ gx, gy }];
     const visited = new Set([gy * this.size + gx]);
 
@@ -319,7 +403,10 @@ export class Pathfinder {
       const cur = queue[qi++];
       if (this.walkable(cur.gx, cur.gy, domain)) return cur;
 
-      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      const dirs = [
+        [1,0],[-1,0],[0,1],[0,-1],
+        [1,1],[-1,1],[1,-1],[-1,-1]
+      ];
       for (const [dx, dy] of dirs) {
         const nx = cur.gx + dx, ny = cur.gy + dy;
         const nKey = ny * this.size + nx;

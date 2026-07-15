@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { Game } from './game.js?v=9';
-import { initInput } from './input.js?v=4';
-import { initAI }    from './ai.js?v=7';
-import { initUI }    from './ui.js?v=3';
+import { Game } from './game.js?v=10';
+import { initInput } from './input.js?v=5';
+import { initAI }    from './ai.js?v=8';
+import { initUI }    from './ui.js?v=5';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
-import { MAP_SIZE }  from './config.js?v=5';
+import { MAP_SIZE }  from './config.js?v=7';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8e8);
