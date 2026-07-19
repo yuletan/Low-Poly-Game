@@ -6,6 +6,7 @@ import { initUI }    from './ui.js?v=5';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
 import { MAP_SIZE }  from './config.js?v=7';
+import { initFPSDisplay } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8e8);
@@ -40,6 +41,7 @@ sun.shadow.mapSize.set(isMobile ? 512 : 2048, isMobile ? 512 : 2048);
 sun.shadow.camera.left = -600; sun.shadow.camera.right = 600;
 sun.shadow.camera.top  =  600; sun.shadow.camera.bottom = -600;
 scene.add(sun);
+scene.userData.sun = sun;
 
 const cameraTarget = new THREE.Vector3(-500, 0, 200); // start over player base
 const keys = {};
@@ -145,6 +147,8 @@ function startGame(difficulty, saveData) {
     initUI(game);
     // Apply saved settings
     if (window.__applySettings) window.__applySettings();
+    // Initialize FPS display overlay
+    initFPSDisplay(renderer);
     console.log('[INIT] UI initialized — game ready!');
   } catch(err) {
     console.error('[INIT] CRASH:', err);

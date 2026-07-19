@@ -1070,6 +1070,7 @@ export function initUI(game) {
       fogOfWar: settingsState.fogOfWar,
       particleDensity: settingsState.particleDensity,
       masterVolume: settingsState.masterVolume,
+      qualityPreset: settingsState.qualityPreset,
     };
     try { localStorage.setItem('perftab_settings', JSON.stringify(s)); } catch(e) {}
   }
@@ -1087,6 +1088,30 @@ export function initUI(game) {
     fogOfWar: true,
     particleDensity: 'medium',
     masterVolume: 30,
+    qualityPreset: 'medium',
+  };
+
+  const QUALITY_PRESETS = {
+    ultra: {
+      label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 2048,
+      shadowType: 'PCFSoft', fogOfWar: true, particleDensity: 'high', aa: true,
+    },
+    high: {
+      label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 1024,
+      shadowType: 'PCFSoft', fogOfWar: true, particleDensity: 'high', aa: true,
+    },
+    medium: {
+      label: 'Medium', pixelRatio: 1.25, shadows: true, shadowSize: 512,
+      shadowType: 'PCF', fogOfWar: true, particleDensity: 'medium', aa: false,
+    },
+    low: {
+      label: 'Low', pixelRatio: 1, shadows: false, shadowSize: 256,
+      shadowType: 'PCF', fogOfWar: false, particleDensity: 'low', aa: false,
+    },
+    ultraLow: {
+      label: 'Ultra Low', pixelRatio: 0.75, shadows: false, shadowSize: 0,
+      shadowType: 'PCF', fogOfWar: false, particleDensity: 'low', aa: false,
+    },
   };
 
   // Load saved settings
@@ -1096,16 +1121,31 @@ export function initUI(game) {
   }
 
   function applySettings() {
+    const preset = QUALITY_PRESETS[settingsState.qualityPreset] || QUALITY_PRESETS.medium;
+
+    // Apply quality preset to renderer
     if (game && game.scene && game.scene.userData && game.scene.userData.renderer) {
-      game.scene.userData.renderer.shadowMap.enabled = settingsState.shadows;
+      const r = game.scene.userData.renderer;
+      r.shadowMap.enabled = preset.shadows && settingsState.shadows;
+      r.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+
+      // Shadow map size
+      const mapSize = preset.shadowSize;
+      const sunLight = game.scene.userData.sun;
+      if (sunLight && sunLight.shadow && sunLight.shadow.mapSize) {
+        sunLight.shadow.mapSize.set(mapSize, mapSize);
+      }
     }
+
     if (game && game.fog && game.fog.mesh) {
-      game.fog.mesh.visible = settingsState.fogOfWar;
+      game.fog.mesh.visible = preset.fogOfWar && settingsState.fogOfWar;
     }
-    const densityMult = settingsState.particleDensity === 'low' ? 0.25 : settingsState.particleDensity === 'medium' ? 0.5 : 1.0;
+
+    const densityMult = preset.particleDensity === 'low' ? 0.25 : preset.particleDensity === 'medium' ? 0.5 : 1.0;
     if (window.__PARTICLE_DENSITY !== undefined) {
       window.__PARTICLE_DENSITY = densityMult;
     }
+
     if (Sound && Sound.master) {
       Sound.master.gain.value = settingsState.masterVolume / 100;
       Sound.masterVolume = settingsState.masterVolume / 100;
@@ -1170,6 +1210,21 @@ export function initUI(game) {
               <span id="settingsVolumeValue" class="settings-value">${settingsState.masterVolume}</span>
             </div>
           </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Quality Preset</div>
+              <div class="settings-desc">Adjusts rendering for performance or visual quality</div>
+            </div>
+            <div class="settings-control">
+              <div class="preset-chips" id="qualityPresetChips">
+                <button class="preset-chip ${settingsState.qualityPreset === 'ultraLow' ? 'active' : ''}" data-preset="ultraLow">ULTRA LOW</button>
+                <button class="preset-chip ${settingsState.qualityPreset === 'low' ? 'active' : ''}" data-preset="low">LOW</button>
+                <button class="preset-chip ${settingsState.qualityPreset === 'medium' ? 'active' : ''}" data-preset="medium">MEDIUM</button>
+                <button class="preset-chip ${settingsState.qualityPreset === 'high' ? 'active' : ''}" data-preset="high">HIGH</button>
+                <button class="preset-chip ${settingsState.qualityPreset === 'ultra' ? 'active' : ''}" data-preset="ultra">ULTRA</button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="settings-footer">
           <button id="settingsRunTestsBtn" class="btn btn-green">Run Tests</button>
@@ -1212,16 +1267,42 @@ export function initUI(game) {
       applySettings();
     });
 
+    // Quality preset chips
+    document.getElementById('qualityPresetChips').addEventListener('click', (e) => {
+      const chip = e.target.closest('.preset-chip');
+      if (!chip) return;
+      const preset = chip.dataset.preset;
+      settingsState.qualityPreset = preset;
+      // Sync shadows/fog/particles from preset for consistency
+      const p = QUALITY_PRESETS[preset];
+      settingsState.shadows = p.shadows;
+      settingsState.fogOfWar = p.fogOfWar;
+      settingsState.particleDensity = p.particleDensity;
+      // Update individual toggle UIs
+      document.getElementById('settingsShadows').classList.toggle('on', settingsState.shadows);
+      document.getElementById('settingsFog').classList.toggle('on', settingsState.fogOfWar);
+      document.getElementById('settingsParticles').value = settingsState.particleDensity;
+      // Update active chip
+      document.querySelectorAll('#qualityPresetChips .preset-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      applySettings();
+      game.flashMessage(`Quality: ${QUALITY_PRESETS[preset].label}`);
+    });
+
     document.getElementById('settingsDefaultsBtn').addEventListener('click', function() {
       settingsState.shadows = true;
       settingsState.fogOfWar = true;
       settingsState.particleDensity = 'medium';
       settingsState.masterVolume = 30;
+      settingsState.qualityPreset = 'medium';
       document.getElementById('settingsShadows').classList.toggle('on', true);
       document.getElementById('settingsFog').classList.toggle('on', true);
       document.getElementById('settingsParticles').value = 'medium';
       volumeSlider.value = '30';
       volumeValue.textContent = '30';
+      document.querySelectorAll('#qualityPresetChips .preset-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.preset === 'medium');
+      });
       applySettings();
       game.flashMessage('Settings reset to defaults');
     });

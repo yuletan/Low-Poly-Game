@@ -1707,3 +1707,151 @@ canvas { display:block; }
 .settings-footer .btn {
   font-size: 12px;
 }
+
+/* ===== PERFORMANCE PRESET SELECTOR ===== */
+.settings-row .preset-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.preset-chip {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(74, 158, 255, 0.3);
+  background: rgba(30, 40, 60, 0.9);
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-chip:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.preset-chip.active {
+  background: rgba(74, 158, 255, 0.25);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 8px rgba(74, 158, 255, 0.3);
+}
+
+/* ===== FPS OVERLAY ===== */
+#fpsOverlay {
+  position: fixed;
+  top: calc(42px + var(--safe-top));
+  right: calc(10px + var(--safe-right));
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.fps-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.fps-bar:hover {
+  background: rgba(20, 28, 40, 0.98);
+}
+
+.fps-value {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.fps-good { color: var(--success); }
+.fps-ok   { color: var(--warning); }
+.fps-bad  { color: var(--danger); }
+
+.fps-toggle {
+  font-size: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.fps-panel {
+  margin-top: 4px;
+  padding: 10px;
+  background: var(--bg-darker);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  min-width: 220px;
+}
+
+.fps-panel.hidden {
+  display: none;
+}
+
+.fps-panel canvas {
+  display: block;
+  width: 100%;
+  height: 60px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.fps-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+}
+
+.fps-stats b {
+  color: var(--primary);
+}
+
+.fps-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fps-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(30, 40, 60, 0.9);
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fps-btn:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.fps-btn-primary {
+  background: rgba(74, 158, 255, 0.2);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.fps-btn-primary:hover {
+  background: rgba(74, 158, 255, 0.35);
+}
