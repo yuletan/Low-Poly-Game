@@ -1076,18 +1076,40 @@ export class Unit {
       const isFull = this.carriedUnits.length >= this.transportCapacity;
       const timedOut = this._boardingTimer > 15;
 
-      // Count claimed troops still waiting to board (not yet carried)
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-      let claimedWaiting = 0;
-      for (const u of allUnits) {
-        if (u.alive && u._claimedByShip === this && !u.carried) claimedWaiting++;
+
+      // Re-scan: claim any unclaimed troops that arrived at the embark point
+      // while we were waiting in Phase 2.
+      if (!isFull) {
+        for (const u of allUnits) {
+          if (this.carriedUnits.length >= this.transportCapacity) break;
+          if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip && !u.carried) {
+            const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
+            if (embarkDist < 5) {
+              u._claimedByShip = this;
+              _tlog(`[TRANS LOG] Ship ${this._debugTag}: late CLAIMED ${u._debugTag} in phase2 (${this.carriedUnits.length}/${this.transportCapacity})`);
+            }
+          }
+        }
       }
 
-      _tlog(`[TRANS LOG] Ship ${this._debugTag} phase2 WAITING: timer=${this._boardingTimer.toFixed(1)}s/15s carried=${this.carriedUnits.length}/${this.transportCapacity} claimedWaiting=${claimedWaiting} isFull=${isFull} timedOut=${timedOut} allClaimedBoarded=${claimedWaiting === 0 && this.carriedUnits.length > 0}`);
+      // Count claimed troops still waiting to board (not yet carried)
+      let claimedWaiting = 0;
+      let unclaimedNearby = 0;
+      for (const u of allUnits) {
+        if (u.alive && u._claimedByShip === this && !u.carried) claimedWaiting++;
+        if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip && !u.carried) {
+          const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
+          if (embarkDist < 5) unclaimedNearby++;
+        }
+      }
 
-      // Sail when: all claimed troops are aboard, ship is full, or timed out
-      const allClaimedBoarded = claimedWaiting === 0 && this.carriedUnits.length > 0;
-      if (allClaimedBoarded || isFull || (timedOut && this.carriedUnits.length > 0)) {
+      _tlog(`[TRANS LOG] Ship ${this._debugTag} phase2 WAITING: timer=${this._boardingTimer.toFixed(1)}s/15s carried=${this.carriedUnits.length}/${this.transportCapacity} claimedWaiting=${claimedWaiting} unclaimedNearby=${unclaimedNearby} isFull=${isFull} timedOut=${timedOut}`);
+
+      // Sail when: ship is full, timed out, or all claimed+nearby troops are aboard
+      const noMoreWaiting = claimedWaiting === 0 && unclaimedNearby === 0;
+      const allClaimedBoarded = noMoreWaiting && this.carriedUnits.length > 0;
+      if (isFull || allClaimedBoarded || (timedOut && this.carriedUnits.length > 0)) {
         // Task 9: hold for sibling ships in the same AI wave
         if (this.game.shouldHoldForAIWave(this)) {
           _tlog(`[TRANS LOG] Ship ${this._debugTag}: AI WAVE HOLD Ã¢â‚¬â€ waiting for sibling ships`);
