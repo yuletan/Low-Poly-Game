@@ -6,7 +6,7 @@ import { initUI }    from './ui.js?v=5';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
 import { MAP_SIZE, QUALITY_PRESETS, setActivePreset }  from './config.js?v=7';
-import { initFPSDisplay } from './fpsDisplay.js';
+import { initFPSDisplay, recordFrameTiming } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b8e8);
@@ -160,7 +160,7 @@ function startGame(difficulty, saveData) {
     // Apply saved settings
     if (window.__applySettings) window.__applySettings();
     // Initialize FPS display overlay
-    initFPSDisplay(renderer);
+    initFPSDisplay(renderer, scene);
     console.log('[INIT] UI initialized — game ready!');
   } catch(err) {
     console.error('[INIT] CRASH:', err);
@@ -222,13 +222,30 @@ function applySave(game, save) {
 }
 
 const clock = new THREE.Clock();
+let _lastFrameTs = performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+
+  // Frame profiling: wall-clock delta since previous frame
+  const now = performance.now();
+  const frameMs = now - _lastFrameTs;
+  _lastFrameTs = now;
+
   updateCamera(dt);
+
+  // Time the game logic update
+  const tUpdate0 = performance.now();
   if (game) game.update(dt);
+  const updateMs = performance.now() - tUpdate0;
+
+  // Time the render pass
+  const tRender0 = performance.now();
   renderer.render(scene, camera);
+  const renderMs = performance.now() - tRender0;
+
+  recordFrameTiming(frameMs, updateMs, renderMs);
 }
 animate();
 

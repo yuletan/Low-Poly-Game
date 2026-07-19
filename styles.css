@@ -1829,6 +1829,30 @@ canvas { display:block; }
   color: var(--primary);
 }
 
+.fps-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  margin-bottom: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+}
+
+.fps-detail > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.fps-detail b {
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .fps-actions {
   display: flex;
   gap: 6px;

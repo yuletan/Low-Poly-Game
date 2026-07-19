@@ -1,21 +1,83 @@
-// fpsDisplay.js — FPS overlay, logging, and CSV download
-// Attach to main.js: import { initFPSDisplay } from './fpsDisplay.js'
-// Call initFPSDisplay(renderer) once the renderer exists.
+// fpsDisplay.js — FPS overlay, detailed profiling, logging, and CSV download
+// Attach in main.js:
+//   import { initFPSDisplay, recordFrameTiming } from './fpsDisplay.js'
+//   initFPSDisplay(renderer, scene)  // once the renderer + scene exist
+//   recordFrameTiming(frameMs, updateMs, renderMs)  // every frame from animate()
+
+import { activePreset } from './config.js?v=7';
 
 let _running = false;
 let _frameCount = 0;
 let _lastTime = 0;
 let _fps = 0;
-let _logs = [];          // [{time, fps}]
+let _logs = [];          // [{time, fps, ...metrics}]
 let _logInterval = null; // 1-second sampler
 let _overlay = null;
 let _expanded = false;
 
-const MAX_LOG_ENTRIES = 600; // 10 minutes of 1-second samples
+let _renderer = null;
+let _scene = null;
 
-export function initFPSDisplay(renderer) {
+// Per-second timing accumulators (fed by recordFrameTiming each frame)
+let _acc = null;
+function resetAcc() {
+  _acc = {
+    frames: 0,
+    frameSum: 0, frameMax: 0,
+    updateSum: 0, updateMax: 0,
+    renderSum: 0, renderMax: 0,
+  };
+}
+resetAcc();
+
+const MAX_LOG_ENTRIES = 1200; // 20 minutes of 1-second samples
+
+// CSV column order — single source of truth for header + rows
+const CSV_COLUMNS = [
+  { key: 'ts',            header: 'Timestamp' },
+  { key: 'elapsed',       header: 'Elapsed (s)' },
+  { key: 'fps',           header: 'FPS' },
+  { key: 'frameAvg',      header: 'FrameMs_avg' },
+  { key: 'frameMax',      header: 'FrameMs_max' },
+  { key: 'updateAvg',     header: 'UpdateMs_avg' },
+  { key: 'updateMax',     header: 'UpdateMs_max' },
+  { key: 'renderAvg',     header: 'RenderMs_avg' },
+  { key: 'renderMax',     header: 'RenderMs_max' },
+  { key: 'drawCalls',     header: 'DrawCalls' },
+  { key: 'triangles',     header: 'Triangles' },
+  { key: 'geometries',    header: 'Geometries' },
+  { key: 'textures',      header: 'Textures' },
+  { key: 'programs',      header: 'Programs' },
+  { key: 'playerUnits',   header: 'PlayerUnits' },
+  { key: 'enemyUnits',    header: 'EnemyUnits' },
+  { key: 'totalUnits',    header: 'TotalUnits' },
+  { key: 'projectiles',   header: 'Projectiles' },
+  { key: 'explosions',    header: 'Explosions' },
+  { key: 'trails',        header: 'Trails' },
+  { key: 'fxOther',       header: 'FXOther' },
+  { key: 'sceneObjects',  header: 'SceneObjects' },
+  { key: 'preset',        header: 'Preset' },
+];
+
+/**
+ * Called from main.js once per frame with the measured timings (in ms).
+ * frameMs  = wall-clock time since previous frame (rAF-to-rAF)
+ * updateMs = time spent in game.update()
+ * renderMs = time spent in renderer.render()
+ */
+export function recordFrameTiming(frameMs, updateMs, renderMs) {
+  if (!_running || !_acc) return;
+  _acc.frames++;
+  _acc.frameSum += frameMs;   if (frameMs  > _acc.frameMax)  _acc.frameMax  = frameMs;
+  _acc.updateSum += updateMs; if (updateMs > _acc.updateMax) _acc.updateMax = updateMs;
+  _acc.renderSum += renderMs; if (renderMs > _acc.renderMax) _acc.renderMax = renderMs;
+}
+
+export function initFPSDisplay(renderer, scene) {
   if (_running) return;
   _running = true;
+  _renderer = renderer || null;
+  _scene = scene || null;
 
   // --- Build overlay DOM ---
   _overlay = document.createElement('div');
@@ -23,7 +85,7 @@ export function initFPSDisplay(renderer) {
   _overlay.innerHTML = `
     <div class="fps-bar" id="fpsBar">
       <span class="fps-value" id="fpsValue">0 FPS</span>
-      <button class="fps-btn fps-btn-primary" id="fpsDownloadBtn" title="Download FPS logs">CSV</button>
+      <button class="fps-btn fps-btn-primary" id="fpsDownloadBtn" title="Download detailed profiling CSV">CSV</button>
       <span class="fps-toggle" id="fpsToggle" title="Expand FPS panel">&#9660;</span>
     </div>
     <div class="fps-panel hidden" id="fpsPanel">
@@ -32,6 +94,16 @@ export function initFPSDisplay(renderer) {
         <span>Min: <b id="fpsMin">-</b></span>
         <span>Avg: <b id="fpsAvg">-</b></span>
         <span>Max: <b id="fpsMax">-</b></span>
+      </div>
+      <div class="fps-detail" id="fpsDetail">
+        <div><span>Frame</span><b id="fpsFrameMs">-</b></div>
+        <div><span>Update</span><b id="fpsUpdateMs">-</b></div>
+        <div><span>Render</span><b id="fpsRenderMs">-</b></div>
+        <div><span>Draws</span><b id="fpsDraws">-</b></div>
+        <div><span>Tris</span><b id="fpsTris">-</b></div>
+        <div><span>Units</span><b id="fpsUnits">-</b></div>
+        <div><span>Proj</span><b id="fpsProj">-</b></div>
+        <div><span>FX</span><b id="fpsFx">-</b></div>
       </div>
       <div class="fps-actions">
         <button class="fps-btn" id="fpsClearBtn">Clear</button>
@@ -65,20 +137,69 @@ export function initFPSDisplay(renderer) {
       _fps = Math.round((_frameCount * 1000) / elapsed);
       _frameCount = 0;
       _lastTime = now;
+      sampleMetrics();
       updateOverlay();
     }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
-
-  // --- Log sampler (1 per second) ---
-  _logInterval = setInterval(() => {
-    if (_fps > 0) {
-      _logs.push({ time: Date.now(), fps: _fps });
-      if (_logs.length > MAX_LOG_ENTRIES) _logs.shift();
-    }
-  }, 1000);
 }
+
+// --- Gather a full metrics snapshot and push to the log (once per second) ---
+let _lastSnapshot = null;
+function sampleMetrics() {
+  if (_fps <= 0) { resetAcc(); return; }
+
+  const frames = _acc.frames || 1;
+  const timing = {
+    frameAvg:  round2(_acc.frameSum  / frames),
+    frameMax:  round2(_acc.frameMax),
+    updateAvg: round2(_acc.updateSum / frames),
+    updateMax: round2(_acc.updateMax),
+    renderAvg: round2(_acc.renderSum / frames),
+    renderMax: round2(_acc.renderMax),
+  };
+  resetAcc();
+
+  // Renderer GPU stats
+  let drawCalls = 0, triangles = 0, geometries = 0, textures = 0, programs = 0;
+  if (_renderer && _renderer.info) {
+    const info = _renderer.info;
+    drawCalls  = info.render?.calls || 0;
+    triangles  = info.render?.triangles || 0;
+    geometries = info.memory?.geometries || 0;
+    textures   = info.memory?.textures || 0;
+    programs   = info.programs?.length || 0;
+  }
+
+  // Game entity + FX counts
+  const game = _scene?.userData?.game || null;
+  const ud = _scene?.userData || {};
+  const playerUnits  = game?.playerUnits?.length || 0;
+  const enemyUnits   = game?.enemyUnits?.length || 0;
+  const projectiles  = game?.projectiles?.length || 0;
+  const explosions   = (ud.explosions?.length || 0) + (ud.splashRings?.length || 0);
+  const trails       = ud.airTrails?.length || 0;
+  const fxOther      = (ud.flashes?.length || 0) + (ud.spawnMarkers?.length || 0) +
+                       (ud.flakPuffs?.length || 0) + (ud.hitConfirms?.length || 0);
+  const sceneObjects = _scene?.children?.length || 0;
+
+  const entry = {
+    time: Date.now(),
+    fps: _fps,
+    ...timing,
+    drawCalls, triangles, geometries, textures, programs,
+    playerUnits, enemyUnits, totalUnits: playerUnits + enemyUnits,
+    projectiles, explosions, trails, fxOther, sceneObjects,
+    preset: activePreset?.label || '-',
+  };
+
+  _logs.push(entry);
+  if (_logs.length > MAX_LOG_ENTRIES) _logs.shift();
+  _lastSnapshot = entry;
+}
+
+function round2(v) { return Math.round(v * 100) / 100; }
 
 // --- Update the overlay text + graph ---
 function updateOverlay() {
@@ -92,6 +213,28 @@ function updateOverlay() {
 
   drawGraph();
   updateStats();
+  updateDetail();
+}
+
+// --- Live detail readout (expanded panel) ---
+function updateDetail() {
+  const s = _lastSnapshot;
+  if (!s) return;
+  const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+  set('fpsFrameMs',  `${s.frameAvg}/${s.frameMax}ms`);
+  set('fpsUpdateMs', `${s.updateAvg}/${s.updateMax}ms`);
+  set('fpsRenderMs', `${s.renderAvg}/${s.renderMax}ms`);
+  set('fpsDraws',    s.drawCalls);
+  set('fpsTris',     formatK(s.triangles));
+  set('fpsUnits',    `${s.totalUnits} (${s.playerUnits}/${s.enemyUnits})`);
+  set('fpsProj',     s.projectiles);
+  set('fpsFx',       s.explosions + s.trails + s.fxOther);
+}
+
+function formatK(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
 }
 
 // --- Draw a mini line graph of recent FPS ---
@@ -176,13 +319,19 @@ function downloadLogs() {
     return;
   }
 
-  let csv = 'Timestamp,Elapsed (s),FPS\n';
   const start = _logs[0].time;
-  for (const entry of _logs) {
-    const elapsed = ((entry.time - start) / 1000).toFixed(1);
-    const ts = new Date(entry.time).toISOString();
-    csv += `${ts},${elapsed},${entry.fps}\n`;
-  }
+  const header = CSV_COLUMNS.map(c => c.header).join(',');
+  const rows = _logs.map(entry => {
+    return CSV_COLUMNS.map(col => {
+      switch (col.key) {
+        case 'ts':      return new Date(entry.time).toISOString();
+        case 'elapsed': return ((entry.time - start) / 1000).toFixed(1);
+        default:        return entry[col.key] ?? '';
+      }
+    }).join(',');
+  });
+
+  const csv = header + '\n' + rows.join('\n') + '\n';
 
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -197,6 +346,7 @@ function downloadLogs() {
 
 function clearLogs() {
   _logs = [];
+  _lastSnapshot = null;
   drawGraph();
   const minEl = document.getElementById('fpsMin');
   const avgEl = document.getElementById('fpsAvg');
