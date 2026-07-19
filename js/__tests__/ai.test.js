@@ -160,4 +160,21 @@ describe('ai.js - AI Staging Attack System', () => {
 
     expect(attackMovedGroundUnits.length).toBeGreaterThan(0);
   });
+
+  // Regression test for the Ultra Low throttling bug:
+  // economyTimer must accumulate even when the AI tick is throttled.
+  // Previously, economyTimer += dt was inside the throttled block, so with
+  // dt=0.05 and aiInterval=2.0 it would take 40 real seconds to spawn one unit.
+  it('AI economy should still progress when called with small dt (simulated throttled frames)', () => {
+    const initialCount = game.enemyUnits.length;
+
+    // Simulate 4 seconds of game time at typical clamped frame delta dt=0.05
+    for (let i = 0; i < 80; i++) {
+      game.onAITick(0.05);
+    }
+
+    // With 4 seconds of game time, the AI should have spawned several units
+    // (income accumulates every 1s, spawns up to 3 per economy tick on normal).
+    expect(game.enemyUnits.length).toBeGreaterThan(initialCount);
+  });
 });

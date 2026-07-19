@@ -121,14 +121,14 @@ export const QUALITY_PRESETS = {
     particleDensity: 'low', antialias: false,
     minimapFPS: 0,           // 0 = disabled
     softCollisionInterval: 0, // 0 = disabled
-    findTargetInterval: 3.0,
+    findTargetInterval: 0.5,
     auraInterval: 0,         // 0 = disabled
     healerEnabled: false,
     hitFlashEnabled: false,
     hpBarTrail: false,
     explosionEnabled: false,
     airTrailEnabled: false,
-    aiTickInterval: 2.0,
+    aiTickInterval: 0.25,
     uiCheckInterval: 1000,
   },
   low: {

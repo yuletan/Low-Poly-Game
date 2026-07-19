@@ -441,18 +441,7 @@ export function initAI(game) {
   game.onAITick = function (dt) {
     if (game.ended) return;
 
-    // Throttle entire AI tick by preset (0 = every frame)
-    const aiInterval = activePreset.aiTickInterval;
-    if (aiInterval > 0) {
-      aiTickTimer += dt;
-      if (aiTickTimer < aiInterval) return;
-      aiTickTimer = 0;
-    }
-
-    // --- Defense ticks every frame (cheap) ---
-    defenseTick();
-
-    // --- Unified 1-second tick: income + spawn + attack ---
+    // --- Cheap per-frame work: income + spawn (always runs) ---
     economyTimer += dt;
     if (economyTimer >= 1) {
       economyTimer = 0;
@@ -489,52 +478,6 @@ export function initAI(game) {
         }
       }
 
-      // NEW: Staging phase logic
-      const totalCombat = game.enemyUnits.filter(u =>
-        u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
-      ).length;
-
-      if (attackPhase === 'building') {
-        if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= 10)) {
-          attackPhase = 'staging';
-          stagingTimer = 0;
-          // Gather idle units to staging area (near strongest base)
-          const stagingBase = game.bases.filter(b => b.faction === 'enemy')
-            .sort((a, b) => b.hp - a.hp)[0];
-          if (stagingBase) {
-            const idleUnits = game.enemyUnits.filter(u =>
-              u.alive && u.domain !== 'sea' && !u.isTransport &&
-              u.stats.damage > 0 && u.state === 'idle'
-            );
-            const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
-            const rallyUnits = idleUnits.slice(0, AI_MAX_STAGING_UNITS);
-            const rallySlots = typeof game.assignFormationMoveTargets === 'function'
-              ? game.assignFormationMoveTargets(rallyUnits, rallyPos, 'square')
-              : game.computeFormation(rallyPos, rallyUnits.length, 'square')
-                .map((target, index) => ({ unit: rallyUnits[index], target }));
-            rallySlots.forEach(({ unit, target }) => {
-              if (!unit || !target) return;
-              unit.moveTo(target);
-              stagingUnits.push(unit);
-            });
-          }
-          game.flashMessage(`Enemy forces gathering...`);
-        }
-      } else if (attackPhase === 'staging') {
-        stagingTimer += 1;
-        // Keep spawning during staging
-        if (stagingTimer >= AI_STAGING_TIME || stagingUnits.length >= AI_MAX_STAGING_UNITS) {
-          launchStagedAttack();
-        }
-      } else if (attackPhase === 'attacking') {
-        attackCooldown += 1;
-        if (attackCooldown >= 15) {
-          attackPhase = 'building';
-          attackCooldown = 0;
-          stagingUnits = [];
-        }
-      }
-
       // Proactive transport: ensure at least 1 transport exists when AI has 2+ bases
       const aiTransports = game.enemyUnits.filter(u => u.alive && u.isTransport);
       if (aiTransports.length === 0 && ownedBases > 1) {
@@ -548,6 +491,68 @@ export function initAI(game) {
 
       // Build-up warning check
       checkBuildUp();
+    }
+
+    // --- Defense ticks every frame (cheap) ---
+    defenseTick();
+
+    // --- Time tracking for staging phase (always runs, accumulates real seconds) ---
+    if (attackPhase === 'staging') {
+      stagingTimer += dt;
+    } else if (attackPhase === 'attacking') {
+      attackCooldown += dt;
+    }
+
+    // --- Expensive decisions: staging + attack dispatch (throttled by preset) ---
+    const aiInterval = activePreset.aiTickInterval;
+    if (aiInterval > 0) {
+      aiTickTimer += dt;
+      if (aiTickTimer < aiInterval) return;
+      aiTickTimer = 0;
+    }
+
+    // Staging phase logic
+    const totalCombat = game.enemyUnits.filter(u =>
+      u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
+    ).length;
+
+    if (attackPhase === 'building') {
+      if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= 10)) {
+        attackPhase = 'staging';
+        stagingTimer = 0;
+        // Gather idle units to staging area (near strongest base)
+        const stagingBase = game.bases.filter(b => b.faction === 'enemy')
+          .sort((a, b) => b.hp - a.hp)[0];
+        if (stagingBase) {
+          const idleUnits = game.enemyUnits.filter(u =>
+            u.alive && u.domain !== 'sea' && !u.isTransport &&
+            u.stats.damage > 0 && u.state === 'idle'
+          );
+          const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
+          const rallyUnits = idleUnits.slice(0, AI_MAX_STAGING_UNITS);
+          const rallySlots = typeof game.assignFormationMoveTargets === 'function'
+            ? game.assignFormationMoveTargets(rallyUnits, rallyPos, 'square')
+            : game.computeFormation(rallyPos, rallyUnits.length, 'square')
+              .map((target, index) => ({ unit: rallyUnits[index], target }));
+          rallySlots.forEach(({ unit, target }) => {
+            if (!unit || !target) return;
+            unit.moveTo(target);
+            stagingUnits.push(unit);
+          });
+        }
+        game.flashMessage(`Enemy forces gathering...`);
+      }
+    } else if (attackPhase === 'staging') {
+      // Keep spawning during staging
+      if (stagingTimer >= AI_STAGING_TIME || stagingUnits.length >= AI_MAX_STAGING_UNITS) {
+        launchStagedAttack();
+      }
+    } else if (attackPhase === 'attacking') {
+      if (attackCooldown >= 15) {
+        attackPhase = 'building';
+        attackCooldown = 0;
+        stagingUnits = [];
+      }
     }
   };
 
