@@ -24,19 +24,24 @@ War game/
 │   │   ├── unitFactory.test.js    # Mesh builder tests
 │   │   └── setup.js               # Test environment setup
 │   ├── ai.js                      # Enemy AI controller
+│   ├── base.js                    # Base class (capturable buildings)
 │   ├── combat.js                  # Projectiles, damage, explosions
-│   ├── config.js                  # Game balance constants
+│   ├── config.js                  # Game balance constants + performance tuning
+│   ├── debug.js                   # Shared verbose transport logging
 │   ├── fogOfWar.js                # Visibility grid system
-│   ├── game.js                    # Core Game, Unit, and Base classes
+│   ├── game.js                    # Game orchestrator (re-exports Unit, Base)
 │   ├── input.js                   # Mouse + touch input handling
 │   ├── main.js                    # Bootstrap, render loop, camera
 │   ├── minimap.js                 # 2D tactical minimap
-│   ├── pathfinder.js              # A* pathfinding engine
+│   ├── pathfinder.js              # A* pathfinding engine + transport routing
 │   ├── saveLoad.js                # localStorage save/load
 │   ├── sound.js                   # Web Audio synthesized SFX
+│   ├── spatialGrid.js             # Uniform-grid spatial index for fast lookups
 │   ├── terrain.js                 # Map generation
 │   ├── ui.js                      # HTML overlay UI binding
+│   ├── unit.js                    # Unit class (movement, combat, transport)
 │   ├── unitFactory.js             # 3D mesh builders for all units
+│   ├── unitVisuals.js             # Shared HP bars, selection rings, disposal
 │   └── upgrades.js                # Upgrade tier system
 ├── node_modules/                  # npm dependencies
 ├── index.html                     # Main HTML (minimal, UI built by js/ui.js)

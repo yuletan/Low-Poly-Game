@@ -127,6 +127,21 @@ const EDGE_MAT = new THREE.LineBasicMaterial({
   depthTest: true
 });
 
+// Edge outlines share the same cached base geometries, so the derived
+// EdgesGeometry can be cached per source geometry too. Without this, every
+// spawned unit allocated a brand-new EdgesGeometry per sub-mesh, which leaked
+// GPU geometry (renderer.info.memory.geometries grew unbounded over a match).
+const EDGE_GEO_CACHE = new Map(); // source BufferGeometry -> EdgesGeometry
+
+function edgeGeoFor(geometry) {
+  let eg = EDGE_GEO_CACHE.get(geometry);
+  if (!eg) {
+    eg = new THREE.EdgesGeometry(geometry, 35);
+    EDGE_GEO_CACHE.set(geometry, eg);
+  }
+  return eg;
+}
+
 function finishModel(group, { outlines = true } = {}) {
   const meshes = [];
 
@@ -154,7 +169,7 @@ function finishModel(group, { outlines = true } = {}) {
 
   for (const obj of meshes) {
     const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(obj.geometry, 35),
+      edgeGeoFor(obj.geometry),
       EDGE_MAT
     );
 

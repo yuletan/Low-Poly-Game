@@ -113,6 +113,17 @@ export const AI_MIN_ATTACK_SIZE = 6;     // minimum units before launching attac
 export const AI_MAX_STAGING_UNITS = 30;  // max units in staging area
 export const AI_WAVE_MAX_HOLD = 10;      // Task 9: max seconds a boarding-complete transport waits at the embark point for sibling ships in the same amphibious wave before sailing without them
 
+// ===== TRANSPORT =====
+export const BOARDING_RANGE = 14;        // horizontal distance for troops to board transport
+export const TRANSPORT_STANDOFF = { easy: 180, normal: 180, hard: 120 }; // world-unit distance ships unload from target base
+export const STRANDED_TIMEOUT = 30;      // seconds troops wait before giving up and reverting to idle
+export const FLEET_SAIL_DELAY = 2;       // seconds to wait after first ship is full before sailing (allows sibling ships to catch up)
+
+// ===== PERFORMANCE THROTTLING =====
+export const PROVOKE_INTERVAL = 0.5;     // seconds between _provokeEnemies scans (crusher/escortJet)
+export const FIGHTER_SCAN_INTERVAL = 0.25; // seconds between _fighterAutoReturn scans
+export const PATH_LINE_THROTTLE = 0.1;   // seconds between path-line geometry rebuilds for transports
+
 // ===== QUALITY PRESETS =====
 export const QUALITY_PRESETS = {
   ultraLow: {

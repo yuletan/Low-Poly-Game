@@ -1,6 +1,6 @@
 // ai.js Ã¢â‚¬â€ Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, activePreset } from './config.js?v=7';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js?v=7';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
@@ -374,7 +374,8 @@ export function initAI(game) {
     const centroid = needsShip
       .reduce((acc, u) => acc.add(u.mesh.position), new THREE.Vector3())
       .divideScalar(needsShip.length);
-    const plan = game.pathfinder.findTransportPath(centroid, target.mesh.position);
+    const standoff = TRANSPORT_STANDOFF[game.difficulty] || 0;
+    const plan = game.pathfinder.findTransportPath(centroid, target.mesh.position, standoff);
 
     if (!plan || !plan.needsTransport) {
       for (const u of needsShip) u.moveTo(target.mesh.position.clone(), true);

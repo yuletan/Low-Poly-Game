@@ -860,3 +860,66 @@ describe('Cargo Hover Tooltip — manifest data', () => {
     expect(cap).toBe(10);
   });
 });
+
+describe('Transport Pre-Positioning & Stranded Troops', () => {
+  let Game, game, THREE;
+
+  beforeAll(async () => {
+    THREE = await import('three');
+    const gameMod = await import('../game.js?v=6');
+    Game = gameMod.Game;
+    vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
+    vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    if (!Game) {
+      THREE = await import('three');
+      const gameMod = await import('../game.js?v=6');
+      Game = gameMod.Game;
+    }
+    game = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+    game.terrain = { getTerrainAt: vi.fn(() => 'land'), mountains: [] };
+    game.pathfinder = {
+      cell: 12,
+      worldToGrid: (x, z) => ({ gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }),
+      gridToWorld: (gx, gy) => ({ x: gx * 12 - 600 + 6, z: gy * 12 - 600 + 6 }),
+      findNearestWalkable: vi.fn(() => ({ gx: 50, gy: 51 })),
+    };
+    game.bases = [{ faction: 'player', alive: true, mesh: { position: new THREE.Vector3(0, 0, 0) }, name: 'HQ' }];
+    game._currentTime = 0;
+    game.playerUnits = [];
+    game.enemyUnits = [];
+    game.money = 10000;
+  });
+
+  function makeWaitingTroopWithEmbark(embarkX = 30, embarkZ = 30) {
+    return {
+      alive: true, type: 'infantry', domain: 'land', isTransport: false,
+      state: 'waitingForTransport',
+      _claimedByShip: null,
+      _transportData: { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(embarkX, 0, embarkZ) },
+    };
+  }
+
+  it('spawns transport at embark coast when troops have shipEmbarkPoint', () => {
+    for (let i = 0; i < 4; i++) game.playerUnits.push(makeWaitingTroopWithEmbark(30, 30));
+    game._updateTransportLogistics(0.1);
+    // Should use pathfinder.findNearestWalkable (embark coast) not findValidSpawn (base)
+    expect(game.pathfinder.findNearestWalkable).toHaveBeenCalled();
+    expect(game.spawn).toHaveBeenCalledWith('transport', 'player', expect.anything());
+  });
+
+  it('falls back to base spawn when no embark data available', () => {
+    // Troops without shipEmbarkPoint
+    for (let i = 0; i < 4; i++) game.playerUnits.push({
+      alive: true, type: 'infantry', domain: 'land', isTransport: false,
+      state: 'waitingForTransport', _claimedByShip: null,
+      _transportData: { needsTransport: true }, // no shipEmbarkPoint
+    });
+    game._updateTransportLogistics(0.1);
+    expect(game.findValidSpawn).toHaveBeenCalled();
+    expect(game.spawn).toHaveBeenCalledWith('transport', 'player', expect.anything());
+  });
+});

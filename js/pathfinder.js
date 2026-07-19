@@ -98,7 +98,11 @@ export class Pathfinder {
   }
 
   // Amphibious Pathfinding for Troop Transports
-  findTransportPath(startWorld, endWorld) {
+  // standoffDistance: preferred distance from disembark coast to target.
+  //   When > 0, coasts closer or farther than standoff are penalised in the
+  //   scoring so the fleet lands at a respectful distance from the target.
+  //   Defaults to 0 (no preference — pure shortest-route).
+  findTransportPath(startWorld, endWorld, standoffDistance = 0) {
     const landPath = this.findPath(startWorld, endWorld, 'land');
     if (landPath) {
       return { needsTransport: false, path: landPath };
@@ -107,18 +111,18 @@ export class Pathfinder {
     const s = this.worldToGrid(startWorld.x, startWorld.z);
     const g = this.worldToGrid(endWorld.x, endWorld.z);
 
-    // Find ALL reachable coasts, then pick the pair with shortest sea path
+    // Find ALL reachable coasts, then pick the pair with best score
     const embarkCandidates = this._findAllCoasts(s.gx, s.gy, 'land');
     const disembarkCandidates = this._findAllCoasts(g.gx, g.gy, 'land');
 
     if (embarkCandidates.length === 0 || disembarkCandidates.length === 0) return null;
 
     let bestResult = null;
-    let bestSeaDist = Infinity;
+    let bestScore = Infinity;
 
     // Compare actual route length, not a straight line through islands.
-    const eSlice = embarkCandidates.slice(0, 8);
-    const dSlice = disembarkCandidates.slice(0, 8);
+    const eSlice = embarkCandidates.slice(0, 12);
+    const dSlice = disembarkCandidates.slice(0, 12);
 
     for (const embarkCoast of eSlice) {
       for (const disembarkCoast of dSlice) {
@@ -145,8 +149,20 @@ export class Pathfinder {
         const pathLength = path => path.reduce((total, point, index) =>
           index === 0 ? total : total + point.distanceTo(path[index - 1]), 0);
         const routeCost = pathLength(pathToShip) + pathLength(seaPath) + pathLength(pathToTarget);
-        if (routeCost >= bestSeaDist) continue;
-        bestSeaDist = routeCost;
+
+        // Standoff penalty: prefer disembark coasts at the desired standoff
+        // distance from the target.  The penalty scales the angular deviation
+        // so routes that naturally land near the standoff point are preferred
+        // without completely ignoring route efficiency.
+        let standoffPenalty = 0;
+        if (standoffDistance > 0) {
+          const distToTarget = vDisembark.distanceTo(endWorld);
+          standoffPenalty = Math.abs(distToTarget - standoffDistance) * 2.0;
+        }
+
+        const score = routeCost + standoffPenalty;
+        if (score >= bestScore) continue;
+        bestScore = score;
         bestResult = {
           needsTransport: true,
           path: null, // computed below
