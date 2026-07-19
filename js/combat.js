@@ -1,4 +1,4 @@
-// combat.js — Handles projectile flight, damage rolls, and FX.
+// combat.js â€” Handles projectile flight, damage rolls, and FX.
 import * as THREE from 'three';
 
 import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS } from './config.js?v=4';
@@ -159,10 +159,7 @@ export class Projectile {
       } else {
         this.target.takeDamage(dmg);
       }
-
-      console.log(`[DEBUG COMBAT] HIT — ${dmg.toFixed(1)} damage${crit ? ' (CRITICAL!)' : ''} → ${this.target.type || 'target'} HP: ${this.target.hp != null ? this.target.hp.toFixed(0) : 'N/A'}`);
     } else {
-      console.log(`[DEBUG COMBAT] MISS — no damage dealt`);
     }
 
     if (hit) {
@@ -186,7 +183,6 @@ export class Projectile {
         const falloff = THREE.MathUtils.lerp(1, this.splashFalloff, d / this.splashRadius);
         const splashDmg = this.damage * falloff;
         unit.takeDamage(splashDmg);
-        console.log(`[DEBUG COMBAT] SPLASH — ${splashDmg.toFixed(1)} to ${unit.type} (dist: ${d.toFixed(1)})`);
       }
     }
     // Also splash bases (only enemy bases)
@@ -199,7 +195,6 @@ export class Projectile {
         const falloff = THREE.MathUtils.lerp(1, this.splashFalloff, d / this.splashRadius);
         const splashDmg = this.damage * falloff;
         base.takeDamage(splashDmg);
-        console.log(`[DEBUG COMBAT] SPLASH BASE — ${splashDmg.toFixed(1)} to ${base.name} (dist: ${d.toFixed(1)})`);
       }
     }
   }

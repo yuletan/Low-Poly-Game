@@ -1,4 +1,4 @@
-// ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
+// ai.js Ã¢â‚¬â€ Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
 import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD } from './config.js?v=7';
 import { LAND_HEIGHT } from './terrain.js?v=3';
@@ -125,10 +125,7 @@ export function initAI(game) {
     if (!base) return false;
     const stats = UNIT_TYPES[type];
     const pos = findNonOverlappingSpawn(base, stats.domain);
-    if (!pos) {
-      console.warn(`[DEBUG AI] Failed to find non-overlapping spawn for ${type} near ${base.name}`);
-      return false;
-    }
+    if (!pos) return false;
     recordSpawn(pos);
     const u = game.spawn(type, 'enemy', pos);
     if (cfg.hpMultiplier > 1) {
@@ -136,7 +133,6 @@ export function initAI(game) {
       u.hp = u.maxHp;
       u._displayHp = u.hp;
     }
-    console.log(`[DEBUG AI] Spawned ${type} near ${base.name} at (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})`);
 
     // Carrier escort: spawn 2 destroyers alongside if affordable
     if (type === 'carrier') {
@@ -152,7 +148,6 @@ export function initAI(game) {
               esc._displayHp = esc.hp;
             }
             aiMoney -= UNIT_TYPES.destroyer.cost;
-            console.log(`[DEBUG AI] Spawned destroyer escort near ${base.name}`);
           }
         }
       }
@@ -170,7 +165,7 @@ export function initAI(game) {
       // Target the WEAKEST player base (lowest HP)
       return playerBases.reduce((a, b) => (a.hp < b.hp ? a : b));
     }
-    // Easy/Normal — weighted random: lower HP = higher chance
+    // Easy/Normal Ã¢â‚¬â€ weighted random: lower HP = higher chance
     // This ensures wounded bases get finished off
     const totalHp = playerBases.reduce((s, b) => s + b.hp, 0);
     const weights = playerBases.map(b => Math.max(1, totalHp - b.hp + 1));
@@ -203,7 +198,7 @@ export function initAI(game) {
     const total = game.enemyUnits.filter(u => u.alive).length;
     // Flash warning when we gain 5+ units in one tick (rapid build-up)
     if (total >= 12 && total - lastKnownEnemyCount >= 3 && !buildUpWarningShown) {
-      game.flashMessage(`⚠️ Enemy battalion detected! (~${total} units massing)`);
+      game.flashMessage(`Ã¢Å¡Â Ã¯Â¸Â Enemy battalion detected! (~${total} units massing)`);
       buildUpWarningShown = true;
     }
     if (total < 8) buildUpWarningShown = false;
@@ -231,7 +226,7 @@ export function initAI(game) {
     const targets = multiTarget ? playerBases : [pickPlayerTarget()];
     if (!targets.length) return;
 
-    // Spawn additional mobile units near the attack target(s) — skip stationary defenses
+    // Spawn additional mobile units near the attack target(s) Ã¢â‚¬â€ skip stationary defenses
     const spawnCount = Math.min(3, maxSpawnsPerSecond);
     for (let i = 0; i < spawnCount; i++) {
       const desiredType = chooseUnitToBuild();
@@ -253,7 +248,7 @@ export function initAI(game) {
     if (attackers.length < 1) return;
 
     if (attackers.length >= 8) {
-      game.flashMessage(`⚠️ Enemy attack inbound! ${attackers.length} units detected`);
+      game.flashMessage(`Ã¢Å¡Â Ã¯Â¸Â Enemy attack inbound! ${attackers.length} units detected`);
     }
 
     const isHuge = attackers.length >= 10;
@@ -282,8 +277,6 @@ export function initAI(game) {
     } else {
       for (const u of groundAttackers) u.moveTo(primary.mesh.position.clone(), true);
     }
-
-    console.log(`[DEBUG AI] ATTACK WAVE: ${attackers.length} units (air:${airAttackers.length}, ground:${groundAttackers.length}) → ${multiTarget ? targets.length + ' targets' : targets[0].name}${isHuge ? ' (HUGE BATTALION!)' : ''}`);
   }
 
   /** Defensive: any idle defender near a base that has hostile units near it should engage. */
@@ -348,7 +341,6 @@ export function initAI(game) {
         }
       }
     }
-    if (sent > 0) console.log(`[DEBUG AI] Reinforcing ${attackedBase.name} with ${sent} troops via transport`);
   }
 
   /** Hook: react to base taking damage by sending reinforcements. */
@@ -403,7 +395,6 @@ export function initAI(game) {
     if (boarded > 0) {
       const shipsNeeded = Math.max(1, Math.ceil(boarded / UNIT_TYPES.transport.transportCapacity));
       game.registerAIWave(waveId, shipsNeeded);
-      console.log(`[DEBUG AI] Amphibious wave #${waveId}: ${boarded} troops need ${shipsNeeded} transport(s), shared landing (${plan.disembarkPoint.x.toFixed(0)}, ${plan.disembarkPoint.z.toFixed(0)})`);
     }
   }
 
@@ -542,7 +533,6 @@ export function initAI(game) {
         const pos = game.findValidSpawn(base.mesh.position, 'sea');
         if (pos) {
           game.spawn('transport', 'enemy', pos);
-          console.log(`[DEBUG AI] Proactive transport spawn at ${base.name}`);
         }
       }
 
@@ -551,5 +541,5 @@ export function initAI(game) {
     }
   };
 
-  console.log(`✅ AI online — Difficulty: ${game.difficulty.toUpperCase()}`);
+  console.log(`Ã¢Å“â€¦ AI online Ã¢â‚¬â€ Difficulty: ${game.difficulty.toUpperCase()}`);
 }

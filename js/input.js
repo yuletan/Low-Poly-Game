@@ -1,4 +1,4 @@
-// input.js — Mouse selection (click + box drag) and command issuing.
+// input.js Ã¢â‚¬â€ Mouse selection (click + box drag) and command issuing.
 import * as THREE from 'three';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 import { Sound } from './sound.js';
@@ -340,7 +340,7 @@ export function initInput(game, camera, renderer) {
     if (game.selectedUnits.length === 0) {
       if (game.selectedBuilding) {
         const sb = game.selectedBuilding;
-        info.innerHTML = `<div style="color:#4af;text-align:center;padding:10px;">Selected: ${sb.base.name}<br><span style="color:#888;">${sb.isShipyard ? '🏭 Shipyard' : '🏛️ Barracks'}</span></div>`;
+        info.innerHTML = `<div style="color:#4af;text-align:center;padding:10px;">Selected: ${sb.base.name}<br><span style="color:#888;">${sb.isShipyard ? 'Ã°Å¸ÂÂ­ Shipyard' : 'Ã°Å¸Ââ€ºÃ¯Â¸Â Barracks'}</span></div>`;
       } else {
         info.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Click/tap or drag to select units</div>';
       }
@@ -402,8 +402,8 @@ export function initInput(game, camera, renderer) {
       const domain = u.domain || UNIT_TYPES[u.type]?.domain || 'mixed';
       domainCounts[domain] = (domainCounts[domain] || 0) + 1;
     }
-    const typeSummary = Object.entries(counts).map(([type, count]) => `${count} ${type}`).join(' • ');
-    const domainSummary = Object.entries(domainCounts).map(([domain, count]) => `${count} ${domain}`).join(' • ');
+    const typeSummary = Object.entries(counts).map(([type, count]) => `${count} ${type}`).join(' Ã¢â‚¬Â¢ ');
+    const domainSummary = Object.entries(domainCounts).map(([domain, count]) => `${count} ${domain}`).join(' Ã¢â‚¬Â¢ ');
 
     // Build HTML with unit portraits (per-type stats)
     let html = `
@@ -435,11 +435,11 @@ export function initInput(game, camera, renderer) {
             <div class="selection-type">${type.toUpperCase()}</div>
             <div class="selection-stats">HP: ${avgHp} | DMG: ${avgDmg} | RNG: ${typeRange}</div>
           </div>
-          <div class="selection-count">×${count}</div>
+          <div class="selection-count">Ãƒâ€”${count}</div>
         </div>
       `;
     }
-    html += `<div class="selection-tip">Shift-click toggles units • Drag/touch-drag box-selects • Pick a formation, then move to send each unit to its own slot</div>`;
+    html += `<div class="selection-tip">Shift-click toggles units Ã¢â‚¬Â¢ Drag/touch-drag box-selects Ã¢â‚¬Â¢ Pick a formation, then move to send each unit to its own slot</div>`;
 
     // Transport ship: show Load/Unload buttons
     const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
@@ -452,8 +452,8 @@ export function initInput(game, camera, renderer) {
       const canLoad = nearbyLand.length > 0;
       const canUnload = transport.carriedUnits.length > 0;
       html += `<div class="transport-actions" style="display:flex;gap:8px;margin-top:8px;justify-content:center;">`;
-      html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canLoad ? '' : ' disabled'}>📦 Load${canLoad ? '' : ' (no units nearby)'}</button>`;
-      html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canUnload ? '' : ' disabled'}>📤 Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (no cargo)'}</button>`;
+      html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canLoad ? '' : ' disabled'}>Ã°Å¸â€œÂ¦ Load${canLoad ? '' : ' (no units nearby)'}</button>`;
+      html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canUnload ? '' : ' disabled'}>Ã°Å¸â€œÂ¤ Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (no cargo)'}</button>`;
       html += `</div>`;
     }
 
@@ -577,7 +577,7 @@ export function initInput(game, camera, renderer) {
       unit.moveTo(assignment.target, game.attackMoveMode);
       // Task 7 fix: flag transports as under an explicit player order so the
       // automatic ferry/retreat logic in _updateTransport() (game.js) won't
-      // hijack or override this destination — see Task 7 solution notes.
+      // hijack or override this destination Ã¢â‚¬â€ see Task 7 solution notes.
       if (unit.isTransport) unit._manualOrder = true;
     }
 
@@ -689,10 +689,9 @@ export function initInput(game, camera, renderer) {
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   canvas.addEventListener('mousedown', e => {
-    if (e.button === 0) {  // LEFT click — selection / box start
+    if (e.button === 0) {  // LEFT click Ã¢â‚¬â€ selection / box start
       // Skip during placement mode
       if (game.placementMode && game.placementMode.active) {
-        console.log('[DEBUG INPUT] Left-click blocked — placement mode active');
         return;
       }
       mouseDownPos = { x: e.clientX, y: e.clientY };
@@ -708,7 +707,7 @@ export function initInput(game, camera, renderer) {
     // Hover HP tooltip
     updateHoverTooltip(e);
 
-    // Placement mode — update preview
+    // Placement mode Ã¢â‚¬â€ update preview
     if (game.placementMode && game.placementMode.active) {
       const point = getGroundPoint(e);
       if (point) game.updatePlacementPreview(point);
@@ -743,14 +742,12 @@ export function initInput(game, camera, renderer) {
   });
 
   canvas.addEventListener('mouseup', e => {
-    // Placement mode — confirm on left-click, cancel on right-click
+    // Placement mode Ã¢â‚¬â€ confirm on left-click, cancel on right-click
     if (game.placementMode && game.placementMode.active) {
       if (e.button === 0) {
-        console.log('[DEBUG INPUT] Left-click in placement mode — confirming placement');
         const point = getGroundPoint(e);
         game.confirmPlacement(point);
       } else if (e.button === 2) {
-        console.log('[DEBUG INPUT] Right-click in placement mode — cancelling');
         game.exitPlacementMode(true);
       }
       return;
@@ -761,7 +758,7 @@ export function initInput(game, camera, renderer) {
         isDragging = false;
         selectionBox.style.display = 'none';
       } else {
-        // Single click — select unit or base or clear
+        // Single click Ã¢â‚¬â€ select unit or base or clear
         const u = getUnitUnderMouse(e);
         const base = getBaseUnderMouse(e);
 
@@ -795,7 +792,7 @@ export function initInput(game, camera, renderer) {
           game.selectedBuilding = null;
         }
       }
-    } else if (e.button === 2) {  // RIGHT click — command
+    } else if (e.button === 2) {  // RIGHT click Ã¢â‚¬â€ command
       const target = getCommandTarget(e);
       if (target && target.faction !== 'player') {
         issueAttackCommand(target);
@@ -1165,5 +1162,5 @@ export function initInput(game, camera, renderer) {
   game.updateSelectionUI = updateSelectionUI;
   game.renderer = renderer;
 
-  console.log('✅ Input system online — LMB select/drag, RMB move/attack, touch enabled.');
+  console.log('Ã¢Å“â€¦ Input system online Ã¢â‚¬â€ LMB select/drag, RMB move/attack, touch enabled.');
 }

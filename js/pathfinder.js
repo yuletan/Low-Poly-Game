@@ -1,4 +1,4 @@
-// pathfinder.js — A* on a coarse grid. Domain-aware: respects sea/land/air + amphibious.
+// pathfinder.js â€” A* on a coarse grid. Domain-aware: respects sea/land/air + amphibious.
 import * as THREE from 'three';
 import { TERRAIN, MAP_SIZE, GRID_CELL, GRID_SIZE } from './config.js';
 
@@ -170,8 +170,6 @@ export class Pathfinder {
     for (let i = 1; i < bestResult.segments.sail.length; i++) fullPath.push(bestResult.segments.sail[i]);
     for (let i = 1; i < bestResult.segments.walkToTarget.length; i++) fullPath.push(bestResult.segments.walkToTarget[i]);
     bestResult.path = fullPath;
-
-    console.log(`[DEBUG PATH] findTransportPath: embark(${bestResult.embarkPoint.x.toFixed(0)},${bestResult.embarkPoint.z.toFixed(0)}) → disembark(${bestResult.disembarkPoint.x.toFixed(0)},${bestResult.disembarkPoint.z.toFixed(0)}) sea=${bestSeaDist.toFixed(0)}u`);
     return bestResult;
   }
 
@@ -203,7 +201,7 @@ export class Pathfinder {
             break;
           }
         }
-        // Don't stop — find more coast candidates
+        // Don't stop â€” find more coast candidates
       }
 
       const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -392,7 +390,7 @@ export class Pathfinder {
     return true;
   }
 
-  // BFS for finding nearest walkable tile — navigates around obstacles
+  // BFS for finding nearest walkable tile â€” navigates around obstacles
   findNearestWalkable(gx, gy, domain) {
     gx = THREE.MathUtils.clamp(gx, 0, this.size - 1);
     gy = THREE.MathUtils.clamp(gy, 0, this.size - 1);
@@ -422,7 +420,7 @@ export class Pathfinder {
   }
 
   // BFS specifically for finding the coastline
-  // Returns { groundTile, seaTile } — coast tile + adjacent water tile
+  // Returns { groundTile, seaTile } â€” coast tile + adjacent water tile
   findNearestCoast(gx, gy, domain) {
     if (!this.walkable(gx, gy, domain)) {
       const nearest = this.findNearestWalkable(gx, gy, domain);
@@ -440,7 +438,7 @@ export class Pathfinder {
       const t = this.terrainGrid[cur.gy * this.size + cur.gx];
 
       if (t === TERRAIN.COAST) {
-        // Found a coast tile — now find an adjacent sea tile for ships
+        // Found a coast tile â€” now find an adjacent sea tile for ships
         const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
         for (const [dx, dy] of dirs) {
           const nx = cur.gx + dx, ny = cur.gy + dy;
@@ -450,7 +448,7 @@ export class Pathfinder {
             return { groundTile: cur, seaTile: { gx: nx, gy: ny } };
           }
         }
-        // Coast found but no adjacent sea (interior coast) — cannot use this point
+        // Coast found but no adjacent sea (interior coast) â€” cannot use this point
         return null;
       }
 
