@@ -25,11 +25,26 @@ export class SpatialGrid {
     arr.push(unit);
   }
 
-  build(units) {
+  build(units, otherUnits = null) {
     this.clear();
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
       if (u.alive) this.insert(u);
+    }
+    if (otherUnits) {
+      for (let i = 0; i < otherUnits.length; i++) {
+        const u = otherUnits[i];
+        if (u.alive) this.insert(u);
+      }
+    }
+  }
+
+  // Iterate every indexed unit without allocating a flattened array. This is
+  // useful for global searches (for example a carrier fighter's nearest
+  // enemy), while local searches should prefer queryCircle().
+  forEach(cb) {
+    for (const arr of this.cells.values()) {
+      for (let i = 0; i < arr.length; i++) cb(arr[i]);
     }
   }
 

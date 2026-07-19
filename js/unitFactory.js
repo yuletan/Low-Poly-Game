@@ -132,6 +132,25 @@ const EDGE_MAT = new THREE.LineBasicMaterial({
 // spawned unit allocated a brand-new EdgesGeometry per sub-mesh, which leaked
 // GPU geometry (renderer.info.memory.geometries grew unbounded over a match).
 const EDGE_GEO_CACHE = new Map(); // source BufferGeometry -> EdgesGeometry
+const SOURCE_GEO_CACHE = new Map(); // geometry signature -> shared BufferGeometry
+
+function sharedSourceGeometry(geometry) {
+  if (!geometry?.parameters) return geometry;
+  let signature;
+  try {
+    signature = `${geometry.type}:${JSON.stringify(geometry.parameters)}`;
+  } catch {
+    return geometry;
+  }
+
+  const cachedGeometry = SOURCE_GEO_CACHE.get(signature);
+  if (cachedGeometry && cachedGeometry !== geometry) {
+    geometry.dispose();
+    return cachedGeometry;
+  }
+  SOURCE_GEO_CACHE.set(signature, geometry);
+  return geometry;
+}
 
 function edgeGeoFor(geometry) {
   let eg = EDGE_GEO_CACHE.get(geometry);
@@ -151,6 +170,7 @@ function finishModel(group, { outlines = true } = {}) {
     enableShadows(obj);
 
     if (obj.geometry) {
+      obj.geometry = sharedSourceGeometry(obj.geometry);
       obj.geometry.computeVertexNormals();
       obj.geometry.computeBoundingSphere();
     }

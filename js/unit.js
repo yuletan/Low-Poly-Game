@@ -91,6 +91,10 @@ export class Unit {
 
     // Performance throttling
     this._findTargetTimer = 0;
+    this._transportSearchTimer = 0;
+    this._waitingTransport = null;
+    this._attackMovePathTimer = 1;
+    this._attackMovePathKey = null;
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
 
@@ -302,18 +306,27 @@ export class Unit {
     // Crusher absorption: nearby friendly crushers absorb 60% of damage
     if (this.stats && !this.stats.crusher) {
       const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-      for (const u of allies) {
-        if (!u.alive || !u.stats.crusher || u === this) continue;
-        const d = this.mesh.position.distanceTo(u.mesh.position);
-        if (d <= u.stats.range) {
-          const absorbed = dmg * 0.6;
-          dmg -= absorbed;
-          u.hp -= absorbed * 0.3; // Crusher takes 30% of absorbed damage
-          if (u.hp <= 0) u.hp = 0;
-          u._displayHp = u.hp;
-          if (u.hp <= 0) u.die();
-          break;
-        }
+      let absorber = null;
+      const considerCrusher = u => {
+        if (absorber || u.faction !== this.faction || !u.alive || !u.stats.crusher || u === this) return;
+        const d = this._dist2d(u.mesh.position);
+        if (d <= u.stats.range) absorber = u;
+      };
+      const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+      if (grid) {
+        grid.queryCircle(
+          this.mesh.position.x, this.mesh.position.z, 64, considerCrusher
+        );
+      } else {
+        for (const u of allies) considerCrusher(u);
+      }
+      if (absorber) {
+        const absorbed = dmg * 0.6;
+        dmg -= absorbed;
+        absorber.hp -= absorbed * 0.3; // Crusher takes 30% of absorbed damage
+        if (absorber.hp <= 0) absorber.hp = 0;
+        absorber._displayHp = absorber.hp;
+        if (absorber.hp <= 0) absorber.die();
       }
     }
 
@@ -626,19 +639,26 @@ export class Unit {
   /** Provoke nearby enemies to attack this unit (crusher / escort jet). */
   _provokeEnemies() {
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-    for (const e of enemies) {
-      if (!e.alive || e.state === 'dead') continue;
-      if (e.target && e.target.alive && e.state === 'attacking') continue;
+    const provoke = e => {
+      if (e.faction === this.faction || !e.alive || e.state === 'dead') return;
+      if (e.target && e.target.alive && e.state === 'attacking') return;
       // Enemy must be able to target this unit's domain
       const isLand = e.domain === 'land';
-      if (isLand && !e.stats.airOnly && this.domain === 'air') continue;
-      if (e.stats.airOnly && this.domain !== 'air') continue;
-      if (e.stats.seaOnly && this.domain !== 'sea') continue;
-      if (e.stats.groundOnly && this.domain === 'air') continue;
+      if (isLand && !e.stats.airOnly && this.domain === 'air') return;
+      if (e.stats.airOnly && this.domain !== 'air') return;
+      if (e.stats.seaOnly && this.domain !== 'sea') return;
+      if (e.stats.groundOnly && this.domain === 'air') return;
       const d = this._dist2d(e.mesh.position);
-      if (d <= e.engageRange) {
-        e.attack(this);
-      }
+      if (d <= e.engageRange) e.attack(this);
+    };
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    if (grid) {
+      grid.queryCircle(
+        this.mesh.position.x, this.mesh.position.z,
+        Math.max(250, this.engageRange), provoke
+      );
+    } else {
+      for (const e of enemies) provoke(e);
     }
   }
 
@@ -804,7 +824,15 @@ export class Unit {
     const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     let nearestEnemy = null;
     let nearestDist = Infinity;
-    for (const e of enemies) {
+    const considerEnemy = e => {
+      if (e.faction === this.faction || !e.alive) return;
+      const d = this.mesh.position.distanceTo(e.mesh.position);
+      if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+    };
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    if (grid) {
+      grid.forEach(considerEnemy);
+    } else for (const e of enemies) {
       if (!e.alive) continue;
       const d = this.mesh.position.distanceTo(e.mesh.position);
       if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
@@ -1404,7 +1432,6 @@ export class Unit {
     // Don't override a manually-issued attack command
     if (this._manualTarget && this.target && this.target.alive) return;
 
-    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
     const airOnly = !!this.stats.airOnly;
     const baseOnly = !!this.stats.baseOnly;
     const baseTarget = !!this.stats.baseTarget;
@@ -1454,16 +1481,16 @@ export class Unit {
     let best = null, bestD = isCarrierFighter ? Infinity : this.engageRange;
     let bestPriority = 99;
 
-    for (const e of enemies) {
-      if (!e.alive) continue;
+    const considerEnemy = e => {
+      if (e.faction === this.faction || !e.alive) return;
 
       // Specialized targeting rules
-      if (airOnly && e.domain !== 'air') continue;
-      if (this.stats.seaOnly && e.domain !== 'sea') continue;
-      if (this.stats.groundOnly && e.domain === 'air') continue;
+      if (airOnly && e.domain !== 'air') return;
+      if (this.stats.seaOnly && e.domain !== 'sea') return;
+      if (this.stats.groundOnly && e.domain === 'air') return;
 
       // Land units cannot target air (except missile defense handled above)
-      if (isLand && !airOnly && e.domain === 'air') continue;
+      if (isLand && !airOnly && e.domain === 'air') return;
 
       const d = this._dist2d(e.mesh.position);
 
@@ -1472,7 +1499,7 @@ export class Unit {
       if (isLand && !airOnly) {
         if (e.domain === 'sea') {
           // Ships only targetable if very close (30% of attack range)
-          if (d > this.stats.range * 0.3) continue;
+          if (d > this.stats.range * 0.3) return;
           priority = 3;
         } else {
           priority = 1; // ground enemy
@@ -1482,6 +1509,16 @@ export class Unit {
       if (d <= this.engageRange && (priority < bestPriority || (priority === bestPriority && d < bestD))) {
         best = e; bestD = d; bestPriority = priority;
       }
+    };
+
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    if (grid) {
+      const p = this.mesh.position;
+      if (isCarrierFighter) grid.forEach(considerEnemy);
+      else grid.queryCircle(p.x, p.z, this.engageRange, considerEnemy);
+    } else {
+      const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+      for (const e of enemies) considerEnemy(e);
     }
 
     // Tactics Tier 2: Focus fire Ã¢â‚¬â€ prefer enemies that allies are already attacking
@@ -1690,13 +1727,22 @@ export class Unit {
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     const dist = this._dist2d(targetPos);
     if (dist > this.stats.range) {
-      // Sea units attacking a land target: steer toward closest coast in range
+      // Ships firing while moving used to recompute a coast target and run A*
+      // every frame. Keep the existing route for a short interval and only
+      // refresh it when the target has moved to another grid cell.
+      this._attackMovePathTimer += dt;
+      if (this._attackMovePathTimer < 0.5 && this._attackMovePathKey) return;
       if (this.domain === 'sea' && this.target.domain === 'land') {
         const coastPos = this._findCoastInRange(targetPos);
         if (coastPos) this.moveTo(coastPos, this.attackMove);
+        const coastGrid = this.game.pathfinder.worldToGrid(coastPos?.x ?? targetPos.x, coastPos?.z ?? targetPos.z);
+        this._attackMovePathKey = `${coastGrid.gx}:${coastGrid.gy}`;
       }
+      this._attackMovePathTimer = 0;
       return;
     }
+    this._attackMovePathKey = null;
+    this._attackMovePathTimer = 1;
     // In range: aim and fire, but keep moving
     const dx = targetPos.x - this.mesh.position.x;
     const dz = targetPos.z - this.mesh.position.z;
@@ -1836,6 +1882,7 @@ export class Unit {
   /** Waiting for transport: find a nearby friendly transport and board it. */
   updateWaitingForTransport(dt) {
     if (!this._transportData || !this._transportData.needsTransport) {
+      this._waitingTransport = null;
       this.state = 'idle';
       return;
     }
@@ -1846,6 +1893,7 @@ export class Unit {
       _tlog(`[TRANS LOG] Troop ${this._debugTag}: stranded for ${STRANDED_TIMEOUT}s — reverting to idle`);
       this._transportData = null;
       this._claimedByShip = null;
+      this._waitingTransport = null;
       this._waitingTimer = 0;
       this.state = 'idle';
       return;
@@ -1853,9 +1901,20 @@ export class Unit {
 
     // First priority: the transport that claimed us
     let targetTransport = this._claimedByShip;
-    
+
     // Fallback: any nearby friendly transport with space
     if (!targetTransport || !targetTransport.alive || targetTransport.carriedUnits.length >= targetTransport.transportCapacity) {
+      targetTransport = this._waitingTransport;
+    }
+    if (!targetTransport || !targetTransport.alive || targetTransport.carriedUnits.length >= targetTransport.transportCapacity) {
+      this._transportSearchTimer += dt;
+    }
+    if (!targetTransport || !targetTransport.alive || targetTransport.carriedUnits.length >= targetTransport.transportCapacity) {
+      if (this._transportSearchTimer < 0.25 && this._waitingTransport) return;
+      this._transportSearchTimer = 0;
+      // The cached transport is known to be invalid here; restart the search
+      // with no candidate so the first eligible transport can be selected.
+      targetTransport = null;
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       for (const t of allUnits) {
         if (!t.alive || !t.isTransport) continue;
@@ -1869,6 +1928,7 @@ export class Unit {
         }
         if (!targetTransport) targetTransport = t;
       }
+      this._waitingTransport = targetTransport;
     }
 
     if (targetTransport) {
@@ -1885,19 +1945,19 @@ export class Unit {
           targetTransport._transportData = this._transportData;
         }
         this._claimedByShip = null;
+        this._waitingTransport = null;
         _tlog(`[TRANS LOG] Troop ${this._debugTag}: boarded transport ${targetTransport._debugTag} (${targetTransport.carriedUnits.length}/${targetTransport.transportCapacity})`);
         return;
       } else {
         // Only move if not already near the embark point
-        const embarkPos = targetTransport._assignedEmbarkPoint || this._transportData?.shipEmbarkPoint;
+        const embarkPos = this._transportData?.embarkPoint || this._transportData?.shipEmbarkPoint;
         if (embarkPos) {
           const distToEmbark = this._dist2d(embarkPos);
-          if (distToEmbark > 5) {
+          if (distToEmbark > 2 && this.state !== 'moving' && !this.moveTarget && this.path.length === 0) {
             _tlog(`[TRANS LOG] Troop ${this._debugTag}: too far from ship, moving toward embark (distToEmbark=${distToEmbark.toFixed(1)})`);
             const saved = this._transportData;
             this.moveTo(embarkPos.clone());
             this._transportData = saved;
-            this.state = 'waitingForTransport';
           } else {
             _tlog(`[TRANS LOG] Troop ${this._debugTag}: near embark point but far from ship (d2d=${d2d.toFixed(1)}) Ã¢â‚¬â€ waiting for ship to arrive`);
           }

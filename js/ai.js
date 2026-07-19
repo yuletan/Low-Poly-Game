@@ -438,6 +438,7 @@ export function initAI(game) {
   let attackPhase = 'building'; // 'building', 'staging', 'attacking'
 
   let aiTickTimer = 0;
+  let defenseTimer = 0;
 
   game.onAITick = function (dt) {
     if (game.ended) return;
@@ -494,8 +495,13 @@ export function initAI(game) {
       checkBuildUp();
     }
 
-    // --- Defense ticks every frame (cheap) ---
-    defenseTick();
+    // --- Defense checks are useful, but do not need to run every frame ---
+    defenseTimer += dt;
+    const defenseInterval = Math.max(0.25, activePreset.aiTickInterval || 0.5);
+    if (defenseTimer >= defenseInterval) {
+      defenseTimer = 0;
+      defenseTick();
+    }
 
     // --- Time tracking for staging phase (always runs, accumulates real seconds) ---
     if (attackPhase === 'staging') {

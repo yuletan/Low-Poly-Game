@@ -12,6 +12,7 @@ import { Sound } from './sound.js';
 import { tlog as _tlog } from './debug.js';
 import { Unit } from './unit.js';
 import { Base } from './base.js';
+import { SpatialGrid } from './spatialGrid.js';
 
 // Re-export so existing imports from './game.js' (and the test suite) keep working.
 export { Unit, Base };
@@ -30,6 +31,7 @@ export class Game {
     this.bases = [];
     this.projectiles = [];
     this.deadUnits = [];
+    this.spatialGrid = new SpatialGrid(40);
     // Task 9: registry of in-flight AI amphibious attack waves
     this._aiWaves = new Map();
 
@@ -600,6 +602,11 @@ export class Game {
 
     const owned = this.bases.filter(b => b.faction === 'player').length;
     this.money += PASSIVE_INCOME * owned * dt;
+
+    // Unit targeting and proximity systems use the previous frame's positions
+    // while this frame updates units. Rebuilding once per frame is cheap and
+    // avoids repeated full-army scans in every unit's hot path.
+    this.spatialGrid.build(this.playerUnits, this.enemyUnits);
 
     // Update all entities
     for (const u of this.playerUnits) u.update(dt);
