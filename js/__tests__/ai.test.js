@@ -53,6 +53,8 @@ describe('ai.js - AI Staging Attack System', () => {
       pathfinder: {
         cell: 12,
         worldToGrid: (x, z) => ({ gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }),
+        findPath: vi.fn(() => [{}]),
+        findTransportPath: vi.fn(() => ({ needsTransport: false, path: [{}] })),
         gridToWorld: (gx, gy) => ({ x: gx * 12 - 600 + 6, z: gy * 12 - 600 + 6 }),
       },
       flashMessage: vi.fn(),

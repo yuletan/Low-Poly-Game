@@ -87,24 +87,24 @@ describe('Transport Logistics - _updateTransportLogistics', () => {
     expect(game.spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('spawns 2 transports for 5 waiting troops', () => {
+  it('spawns 1 transport for 5 waiting troops', () => {
     for (let i = 0; i < 5; i++) game.playerUnits.push(makeWaitingTroop());
     game._updateTransportLogistics(0.1);
-    expect(game.spawn).toHaveBeenCalledTimes(2);
+    expect(game.spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('spawns 3 transports for 10 waiting troops', () => {
+  it('spawns 1 transport for 10 waiting troops', () => {
     for (let i = 0; i < 10; i++) game.playerUnits.push(makeWaitingTroop());
     game._updateTransportLogistics(0.1);
-    // ceil(10/4) = 3
-    expect(game.spawn).toHaveBeenCalledTimes(3);
+    // ceil(10/10) = 1
+    expect(game.spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('spawns 7 transports for 25 waiting troops (large army scale)', () => {
+  it('spawns 3 transports for 25 waiting troops (large army scale)', () => {
     for (let i = 0; i < 25; i++) game.playerUnits.push(makeWaitingTroop());
     game._updateTransportLogistics(0.1);
-    // ceil(25/4) = 7
-    expect(game.spawn).toHaveBeenCalledTimes(7);
+    // ceil(25/10) = 3
+    expect(game.spawn).toHaveBeenCalledTimes(3);
   });
 
   it('does not count troops already claimed by a ship', () => {
@@ -149,10 +149,10 @@ describe('Transport Logistics - _updateTransportLogistics', () => {
     game.playerUnits = [
       { alive: true, isTransport: true, _assignedEmbarkPoint: { x: 30, z: 30 }, carriedUnits: [], transportCapacity: 4 },
     ];
-    for (let i = 0; i < 9; i++) game.playerUnits.push(makeWaitingTroop());
-    // 9 troops → need ceil(9/4)=3, have 1 active → spawn 2 more
+    for (let i = 0; i < 19; i++) game.playerUnits.push(makeWaitingTroop());
+    // 19 troops → need ceil(19/10)=2, have 1 active → spawn 1 more
     game._updateTransportLogistics(0.1);
-    expect(game.spawn).toHaveBeenCalledTimes(2);
+    expect(game.spawn).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -678,7 +678,7 @@ describe('Sea Pathfinding — rejects land-only routes', () => {
     expect(path).toBeNull();
   });
 
-  it('sea domain allows coast tiles as walkable', async () => {
+  it('sea domain rejects coast tiles as walkable', async () => {
     const { Pathfinder } = await import('../pathfinder.js');
     const mockTerrain = {
       getTerrainAt: (x, z) => x > 0 ? 'coast' : 'land',
@@ -686,7 +686,7 @@ describe('Sea Pathfinding — rejects land-only routes', () => {
     };
     const pf = new Pathfinder(mockTerrain);
     const coastGx = Math.floor((100 + 600) / 12);
-    expect(pf.walkable(coastGx, 50, 'sea')).toBe(true);
+    expect(pf.walkable(coastGx, 50, 'sea')).toBe(false);
   });
 });
 
@@ -740,7 +740,7 @@ describe('Boarding Distance — coast to sea (12 units)', () => {
     const ship = new Unit(game, 'transport', 'player', new THREE.Vector3(0, 0.3, 0));
     ship._assignedEmbarkPoint = new THREE.Vector3(0, 0, 0);
     // Match ship Y to avoid 3D distance issue - both at same Y
-    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(14, 0.3, 0));
+    const troop = new Unit(game, 'infantry', 'player', new THREE.Vector3(14, 8.5, 0));
     troop._transportData = { needsTransport: true, shipEmbarkPoint: new THREE.Vector3(0, 0, 0) };
     troop.state = 'waitingForTransport';
     troop._claimedByShip = ship;

@@ -142,11 +142,12 @@ export function initInput(game, camera, renderer) {
     groundCursor = new THREE.Group();
     groundCursor.add(ring, crosshair);
     groundCursor.visible = false;
-    game.scene.add(groundCursor);
+    if (game.scene?.add) game.scene.add(groundCursor);
   }
 
   function updateGroundCursor(point, mode = 'move') {
     if (!groundCursor) createGroundCursor();
+    if (!groundCursor) return;
     if (!point) { groundCursor.visible = false; return; }
 
     const color = COMMAND_COLORS[mode] || COMMAND_COLORS.move;
@@ -786,7 +787,7 @@ export function initInput(game, camera, renderer) {
           game.selectedBuilding = {
             base: base,
             faction: base.faction,
-            isShipyard: [TERRAIN.SEA, TERRAIN.COAST].includes(game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z))
+            isShipyard: game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z) === TERRAIN.SEA
           };
           updateSelectionUI();
         } else {
@@ -942,7 +943,7 @@ export function initInput(game, camera, renderer) {
       game.selectedBuilding = {
         base: base,
         faction: base.faction,
-        isShipyard: [TERRAIN.SEA, TERRAIN.COAST].includes(game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z))
+        isShipyard: game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z) === TERRAIN.SEA
       };
       updateSelectionUI();
     } else {

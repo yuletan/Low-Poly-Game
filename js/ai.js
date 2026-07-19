@@ -32,7 +32,8 @@ export function initAI(game) {
 
   function findNonOverlappingSpawn(base, domain) {
     const validTerrains = domain === 'sea' ? [TERRAIN.SEA] : [TERRAIN.LAND, TERRAIN.COAST];
-    for (let radius = 15; radius <= 400; radius += 8) {
+    // Keep production close to its base, rather than spread across an island.
+    for (let radius = 15; radius <= 90; radius += 8) {
       for (let i = 0; i < 24; i++) {
         const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
         const x = base.mesh.position.x + Math.cos(angle) * radius;
@@ -49,7 +50,7 @@ export function initAI(game) {
       }
     }
     // Last resort: accept any valid terrain, ignore overlap
-    for (let radius = 15; radius <= 400; radius += 8) {
+    for (let radius = 15; radius <= 110; radius += 8) {
       for (let i = 0; i < 24; i++) {
         const angle = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
         const x = base.mesh.position.x + Math.cos(angle) * radius;
@@ -296,10 +297,17 @@ export function initAI(game) {
       if (threats.length === 0) continue;
 
       // Order nearby idle defenders to engage (skip units already targeting something)
-      const defenders = game.enemyUnits.filter(u =>
+      const localDefenders = game.enemyUnits.filter(u =>
         u.alive && u.state === 'idle' && !u.target &&
         u.mesh.position.distanceTo(base.mesh.position) < 100
       );
+      // Idle warships are base defenders too. Pull the closest few toward a
+      // threatened coast instead of leaving them stranded at a distant spawn.
+      const navalSupport = game.enemyUnits.filter(u =>
+        u.alive && u.domain === 'sea' && !u.isTransport && u.state === 'idle' && !u.target
+      ).sort((a, b) => a.mesh.position.distanceTo(base.mesh.position) - b.mesh.position.distanceTo(base.mesh.position))
+        .slice(0, 2);
+      const defenders = [...new Set([...localDefenders, ...navalSupport])];
       for (const d of defenders) {
         // Filter threats based on unit capabilities
         const validThreats = d.stats.airOnly
@@ -498,9 +506,15 @@ export function initAI(game) {
               u.stats.damage > 0 && u.state === 'idle'
             );
             const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
-            idleUnits.slice(0, AI_MAX_STAGING_UNITS).forEach(u => {
-              u.moveTo(rallyPos);
-              stagingUnits.push(u);
+            const rallyUnits = idleUnits.slice(0, AI_MAX_STAGING_UNITS);
+            const rallySlots = typeof game.assignFormationMoveTargets === 'function'
+              ? game.assignFormationMoveTargets(rallyUnits, rallyPos, 'square')
+              : game.computeFormation(rallyPos, rallyUnits.length, 'square')
+                .map((target, index) => ({ unit: rallyUnits[index], target }));
+            rallySlots.forEach(({ unit, target }) => {
+              if (!unit || !target) return;
+              unit.moveTo(target);
+              stagingUnits.push(unit);
             });
           }
           game.flashMessage(`Enemy forces gathering...`);

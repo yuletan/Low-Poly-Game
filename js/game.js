@@ -636,7 +636,7 @@ export class Unit {
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
       const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
-      if (this.domain === 'sea' && terrain !== TERRAIN.SEA && terrain !== TERRAIN.COAST) {
+      if (this.domain === 'sea' && terrain !== TERRAIN.SEA) {
         this._pushToValidTerrain('sea');
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
         this._pushToValidTerrain('land');
@@ -915,8 +915,11 @@ export class Unit {
     if (!unit.alive) return false;
     if (unit.domain !== 'land') return false;
     if (this.carriedUnits.length >= this.transportCapacity) return false;
-    const d = this.mesh.position.distanceTo(unit.mesh.position);
-    return d <= 14;
+    // Ships and troops have different Y levels; boarding is horizontal.
+    return Math.hypot(
+      this.mesh.position.x - unit.mesh.position.x,
+      this.mesh.position.z - unit.mesh.position.z
+    ) <= 14;
   }
 
   loadUnit(unit) {
@@ -932,8 +935,12 @@ export class Unit {
   canUnload() {
     if (!this.isTransport || !this.alive) return false;
     if (this.carriedUnits.length === 0) return false;
-    const terrain = this.game.terrain.getTerrainAt(this.mesh.position.x, this.mesh.position.z);
-    return terrain === TERRAIN.COAST || terrain === TERRAIN.LAND;
+    // Ships remain in SEA and unload across an adjacent beach.
+    const g = this.game.pathfinder.worldToGrid(this.mesh.position.x, this.mesh.position.z);
+    const landing = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
+    if (!landing) return false;
+    const w = this.game.pathfinder.gridToWorld(landing.gx, landing.gy);
+    return Math.hypot(w.x - this.mesh.position.x, w.z - this.mesh.position.z) <= 18;
   }
 
   unloadAll() {
@@ -1082,7 +1089,7 @@ export class Unit {
           for (const wp of this.path) {
             const { gx, gy } = this.game.pathfinder.worldToGrid(wp.x, wp.z);
             const t = this.game.pathfinder.terrainGrid[gy * this.game.pathfinder.size + gx];
-            if (t !== TERRAIN.SEA && t !== TERRAIN.COAST) {
+            if (t !== TERRAIN.SEA) {
               console.warn(`[DEBUG TRANSPORT] Ship path invalid: waypoint at (${wp.x.toFixed(0)},${wp.z.toFixed(0)}) is terrain type ${t}`);
             }
           }
@@ -1409,8 +1416,16 @@ export class Unit {
 
     // Smooth movement blending to prevent zigzag
     const smoothFactor = 0.85;
-    pos.x += (dx / dist) * step * smoothFactor + (this._lastDx || 0) * (1 - smoothFactor) * 0.3;
-    pos.z += (dz / dist) * step * smoothFactor + (this._lastDz || 0) * (1 - smoothFactor) * 0.3;
+    const nextX = pos.x + (dx / dist) * step * smoothFactor + (this._lastDx || 0) * (1 - smoothFactor) * 0.3;
+    const nextZ = pos.z + (dz / dist) * step * smoothFactor + (this._lastDz || 0) * 0.3;
+    // Do not cross a shore for even one frame before the terrain safeguard
+    // corrects it; that was the visible water/beach clipping regression.
+    if (this.domain !== 'air' && !this.canEnter(this.game.terrain.getTerrainAt(nextX, nextZ))) {
+      this._pushToValidTerrain(this.domain);
+      return;
+    }
+    pos.x = nextX;
+    pos.z = nextZ;
     this._lastDx = dx / dist;
     this._lastDz = dz / dist;
 
@@ -1433,7 +1448,7 @@ export class Unit {
 
   canEnter(terrain) {
     if (this.domain === 'air')  return true;
-    if (this.domain === 'sea')  return terrain === TERRAIN.SEA || terrain === TERRAIN.COAST;
+    if (this.domain === 'sea')  return terrain === TERRAIN.SEA;
     if (this.domain === 'land') return terrain === TERRAIN.LAND || terrain === TERRAIN.COAST;
     return true;
   }
@@ -3469,7 +3484,7 @@ export class Game {
     for (const u of units) {
       if (!u.alive || u.domain !== 'sea' || u._amphibious) continue;
       const t = this.terrain.getTerrainAt(u.mesh.position.x, u.mesh.position.z);
-      if (t !== TERRAIN.SEA && t !== TERRAIN.COAST) {
+      if (t !== TERRAIN.SEA) {
         const gx = Math.floor((u.mesh.position.x + MAP_SIZE / 2) / 12);
         const gy = Math.floor((u.mesh.position.z + MAP_SIZE / 2) / 12);
         const nearest = this.pathfinder.findNearestWalkable(gx, gy, 'sea');

@@ -60,7 +60,8 @@ export class Pathfinder {
 
   terrainAllows(t, domain) {
     if (domain === 'air') return true;
-    if (domain === 'sea') return t === TERRAIN.SEA || t === TERRAIN.COAST;
+    // Beaches are ground, not navigable water. Transports board from the adjacent sea tile.
+    if (domain === 'sea') return t === TERRAIN.SEA;
 
     // Task 12: keep this in sync with Unit.canEnter().  Land units can fight
     // over mountain terrain for bonuses, but they should not path through the
@@ -115,9 +116,9 @@ export class Pathfinder {
     let bestResult = null;
     let bestSeaDist = Infinity;
 
-    // Try up to 5 nearest embark + 5 nearest disembark combos
-    const eSlice = embarkCandidates.slice(0, 5);
-    const dSlice = disembarkCandidates.slice(0, 5);
+    // Compare actual route length, not a straight line through islands.
+    const eSlice = embarkCandidates.slice(0, 8);
+    const dSlice = disembarkCandidates.slice(0, 8);
 
     for (const embarkCoast of eSlice) {
       for (const disembarkCoast of dSlice) {
@@ -131,9 +132,6 @@ export class Pathfinder {
         const vShipEmbark = new THREE.Vector3(shipEmbarkWorld.x, 0, shipEmbarkWorld.z);
         const vShipDisembark = new THREE.Vector3(shipDisembarkWorld.x, 0, shipDisembarkWorld.z);
 
-        // Quick distance check — skip if sea distance is already worse than best
-        const seaDist = vShipEmbark.distanceTo(vShipDisembark);
-        if (seaDist >= bestSeaDist) continue;
 
         const pathToShip = this.findPath(startWorld, vEmbark, 'land');
         if (!pathToShip) continue;
@@ -144,7 +142,11 @@ export class Pathfinder {
         const pathToTarget = this.findPath(vDisembark, endWorld, 'land');
         if (!pathToTarget) continue;
 
-        bestSeaDist = seaDist;
+        const pathLength = path => path.reduce((total, point, index) =>
+          index === 0 ? total : total + point.distanceTo(path[index - 1]), 0);
+        const routeCost = pathLength(pathToShip) + pathLength(seaPath) + pathLength(pathToTarget);
+        if (routeCost >= bestSeaDist) continue;
+        bestSeaDist = routeCost;
         bestResult = {
           needsTransport: true,
           path: null, // computed below
@@ -186,7 +188,7 @@ export class Pathfinder {
     const results = [];
 
     let qi = 0;
-    while (qi < queue.length && results.length < 10) {
+    while (qi < queue.length && results.length < 16) {
       const cur = queue[qi++];
       const t = this.terrainGrid[cur.gy * this.size + cur.gx];
 
