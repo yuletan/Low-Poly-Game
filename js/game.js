@@ -1,6 +1,6 @@
-// game.js Ã¢â‚¬â€ Game state, Unit class, Base class, and main game loop.
+﻿// game.js Ã¢â‚¬â€ Game state, Unit class, Base class, and main game loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT, AI_WAVE_MAX_HOLD } from './config.js?v=7';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, ENGAGE_RANGE_MULT, AI_WAVE_MAX_HOLD, activePreset } from './config.js?v=7';
 import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
 import { createUnitMesh, createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
 import { Projectile, updateExplosions, applyTerrainBonus, updateAllTrails, createProjectilePattern, applyHitscanDamage, acquireFromPool, releaseToPool } from './combat.js?v=3';
@@ -97,6 +97,9 @@ export class Unit {
     this._bomberCarpetDir = null;         // Carpet bomb perpendicular direction
     this._artilleryBarrageIndex = 0;      // Creeping barrage progress
     this._infantryCaptureTarget = null;   // Base being captured
+
+    // Performance throttling
+    this._findTargetTimer = 0;
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
 
@@ -477,21 +480,24 @@ export class Unit {
     // HP bar update
     this._updateHpBar(dt);
 
-    // Hit flash
-    this._updateHitFlash(dt);
+    // Hit flash — disabled on ultra low
+    if (activePreset.hitFlashEnabled) this._updateHitFlash(dt);
 
     // ===== UNIQUE MECHANICS PER UNIT =====
 
-    // HEALER: Heal nearby friendly air and land units
-    if (this.stats.healer) {
+    // HEALER: Heal nearby friendly air and land units — disabled on ultra low
+    if (this.stats.healer && activePreset.healerEnabled) {
       this._healNearby(dt);
     }
 
-    // AURA: Recalculate buffs from nearby friendly units every 1s
-    this._auraTimer += dt;
-    if (this._auraTimer >= 1) {
-      this._auraTimer = 0;
-      this._recalcAuras();
+    // AURA: Recalculate buffs — throttled by preset (0 = disabled)
+    const auraInterval = activePreset.auraInterval;
+    if (auraInterval > 0) {
+      this._auraTimer += dt;
+      if (this._auraTimer >= auraInterval) {
+        this._auraTimer = 0;
+        this._recalcAuras();
+      }
     }
 
     // CARRIER: Spawn 1 fighter every 2s, max 12 deployed, then 30s cooldown
@@ -558,22 +564,13 @@ export class Unit {
       this._tryCaptureBase(dt);
     }
 
-    // Periodic auto-target scan: active units scan every frame, idle units throttle to 0.5s
-    // Skip for returning carrier fighters
+    // Periodic auto-target scan — throttled by preset
     const isReturningCarrier = this.mesh.userData.launchedFrom && this.mesh.userData.returning;
     if (!isReturningCarrier) {
-      if (this.state === 'pursuing' || this.state === 'moving') {
-        this.findTarget();
-      } else if (this.state === 'idle') {
-        this._idleScanTimer = (this._idleScanTimer || 0) + dt;
-        if (this._idleScanTimer >= 0.5) {
-          this._idleScanTimer = 0;
-          this.findTarget();
-        }
-      }
-      this._targetScanTimer += dt;
-      if (this._targetScanTimer >= 2) {
-        this._targetScanTimer = 0;
+      const findTargetInterval = activePreset.findTargetInterval;
+      this._findTargetTimer += dt;
+      if (this._findTargetTimer >= findTargetInterval) {
+        this._findTargetTimer = 0;
         if (this.state !== 'dead') this.findTarget();
       }
       // Units that can fire while moving: run attack logic even in 'moving' or 'pursuing' state
@@ -1376,8 +1373,12 @@ export class Unit {
 
   _updateHpBar(dt) {
     if (!this._hpBar) return;
-    // Trail slowly catches up to current HP
-    this._trailHp += (this._displayHp - this._trailHp) * Math.min(1, dt * 2);
+    // Trail slowly catches up to current HP — skipped on low presets
+    if (activePreset.hpBarTrail) {
+      this._trailHp += (this._displayHp - this._trailHp) * Math.min(1, dt * 2);
+    } else {
+      this._trailHp = this._displayHp;
+    }
 
     const hpRatio = this._displayHp / this.maxHp;
     const trailRatio = this._trailHp / this.maxHp;
@@ -2554,6 +2555,10 @@ export class Game {
 
     this.placementMode = { active: false, type: null, ghost: null, ring: null, isValid: false, previewPos: null };
     this._currentTime = 0;
+
+    // Performance throttling timers (read from activePreset each frame)
+    this._softCollisionTimer = 0;
+    this._minimapTimer = 0;
   }
 
   init() {
@@ -3113,9 +3118,16 @@ export class Game {
     // Auto-spawn transports for troops waiting on beach
     this._updateTransportLogistics(dt);
 
-    // Soft unit collision (gentle nudge)
-    this._applySoftCollision(this.playerUnits);
-    this._applySoftCollision(this.enemyUnits);
+    // Soft unit collision (gentle nudge) — throttled by preset
+    const scInterval = activePreset.softCollisionInterval;
+    if (scInterval > 0) {
+      this._softCollisionTimer += dt;
+      if (this._softCollisionTimer >= scInterval) {
+        this._softCollisionTimer = 0;
+        this._applySoftCollision(this.playerUnits);
+        this._applySoftCollision(this.enemyUnits);
+      }
+    }
 
     // Update projectiles
     for (let i = this.projectiles.length-1; i>=0; i--) {
@@ -3194,14 +3206,28 @@ export class Game {
     this.aiTimer += dt;
     if (this.onAITick) this.onAITick(dt);
 
-    // Fog of war Ã¢â‚¬â€ update 4Ãƒâ€” per second
+    // Fog of war — throttled by preset
     this.fogUpdateTimer += dt;
-    if (this.fogUpdateTimer > 0.25 && this.fog) {
+    if (this.fogUpdateTimer > activePreset.fogUpdateInterval && this.fog) {
       this.fog.update(this.playerUnits, this.bases.filter(b => b.faction === 'player'));
       this.fogUpdateTimer = 0;
     }
 
-    if (this.minimap) this.minimap.draw();
+    // Minimap — throttled by preset (0 = disabled)
+    const minimapTargetFPS = activePreset.minimapFPS;
+    if (minimapTargetFPS > 0 && this.minimap) {
+      this._minimapTimer += dt;
+      const minimapInterval = 1 / minimapTargetFPS;
+      if (this._minimapTimer >= minimapInterval) {
+        this._minimapTimer = 0;
+        this.minimap.draw();
+      }
+    } else if (minimapTargetFPS === 0 && this.minimap) {
+      if (!this._minimapDrawnOnce) {
+        this.minimap.draw();
+        this._minimapDrawnOnce = true;
+      }
+    }
     this.updateHUD();
   }
 

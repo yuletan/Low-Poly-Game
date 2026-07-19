@@ -112,3 +112,94 @@ export const AI_STAGING_TIME = 8;        // seconds to wait at rally point befor
 export const AI_MIN_ATTACK_SIZE = 6;     // minimum units before launching attack
 export const AI_MAX_STAGING_UNITS = 30;  // max units in staging area
 export const AI_WAVE_MAX_HOLD = 10;      // Task 9: max seconds a boarding-complete transport waits at the embark point for sibling ships in the same amphibious wave before sailing without them
+
+// ===== QUALITY PRESETS =====
+export const QUALITY_PRESETS = {
+  ultraLow: {
+    label: 'Ultra Low', pixelRatio: 0.75, shadows: false, shadowSize: 0,
+    fogOfWar: false, fogGridSize: 30, fogUpdateInterval: 1.0,
+    particleDensity: 'low', antialias: false,
+    minimapFPS: 0,           // 0 = disabled
+    softCollisionInterval: 0, // 0 = disabled
+    findTargetInterval: 3.0,
+    auraInterval: 0,         // 0 = disabled
+    healerEnabled: false,
+    hitFlashEnabled: false,
+    hpBarTrail: false,
+    explosionEnabled: false,
+    airTrailEnabled: false,
+    aiTickInterval: 2.0,
+    uiCheckInterval: 1000,
+  },
+  low: {
+    label: 'Low', pixelRatio: 1.0, shadows: false, shadowSize: 0,
+    fogOfWar: true, fogGridSize: 40, fogUpdateInterval: 0.5,
+    particleDensity: 'low', antialias: false,
+    minimapFPS: 6,
+    softCollisionInterval: 0.1,
+    findTargetInterval: 1.0,
+    auraInterval: 2.0,
+    healerEnabled: true,
+    hitFlashEnabled: true,
+    hpBarTrail: true,
+    explosionEnabled: true,
+    airTrailEnabled: false,
+    aiTickInterval: 1.0,
+    uiCheckInterval: 500,
+  },
+  medium: {
+    label: 'Medium', pixelRatio: 1.25, shadows: true, shadowSize: 512,
+    fogOfWar: true, fogGridSize: 60, fogUpdateInterval: 0.25,
+    particleDensity: 'medium', antialias: false,
+    minimapFPS: 20,
+    softCollisionInterval: 0,
+    findTargetInterval: 0,
+    auraInterval: 1.0,
+    healerEnabled: true,
+    hitFlashEnabled: true,
+    hpBarTrail: true,
+    explosionEnabled: true,
+    airTrailEnabled: true,
+    aiTickInterval: 0,
+    uiCheckInterval: 200,
+  },
+  high: {
+    label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 1024,
+    fogOfWar: true, fogGridSize: 60, fogUpdateInterval: 0.25,
+    particleDensity: 'high', antialias: true,
+    minimapFPS: 0,
+    softCollisionInterval: 0,
+    findTargetInterval: 0,
+    auraInterval: 1.0,
+    healerEnabled: true,
+    hitFlashEnabled: true,
+    hpBarTrail: true,
+    explosionEnabled: true,
+    airTrailEnabled: true,
+    aiTickInterval: 0,
+    uiCheckInterval: 200,
+  },
+  ultra: {
+    label: 'Ultra', pixelRatio: 2.0, shadows: true, shadowSize: 2048,
+    fogOfWar: true, fogGridSize: 60, fogUpdateInterval: 0.25,
+    particleDensity: 'high', antialias: true,
+    minimapFPS: 0,
+    softCollisionInterval: 0,
+    findTargetInterval: 0,
+    auraInterval: 1.0,
+    healerEnabled: true,
+    hitFlashEnabled: true,
+    hpBarTrail: true,
+    explosionEnabled: true,
+    airTrailEnabled: true,
+    aiTickInterval: 0,
+    uiCheckInterval: 200,
+  },
+};
+
+// Active quality preset — set at startup, read by all systems
+export let activePreset = QUALITY_PRESETS.medium;
+
+export function setActivePreset(presetKey) {
+  activePreset = QUALITY_PRESETS[presetKey] || QUALITY_PRESETS.medium;
+}

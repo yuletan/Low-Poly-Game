@@ -1,6 +1,6 @@
 // ai.js Ã¢â‚¬â€ Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD } from './config.js?v=7';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, activePreset } from './config.js?v=7';
 import { LAND_HEIGHT } from './terrain.js?v=3';
 
 export function initAI(game) {
@@ -436,8 +436,18 @@ export function initAI(game) {
   let stagingTimer = 0;
   let attackPhase = 'building'; // 'building', 'staging', 'attacking'
 
+  let aiTickTimer = 0;
+
   game.onAITick = function (dt) {
     if (game.ended) return;
+
+    // Throttle entire AI tick by preset (0 = every frame)
+    const aiInterval = activePreset.aiTickInterval;
+    if (aiInterval > 0) {
+      aiTickTimer += dt;
+      if (aiTickTimer < aiInterval) return;
+      aiTickTimer = 0;
+    }
 
     // --- Defense ticks every frame (cheap) ---
     defenseTick();

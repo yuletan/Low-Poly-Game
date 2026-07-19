@@ -5,7 +5,7 @@ import { initAI }    from './ai.js?v=8';
 import { initUI }    from './ui.js?v=5';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
-import { MAP_SIZE }  from './config.js?v=7';
+import { MAP_SIZE, QUALITY_PRESETS, setActivePreset }  from './config.js?v=7';
 import { initFPSDisplay } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
@@ -21,13 +21,25 @@ camera.userData.distance = 150;
 // Detect mobile for performance tuning
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+// Load saved quality preset BEFORE creating the renderer
+let savedPresetKey = 'medium';
+try {
+  const raw = localStorage.getItem('perftab_settings');
+  if (raw) {
+    const s = JSON.parse(raw);
+    if (s && s.qualityPreset && QUALITY_PRESETS[s.qualityPreset]) savedPresetKey = s.qualityPreset;
+  }
+} catch(e) {}
+setActivePreset(savedPresetKey);
+const preset = QUALITY_PRESETS[savedPresetKey];
+
 const renderer = new THREE.WebGLRenderer({
-  antialias: !isMobile,
+  antialias: preset.antialias && !isMobile,
   powerPreference: 'high-performance'
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
-renderer.shadowMap.enabled = !isMobile;
+renderer.shadowMap.enabled = preset.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('gameCanvas').appendChild(renderer.domElement);
 scene.userData.renderer = renderer;
@@ -36,8 +48,8 @@ const ambient = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffffff, 0.9);
 sun.position.set(300, 400, 200);
-sun.castShadow = !isMobile;
-sun.shadow.mapSize.set(isMobile ? 512 : 2048, isMobile ? 512 : 2048);
+sun.castShadow = preset.shadows;
+sun.shadow.mapSize.set(preset.shadowSize, preset.shadowSize);
 sun.shadow.camera.left = -600; sun.shadow.camera.right = 600;
 sun.shadow.camera.top  =  600; sun.shadow.camera.bottom = -600;
 scene.add(sun);

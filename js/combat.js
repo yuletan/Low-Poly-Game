@@ -1,7 +1,7 @@
 // combat.js â€” Handles projectile flight, damage rolls, and FX.
 import * as THREE from 'three';
 
-import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS } from './config.js?v=4';
+import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS, activePreset } from './config.js?v=4';
 
 // Object Pooling
 const POOL = {};
@@ -138,8 +138,8 @@ export class Projectile {
       this.mesh.position.add(dir);
     }
 
-    // Air projectile trail
-    if (this.type === 'air') {
+    // Air projectile trail — disabled on low presets
+    if (this.type === 'air' && activePreset.airTrailEnabled) {
       this.spawnAirTrail();
     }
   }
@@ -282,6 +282,7 @@ function createExplosionParticle() {
 }
 
 export function spawnExplosion(scene, pos, splashRadius = 0) {
+  if (!activePreset.explosionEnabled) return;
   const particleCount = (splashRadius > 0 ? 16 : 8);
   const particles = [];
   for (let i = 0; i < particleCount; i++) {

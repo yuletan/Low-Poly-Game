@@ -1,6 +1,6 @@
 // ui.js — Modern UI with bottom dock layout and glassmorphism
 import * as THREE from 'three';
-import { UNIT_TYPES, UPGRADES } from './config.js?v=4';
+import { UNIT_TYPES, UPGRADES, QUALITY_PRESETS, setActivePreset } from './config.js?v=4';
 import { Sound } from './sound.js';
 import { saveGame, loadSaveData, deleteSave, hasSave } from './saveLoad.js';
 
@@ -1091,29 +1091,6 @@ export function initUI(game) {
     qualityPreset: 'medium',
   };
 
-  const QUALITY_PRESETS = {
-    ultra: {
-      label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 2048,
-      shadowType: 'PCFSoft', fogOfWar: true, particleDensity: 'high', aa: true,
-    },
-    high: {
-      label: 'High', pixelRatio: 1.5, shadows: true, shadowSize: 1024,
-      shadowType: 'PCFSoft', fogOfWar: true, particleDensity: 'high', aa: true,
-    },
-    medium: {
-      label: 'Medium', pixelRatio: 1.25, shadows: true, shadowSize: 512,
-      shadowType: 'PCF', fogOfWar: true, particleDensity: 'medium', aa: false,
-    },
-    low: {
-      label: 'Low', pixelRatio: 1, shadows: false, shadowSize: 256,
-      shadowType: 'PCF', fogOfWar: false, particleDensity: 'low', aa: false,
-    },
-    ultraLow: {
-      label: 'Ultra Low', pixelRatio: 0.75, shadows: false, shadowSize: 0,
-      shadowType: 'PCF', fogOfWar: false, particleDensity: 'low', aa: false,
-    },
-  };
-
   // Load saved settings
   const savedSettings = loadSettings();
   if (savedSettings) {
@@ -1150,6 +1127,10 @@ export function initUI(game) {
       Sound.master.gain.value = settingsState.masterVolume / 100;
       Sound.masterVolume = settingsState.masterVolume / 100;
     }
+
+    // Update the active preset globally so all systems can read it
+    setActivePreset(settingsState.qualityPreset);
+
     saveSettings();
   }
 
