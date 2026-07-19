@@ -23,6 +23,7 @@ export function initFPSDisplay(renderer) {
   _overlay.innerHTML = `
     <div class="fps-bar" id="fpsBar">
       <span class="fps-value" id="fpsValue">0 FPS</span>
+      <button class="fps-btn fps-btn-primary" id="fpsDownloadBtn" title="Download FPS logs">CSV</button>
       <span class="fps-toggle" id="fpsToggle" title="Expand FPS panel">&#9660;</span>
     </div>
     <div class="fps-panel hidden" id="fpsPanel">
@@ -34,7 +35,7 @@ export function initFPSDisplay(renderer) {
       </div>
       <div class="fps-actions">
         <button class="fps-btn" id="fpsClearBtn">Clear</button>
-        <button class="fps-btn fps-btn-primary" id="fpsDownloadBtn">Download Logs</button>
+        <button class="fps-btn fps-btn-primary" id="fpsDownloadPanelBtn">Download Logs</button>
       </div>
     </div>
   `;
@@ -49,6 +50,7 @@ export function initFPSDisplay(renderer) {
   });
 
   document.getElementById('fpsDownloadBtn').addEventListener('click', downloadLogs);
+  document.getElementById('fpsDownloadPanelBtn').addEventListener('click', downloadLogs);
   document.getElementById('fpsClearBtn').addEventListener('click', clearLogs);
 
   // --- FPS measurement via requestAnimationFrame ---
