@@ -1063,73 +1063,35 @@ export class Unit {
     if (this._assignedEmbarkPoint && this.path.length === 0) {
       this._boardingTimer += dt;
 
-      const isFull = this.carriedUnits.length >= this.transportCapacity;
-
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
 
-      // Re-scan: claim any unclaimed troops that arrived at the embark point
-      // while we were waiting in Phase 2.
-      if (!isFull) {
-        for (const u of allUnits) {
-          if (this.carriedUnits.length >= this.transportCapacity) break;
-          if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip && !u.carried) {
-            const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
-            if (embarkDist < 5) {
-              u._claimedByShip = this;
-              _tlog(`[TRANS LOG] Ship ${this._debugTag}: late CLAIMED ${u._debugTag} in phase2 (${this.carriedUnits.length}/${this.transportCapacity})`);
-            }
-          }
-        }
-      }
+      // Check departure readiness based on manifest assignment
+      const manifest = (this._manifest || []).filter(unit => unit.alive);
+      const waitingManifestUnits = manifest.filter(unit => !unit.carried);
+      const allManifestUnitsAboard = manifest.length > 0 && waitingManifestUnits.length === 0;
 
-      // Count claimed troops still waiting to board (not yet carried)
-      let claimedWaiting = 0;
-      let unclaimedNearby = 0;
-      for (const u of allUnits) {
-        if (u.alive && u._claimedByShip === this && !u.carried) claimedWaiting++;
-        if (u.alive && u.state === 'waitingForTransport' && u._transportData && !u._claimedByShip && !u.carried) {
-          const embarkDist = u._transportData?.shipEmbarkPoint?.distanceTo(this._assignedEmbarkPoint) ?? Infinity;
-          if (embarkDist < 5) unclaimedNearby++;
-        }
-      }
+      const isFull = this.carriedUnits.length >= this.transportCapacity;
+      const minimumBoardingWaitComplete = this._boardingTimer >= 1.25;
 
-      const noMoreWaiting = claimedWaiting === 0 && unclaimedNearby === 0;
-      const allClaimedBoarded = noMoreWaiting && this.carriedUnits.length > 0;
-      const safetyTimeout = this._boardingTimer > STRANDED_TIMEOUT;
+      const mayDepart = isFull || (allManifestUnitsAboard && minimumBoardingWaitComplete);
 
-      _tlog(`[TRANS LOG] Ship ${this._debugTag} phase2 WAITING: timer=${this._boardingTimer.toFixed(1)}s/${STRANDED_TIMEOUT}s carried=${this.carriedUnits.length}/${this.transportCapacity} claimedWaiting=${claimedWaiting} unclaimedNearby=${unclaimedNearby} isFull=${isFull}`);
-
-      // Sail only when full or all claimed troops are aboard — no partial-fill departure.
-      // A safety valve at STRANDED_TIMEOUT prevents infinite waiting if troops are stuck.
-      if (isFull || allClaimedBoarded) {
+      if (mayDepart) {
         // Task 9: hold for sibling ships in the same AI wave
         if (this.game.shouldHoldForAIWave(this)) {
           _tlog(`[TRANS LOG] Ship ${this._debugTag}: AI WAVE HOLD — waiting for sibling ships`);
           return;
         }
-        const reason = allClaimedBoarded ? 'ALL_BOARDED' : 'FULL';
-        _tlog(`[TRANS LOG] Ship ${this._debugTag} SAILING: reason=${reason} carried=${this.carriedUnits.length}`);
+        _tlog(`[TRANS LOG] Ship ${this._debugTag} SAILING: manifest=${!!this._manifest} carried=${this.carriedUnits.length}`);
         this._sailToDisembark(allUnits);
-      } else if (safetyTimeout && this.carriedUnits.length > 0) {
-        // Safety valve: stuck with partial load after STRANDED_TIMEOUT — sail anyway
-        _tlog(`[TRANS LOG] Ship ${this._debugTag} SAFETY SAIL: stuck for ${STRANDED_TIMEOUT}s with ${this.carriedUnits.length} troops`);
-        this._sailToDisembark(allUnits);
-      } else if (safetyTimeout && this.carriedUnits.length === 0) {
-        // Abandon: no troops boarded after timeout
-        _tlog(`[TRANS LOG] Ship ${this._debugTag} ABANDON: no troops boarded in ${STRANDED_TIMEOUT}s — retreating`);
-        for (const u of allUnits) {
-          if (u._claimedByShip === this) u._claimedByShip = null;
-        }
-        this._assignedEmbarkPoint = null;
-        this._transportData = null;
-        this._retreatToFriendlyBase();
       }
+
       return;
     }
 
     // Phase 3: Arrived at disembark point, unloading troops
     if (this._disembarkPoint && this.carriedUnits.length > 0 && this.path.length === 0) {
       _tlog(`[TRANS LOG] Ship ${this._debugTag} phase3: unload ${this.carriedUnits.length} troops at (${this._disembarkPoint.x.toFixed(0)},${this._disembarkPoint.z.toFixed(0)})`);
+
       // Find nearest land tile for landing zone
       const g = this.game.pathfinder.worldToGrid(this._disembarkPoint.x, this._disembarkPoint.z);
       const landing = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
@@ -1142,6 +1104,11 @@ export class Unit {
       }
       _tlog(`[TRANS LOG] Ship ${this._debugTag}: landingPos=(${landingPos.x.toFixed(0)},${landingPos.z.toFixed(0)})`);
 
+      // Use wave-specific landing center for coordinated unload
+      const waveLandingCenter = this._aiWaveId
+        ? this._disembarkPoint.clone().add(new THREE.Vector3((this._aiWaveId % 5) * 8, 0, 0))
+        : landingPos;
+
       // Manually unload each unit
       const units = [...this.carriedUnits];
       this.carriedUnits = [];
@@ -1150,13 +1117,13 @@ export class Unit {
         if (!u.alive) continue;
         u.carried = false;
         u.mesh.visible = true;
-        // Fan units around landing zone
+        // Fan units around wave-specific landing center
         const angle = (i / units.length) * Math.PI * 2;
         const dist = 4 + Math.floor(i / 4) * 4;
         u.mesh.position.set(
-          landingPos.x + Math.cos(angle) * dist,
+          waveLandingCenter.x + Math.cos(angle) * dist,
           LAND_HEIGHT + 0.5,
-          landingPos.z + Math.sin(angle) * dist
+          waveLandingCenter.z + Math.sin(angle) * dist
         );
         _tlog(`[TRANS LOG] Ship ${this._debugTag}: unloaded ${u._debugTag} at (${u.mesh.position.x.toFixed(0)},${u.mesh.position.z.toFixed(0)})`);
         // Give units their walk-to-target path
@@ -1176,6 +1143,8 @@ export class Unit {
       this._disembarkPoint = null;
       this._transportData = null;
       this._assignedEmbarkPoint = null;
+      this._manifest = null;
+      this._manifestKey = null;
       this._retreatToFriendlyBase();
       return;
     }
