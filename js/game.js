@@ -770,24 +770,34 @@ export class Game {
     const data = unit._transportData;
     const embark = data?.shipEmbarkPoint;
     const disembark = data?.shipDisembarkPoint;
-
-    if (!embark || !disembark) return null;
-
-    const embarkCell = this.pathfinder.worldToGrid(embark.x, embark.z);
-    const disembarkCell = this.pathfinder.worldToGrid(disembark.x, disembark.z);
-
     const orderId = unit._aiWaveId ?? unit._formationOrderId ?? 'automatic';
 
-    return [unit.faction, orderId, `${embarkCell.gx},${embarkCell.gy}`, `${disembarkCell.gx},${disembarkCell.gy}`].join(':');
+    // Troops with no pre-assigned embark point (the common "load selected
+    // units" case) are grouped per faction/order so they still get a ship,
+    // instead of being silently dropped from every manifest.
+    if (!embark) {
+      return [unit.faction, orderId, 'base'].join(':');
+    }
+
+    const embarkCell = this.pathfinder.worldToGrid(embark.x, embark.z);
+    const disembarkCell = disembark ? this.pathfinder.worldToGrid(disembark.x, disembark.z) : null;
+    const disembarkKey = disembarkCell ? `${disembarkCell.gx},${disembarkCell.gy}` : 'unset';
+
+    return [unit.faction, orderId, `${embarkCell.gx},${embarkCell.gy}`, disembarkKey].join(':');
   }
 
   _assignTransportManifest(ship, troops, manifestKey) {
     if (!ship || troops.length === 0) return false;
 
     const transportData = troops[0]._transportData;
-    const embarkPoint = transportData?.shipEmbarkPoint?.clone();
-
-    if (!embarkPoint) return false;
+    const shipEmbarkPoint = transportData?.shipEmbarkPoint;
+    // No specific embark point means the ship already spawned near where the
+    // troops are waiting, so it just holds position instead of sailing.
+    const embarkPoint = (
+      shipEmbarkPoint
+        ? shipEmbarkPoint.clone()
+        : (ship.mesh?.position?.clone() ?? new THREE.Vector3())
+    );
 
     ship._manifestKey = manifestKey;
     ship._manifest = [...troops];
@@ -801,12 +811,42 @@ export class Game {
       troop._boardingTarget = ship;
     }
 
-    const path = this.pathfinder.findPath(ship.mesh.position, embarkPoint, 'sea', false);
-    ship.path = path ? path.map(point => point.clone()) : [];
-    ship.moveTarget = ship.path.shift() ?? embarkPoint.clone();
-    ship.state = 'moving';
+    if (shipEmbarkPoint && ship.mesh) {
+      const path = this.pathfinder.findPath(ship.mesh.position, embarkPoint, 'sea', false);
+      ship.path = path ? path.map(point => point.clone()) : [];
+      ship.moveTarget = ship.path.shift() ?? embarkPoint.clone();
+      ship.state = 'moving';
+    }
 
     return true;
+  }
+
+  // Resolve where a newly spawned transport should appear: near the troops'
+  // pre-assigned embark coast when they have one, otherwise near the
+  // faction's own base. A small deterministic offset keeps ships that spawn
+  // in the same batch from stacking on top of each other.
+  _findTransportSpawnPosition(troop, faction) {
+    const embark = troop._transportData?.shipEmbarkPoint;
+    let world;
+
+    if (embark) {
+      const grid = this.pathfinder.worldToGrid(embark.x, embark.z);
+      const seaTile = this.pathfinder.findNearestWalkable(grid.gx, grid.gy, 'sea');
+      if (!seaTile) return null;
+      world = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
+    } else {
+      const base = this.bases.find(b => b.faction === faction && b.alive);
+      const origin = base ? base.mesh.position : new THREE.Vector3();
+      world = this.findValidSpawn(origin, 'sea');
+      if (!world) return null;
+    }
+
+    this._debugTransportSpawnIndex = (this._debugTransportSpawnIndex || 0) + 1;
+    return new THREE.Vector3(
+      world.x + (this._debugTransportSpawnIndex % 3) * 7,
+      0.3,
+      world.z + (Math.floor(this._debugTransportSpawnIndex / 3) % 3) * 7
+    );
   }
 
   _updateTransportLogistics() {
@@ -849,41 +889,39 @@ export class Game {
           this._assignTransportManifest(ship, manifest, key);
         }
 
-        // Skip spawning if no troops left or cooldown active
+        // Skip spawning if no troops left or this faction is on cooldown
+        // from a spawn in a previous logistics tick.
         if (unassigned.length === 0 || this._transportSpawnCooldown[faction] > 0) {
           continue;
         }
 
         const cost = UNIT_TYPES.transport.cost;
-        if (faction === 'player' && this.money < cost) {
-          continue;
+        let spawnedForGroup = false;
+
+        // Spawn as many ships as this group currently needs (bounded by
+        // funds), rather than leaving the rest of the army stranded until
+        // the next tick.
+        while (unassigned.length > 0) {
+          if (faction === 'player' && this.money < cost) break;
+
+          const spawnPosition = this._findTransportSpawnPosition(unassigned[0], faction);
+          if (!spawnPosition) break;
+
+          if (faction === 'player') {
+            this.money -= cost;
+          }
+
+          const ship = this.spawn('transport', faction, spawnPosition);
+          const manifest = unassigned.splice(0, capacity);
+          this._assignTransportManifest(ship, manifest, key);
+          spawnedForGroup = true;
         }
 
-        const embark = unassigned[0]._transportData.shipEmbarkPoint;
-        const grid = this.pathfinder.worldToGrid(embark.x, embark.z);
-        const seaTile = this.pathfinder.findNearestWalkable(grid.gx, grid.gy, 'sea');
-        if (!seaTile) continue;
-
-        const world = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
-
-        // Small deterministic offset prevents ships stacking
-        this._debugTransportSpawnIndex = (this._debugTransportSpawnIndex || 0) + 1;
-        const spawnPosition = new THREE.Vector3(
-          world.x + (this._debugTransportSpawnIndex % 3) * 7,
-          0.3,
-          world.z + (Math.floor(this._debugTransportSpawnIndex / 3) % 3) * 7
-        );
-
-        if (faction === 'player') {
-          this.money -= cost;
+        // Briefly cool down this faction's spawning so the next tick
+        // doesn't immediately re-evaluate the same group.
+        if (spawnedForGroup) {
+          this._transportSpawnCooldown[faction] = 0.80;
         }
-
-        const ship = this.spawn('transport', faction, spawnPosition);
-        const manifest = unassigned.splice(0, capacity);
-        this._assignTransportManifest(ship, manifest, key);
-
-        // Prevent all required ships spawning in one frame
-        this._transportSpawnCooldown[faction] = 0.80;
       }
     }
   }
