@@ -35,6 +35,13 @@ export class Game {
     // Task 9: registry of in-flight AI amphibious attack waves
     this._aiWaves = new Map();
 
+    // Transport logistics: throttle coordination and spawn cooldowns
+    this._transportLogisticsTimer = 0;
+    this._transportSpawnCooldown = {
+      player: 0,
+      enemy: 0
+    };
+
     this.selectedUnits = [];
     this.formation = 'line';
     this.attackMoveMode = false;
@@ -1051,49 +1058,98 @@ export class Game {
   }
 
   _applySoftCollision(units) {
-    for (let i = 0; i < units.length; i++) {
-      for (let j = i + 1; j < units.length; j++) {
-        const a = units[i], b = units[j];
-        if (!a.alive || !b.alive || a.domain === 'air' || b.domain === 'air') continue;
-        const dx = b.mesh.position.x - a.mesh.position.x;
-        const dz = b.mesh.position.z - a.mesh.position.z;
-        const dist = Math.hypot(dx, dz);
-        const minDist = (a.domain === 'sea' || b.domain === 'sea') ? 6 : 3.5;
-        if (dist >= minDist || dist < 0.01) continue;
-        const overlap = minDist - dist;
-        if (overlap < 0.5) continue;
-        const push = overlap * 0.5;
-        const nx = dx / dist, nz = dz / dist;
-        a.mesh.position.x -= nx * push;
-        a.mesh.position.z -= nz * push;
-        b.mesh.position.x += nx * push;
-        b.mesh.position.z += nz * push;
-      }
-    }
-    // Validate sea units didn't get pushed onto land by collision
-    for (const u of units) {
-      if (!u.alive || u.domain !== 'sea' || u._amphibious) continue;
-      const t = this.terrain.getTerrainAt(u.mesh.position.x, u.mesh.position.z);
-      if (t !== TERRAIN.SEA) {
-        const gx = Math.floor((u.mesh.position.x + MAP_SIZE / 2) / 12);
-        const gy = Math.floor((u.mesh.position.z + MAP_SIZE / 2) / 12);
-        const nearest = this.pathfinder.findNearestWalkable(gx, gy, 'sea');
-        if (nearest) {
-          const w = this.pathfinder.gridToWorld(nearest.gx, nearest.gy);
-          u.mesh.position.x = w.x;
-          u.mesh.position.z = w.z;
-          // Push nearby units away to prevent re-overlap
-          for (const other of units) {
-            if (!other.alive || other === u) continue;
-            const odx = other.mesh.position.x - u.mesh.position.x;
-            const odz = other.mesh.position.z - u.mesh.position.z;
-            const odist = Math.hypot(odx, odz);
-            if (odist < 6 && odist > 0.01) {
-              const pushAway = (6 - odist) * 0.5;
-              other.mesh.position.x += (odx / odist) * pushAway;
-              other.mesh.position.z += (odz / odist) * pushAway;
-            }
+    if (!units.length) return;
+
+    const faction = units[0]?.faction;
+
+    for (const a of units) {
+      if (!a.alive || a.domain === 'air') continue;
+
+      const searchRadius = a.domain === 'sea' ? 6 : 3.5;
+
+      this.spatialGrid.queryCircle(
+        a.mesh.position.x,
+        a.mesh.position.z,
+        searchRadius,
+        b => {
+          if (
+            b === a ||
+            !b.alive ||
+            b.faction !== faction ||
+            b.domain === 'air'
+          ) {
+            return;
           }
+
+          // Each pair is processed once.
+          if (b._debugId <= a._debugId) return;
+
+          const dx = b.mesh.position.x - a.mesh.position.x;
+          const dz = b.mesh.position.z - a.mesh.position.z;
+          const distance = Math.hypot(dx, dz);
+
+          const minimumDistance =
+            a.domain === 'sea' || b.domain === 'sea'
+              ? 6
+              : 3.5;
+
+          if (
+            distance >= minimumDistance ||
+            distance < 0.01
+          ) {
+            return;
+          }
+
+          const overlap = minimumDistance - distance;
+          if (overlap < 0.5) return;
+
+          const push = overlap * 0.5;
+          const nx = dx / distance;
+          const nz = dz / distance;
+
+          a.mesh.position.x -= nx * push;
+          a.mesh.position.z -= nz * push;
+          b.mesh.position.x += nx * push;
+          b.mesh.position.z += nz * push;
+        }
+      );
+    }
+
+    // Keep the existing sea-unit terrain validation code here.
+    for (const unit of units) {
+      if (
+        !unit.alive ||
+        unit.domain !== 'sea' ||
+        unit._amphibious
+      ) {
+        continue;
+      }
+
+      const terrainType = this.terrain.getTerrainAt(
+        unit.mesh.position.x,
+        unit.mesh.position.z
+      );
+
+      if (terrainType !== TERRAIN.SEA) {
+        const grid = this.pathfinder.worldToGrid(
+          unit.mesh.position.x,
+          unit.mesh.position.z
+        );
+
+        const nearest = this.pathfinder.findNearestWalkable(
+          grid.gx,
+          grid.gy,
+          'sea'
+        );
+
+        if (nearest) {
+          const world = this.pathfinder.gridToWorld(
+            nearest.gx,
+            nearest.gy
+          );
+
+          unit.mesh.position.x = world.x;
+          unit.mesh.position.z = world.z;
         }
       }
     }

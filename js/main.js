@@ -1,11 +1,12 @@
-import * as THREE from 'three';
+import { Capacitor } from '@capacitor/core';
+
 import { Game } from './game.js?v=10';
 import { initInput } from './input.js?v=5';
 import { initAI }    from './ai.js?v=8';
 import { initUI }    from './ui.js?v=5';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
-import { MAP_SIZE, QUALITY_PRESETS, setActivePreset }  from './config.js?v=7';
+import { MAP_SIZE, QUALITY_PRESETS, setActivePreset, activePreset }  from './config.js?v=8';
 import { initFPSDisplay, recordFrameTiming } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
@@ -18,8 +19,10 @@ camera.lookAt(0, 0, 0);
 camera.userData.height = 150;
 camera.userData.distance = 150;
 
-// Detect mobile for performance tuning
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+// Detect mobile for performance tuning using Capacitor and pointer events
+const isMobile =
+  Capacitor.isNativePlatform() ||
+  window.matchMedia('(pointer: coarse)').matches;
 
 // Load saved quality preset BEFORE creating the renderer
 let savedPresetKey = 'medium';
@@ -102,7 +105,11 @@ function resizeRenderer() {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 2));
+  const deviceRatio = window.devicePixelRatio || 1;
+  const presetRatio = activePreset.pixelRatio ?? 1;
+
+  // Never let resize/orientation override the selected quality preset.
+  renderer.setPixelRatio(Math.min(deviceRatio, presetRatio));
   renderer.setSize(width, height, false);
 }
 

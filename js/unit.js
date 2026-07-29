@@ -89,12 +89,27 @@ export class Unit {
     this._artilleryBarrageIndex = 0;      // Creeping barrage progress
     this._infantryCaptureTarget = null;   // Base being captured
 
-    // Performance throttling
-    this._findTargetTimer = 0;
-    this._transportSearchTimer = 0;
+    // Performance throttling — stagger timers across units to avoid synchronized spikes
+    const phase = (this._debugId * 0.61803398875) % 1;
+    const targetInterval = Math.max(
+      0.12,
+      activePreset.findTargetInterval || 0.35
+    );
+
+    this._findTargetTimer = phase * targetInterval;
+    this._fighterScanTimer = phase * FIGHTER_SCAN_INTERVAL;
+    this._provokeTimer = phase * PROVOKE_INTERVAL;
+    this._pathLineTimer = phase * PATH_LINE_THROTTLE;
+
+    this._transportSearchTimer = phase * 0.5;
     this._waitingTransport = null;
-    this._attackMovePathTimer = 1;
+
+    this._attackMovePathTimer = phase;
     this._attackMovePathKey = null;
+
+    this._pursuePathTimer = phase * 1.2;
+    this._pursuePathKey = null;
+    this._pursuePath = [];
 
     this.mesh = createUnitMesh(type, baseStats.color, faction);
 
@@ -524,15 +539,22 @@ export class Unit {
     // Periodic auto-target scan — throttled by preset
     const isReturningCarrier = this.mesh.userData.launchedFrom && this.mesh.userData.returning;
     if (!isReturningCarrier) {
-      const findTargetInterval = activePreset.findTargetInterval;
+      const findTargetInterval = Math.max(
+        0.12,
+        activePreset.findTargetInterval || 0.35
+      );
+
       this._findTargetTimer += dt;
+
       if (this._findTargetTimer >= findTargetInterval) {
-    this._findTargetTimer = 0;
-    this._provokeTimer = 0;
-    this._fighterScanTimer = 0;
-    this._pathLineTimer = 0;
-        if (this.state !== 'dead') this.findTarget();
+        // Preserve overflow instead of forcing every unit back to exactly zero.
+        this._findTargetTimer %= findTargetInterval;
+
+        if (this.state !== 'dead') {
+          this.findTarget();
+        }
       }
+
       // Units that can fire while moving: run attack logic even in 'moving' or 'pursuing' state
       if ((this.state === 'moving' || this.state === 'pursuing') && this.canFireWhileMoving && this.target) {
         this.updateAttackWhileMoving(dt);
@@ -560,9 +582,7 @@ export class Unit {
     // Fleet escorts: skip normal state machine, carrier controls movement
     if (this._fleetCarrier && this._fleetCarrier.alive) {
       // Fleet escorts auto-attack enemies in range but don't move independently
-      if (!this.target || !this.target.alive) {
-        this.findTarget();
-      }
+      // Target acquisition is handled by the periodic findTarget() scan above.
       if (this.target && this.target.alive) {
         const d = this._dist2d(this.target.mesh.position);
         if (d <= this.stats.range) {
@@ -1839,24 +1859,68 @@ export class Unit {
       }
     } else {
       // Ground/sea: use pathfinding to avoid obstacles, but only re-path periodically
-      this._pursuePathTimer = (this._pursuePathTimer || 0) + dt;
-      if (!this._pursuePath || this._pursuePath.length === 0 || this._pursuePathTimer > 1.0) {
+      this._pursuePathTimer += dt;
+
+      const targetCell = this.game.pathfinder.worldToGrid(
+        targetPos.x,
+        targetPos.z
+      );
+
+      const targetKey =
+        `${this.domain}:${targetCell.gx}:${targetCell.gy}`;
+
+      // Different units recalculate on slightly different schedules.
+      const repathInterval =
+        0.90 + (this._debugId % 7) * 0.08;
+
+      const firstPath = this._pursuePathKey === null;
+      const targetCellChanged = targetKey !== this._pursuePathKey;
+      const pathEmpty =
+        !this._pursuePath ||
+        this._pursuePath.length === 0;
+
+      const shouldRepath =
+        firstPath ||
+        (
+          this._pursuePathTimer >= repathInterval &&
+          (targetCellChanged || pathEmpty)
+        );
+
+      if (shouldRepath) {
         this._pursuePathTimer = 0;
-        this._pursuePath = this.game.pathfinder.findPath(this.mesh.position, targetPos, this.domain) || [];
+        this._pursuePathKey = targetKey;
+
+        this._pursuePath =
+          this.game.pathfinder.findPath(
+            this.mesh.position,
+            targetPos,
+            this.domain
+          ) || [];
       }
-      if (this._pursuePath && this._pursuePath.length > 0) {
-        const wp = this._pursuePath[0];
-        const wpDist = Math.hypot(wp.x - this.mesh.position.x, wp.z - this.mesh.position.z);
-        if (wpDist < 2) {
+
+      if (this._pursuePath.length > 0) {
+        const waypoint = this._pursuePath[0];
+
+        const waypointDistance = Math.hypot(
+          waypoint.x - this.mesh.position.x,
+          waypoint.z - this.mesh.position.z
+        );
+
+        if (waypointDistance < 2) {
           this._pursuePath.shift();
         } else {
           const step = this.stats.speed * dt;
-          this.mesh.position.x += ((wp.x - this.mesh.position.x) / wpDist) * step;
-          this.mesh.position.z += ((wp.z - this.mesh.position.z) / wpDist) * step;
+
+          this.mesh.position.x +=
+            ((waypoint.x - this.mesh.position.x) / waypointDistance) * step;
+
+          this.mesh.position.z +=
+            ((waypoint.z - this.mesh.position.z) / waypointDistance) * step;
         }
       } else {
-        // Fallback: direct movement
+        // Temporary fallback while waiting for the next permitted retry.
         const step = this.stats.speed * dt;
+
         if (dist > step) {
           this.mesh.position.x += (dx / dist) * step;
           this.mesh.position.z += (dz / dist) * step;
