@@ -4,6 +4,7 @@ import { Game } from './game.js?v=10';
 import { initInput } from './input.js?v=5';
 import { initAI }    from './ai.js?v=8';
 import { initUI }    from './ui.js?v=5';
+import { initMobileUI } from './mobileUI.js';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
 import { MAP_SIZE, QUALITY_PRESETS, setActivePreset, activePreset }  from './config.js?v=8';
@@ -164,6 +165,12 @@ function startGame(difficulty, saveData) {
     initAI(game);
     console.log('[INIT] AI initialized');
     initUI(game);
+    initMobileUI(game, {
+      stopSelected: () => game.stopSelectedUnits(),
+      cycleFormation: () => game.cycleFormation(),
+      loadSelected: () => game.loadSelectedTransport(),
+      unloadSelected: () => game.unloadSelectedTransport(),
+    });
     // Apply saved settings
     if (window.__applySettings) window.__applySettings();
     // Initialize FPS display overlay

@@ -569,6 +569,55 @@ export class Game {
     btns.forEach(b => { b.disabled = disabled; });
   }
 
+  // ===== Selection commands =====
+  // Shared actions used by the mobile command bar (mobileUI.js) and
+  // available for any other UI entry point that wants the same behavior
+  // as the desktop's F1-F4 formation hotkeys and transport buttons.
+  stopSelectedUnits() {
+    let stopped = 0;
+    for (const u of this.selectedUnits) {
+      if (!u.alive) continue;
+      u.state = 'idle';
+      u.path = [];
+      u.moveTarget = null;
+      u.target = null;
+      u._pursueTarget = null;
+      u.attackMove = false;
+      u.attackMoveDest = null;
+      stopped++;
+    }
+    if (stopped > 0) this.flashMessage(`Stop (${stopped})`);
+  }
+
+  cycleFormation() {
+    const order = ['line', 'wedge', 'square', 'column'];
+    const names = { line: 'Line', wedge: 'Wedge', square: 'Square', column: 'Column' };
+    const current = order.includes(this.formation) ? this.formation : 'line';
+    const next = order[(order.indexOf(current) + 1) % order.length];
+    this.formation = next;
+    document.querySelectorAll('.formation-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.formation === next);
+    });
+    this.flashMessage(`Formation: ${names[next]}`);
+  }
+
+  loadSelectedTransport() {
+    const t = this.selectedUnits.find(u => u.isTransport && u.alive);
+    if (!t) return;
+    const toLoad = this.playerUnits.filter(u =>
+      u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
+    );
+    for (const u of toLoad) t.loadUnit(u);
+    if (typeof this.updateSelectionUI === 'function') this.updateSelectionUI();
+  }
+
+  unloadSelectedTransport() {
+    const t = this.selectedUnits.find(u => u.isTransport && u.alive);
+    if (!t) return;
+    t.unloadAll();
+    if (typeof this.updateSelectionUI === 'function') this.updateSelectionUI();
+  }
+
   flashMessage(text) {
     let el = document.getElementById('flashMsg');
     if (!el) {
