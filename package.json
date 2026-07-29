@@ -1,13 +1,17 @@
 {
   "name": "low-poly-command",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "cap:sync": "vite build && cap sync",
+    "clean": "node scripts/clean.mjs",
+    "check": "npm run test && npm run build",
+    "cap:sync": "npm run build && cap sync",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -20,7 +24,6 @@
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vite": "^5.0.0",
-    "@vitest/coverage-v8": "^4.1.10",
     "vitest": "^4.1.10"
   }
 }
