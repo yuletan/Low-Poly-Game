@@ -431,7 +431,7 @@ export function initAI(game) {
   }
 
   // ===== Hook the AI into the game's update loop =====
-  const ATTACK_GROUP_TARGET = { easy: 10, normal: 20, hard: 32 };
+  const ATTACK_GROUP_TARGET = { easy: 8, normal: 15, hard: 30 };
   const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
   let attackCooldown = 0;
 
@@ -563,9 +563,10 @@ export function initAI(game) {
 
       const enoughUnits = aliveStaging.length >= AI_MIN_ATTACK_SIZE;
       const formationReady = enoughUnits && readyRatio >= 0.80;
-      const hardTimeout = stagingTimer >= AI_STAGING_TIME * 2;
+      const softTimeout = stagingTimer >= AI_STAGING_TIME;
+      const stagingFull = stagingUnits.length >= AI_MAX_STAGING_UNITS;
 
-      if (formationReady || hardTimeout) {
+      if (formationReady || softTimeout || stagingFull) {
         launchStagedAttack();
       }
     } else if (attackPhase === 'attacking') {
