@@ -80,7 +80,7 @@ export class Game {
   }
 
   createBases() {
-    // Player HQ Ã¢â‚¬â€ far west, on coast of west continent
+    // Player HQ — far west, on coast of west continent
     this.bases.push(new Base(this, 'player', { x:-500, z: 200 }, 1.8, 'Player HQ'));
     // Enemy bases spread across the bigger world
     this.bases.push(new Base(this, 'enemy', { x:-300, z:-200 }, 1.0, 'Outpost Alpha'));
@@ -221,14 +221,14 @@ export class Game {
   }
 
   // ============================================================
-  //  PLACEMENT MODE Ã¢â‚¬â€ click-to-place after buying a unit
+  //  PLACEMENT MODE — click-to-place after buying a unit
   // ============================================================
   enterPlacementMode(type, groupPlace) {
     const stats = UNIT_TYPES[type];
     const unitCost = stats.cost;
     const cost = groupPlace ? unitCost * 5 : unitCost;
     if (this.money < cost) {
-      this.flashMessage(`Not enough $ for ${groupPlace ? '5Ãƒâ€” ' : ''}${type} ($${cost})`);
+      this.flashMessage(`Not enough $ for ${groupPlace ? '5× ' : ''}${type} ($${cost})`);
       return false;
     }
 
@@ -278,7 +278,7 @@ export class Game {
 
     this._showPlacementIndicator(type);
     this._setBuyButtonsDisabled(true);
-    this.flashMessage(groupPlace ? `Ctrl+Click to place 5Ãƒâ€” ${type.toUpperCase()} ($${cost})` : `Click to place ${type.toUpperCase()}`);
+    this.flashMessage(groupPlace ? `Ctrl+Click to place 5× ${type.toUpperCase()} ($${cost})` : `Click to place ${type.toUpperCase()}`);
     return true;
   }
 
@@ -367,11 +367,11 @@ export class Game {
         this.spawnSpawnMarker(u.mesh.position.clone());
       }
       Sound.play('build');
-      this.flashMessage(`Built 5Ãƒâ€” ${type.toUpperCase()} ($${unitCost * 5})`);
+      this.flashMessage(`Built 5× ${type.toUpperCase()} ($${unitCost * 5})`);
       this.pingMinimap(pos.x, pos.z);
     } else {
       if (!this.isValidPlacement(pos.x, pos.z, domain)) {
-        this.flashMessage('Cannot place here Ã¢â‚¬â€ invalid location');
+        this.flashMessage('Cannot place here — invalid location');
         return false;
       }
       this.money -= unitCost;
@@ -555,7 +555,7 @@ export class Game {
       el.id = 'placementIndicator';
       document.body.appendChild(el);
     }
-    el.textContent = `Placing: ${type.toUpperCase()} Ã¢â‚¬â€ Click to place, Right-click / Esc to cancel`;
+    el.textContent = `Placing: ${type.toUpperCase()} — Click to place, Right-click / Esc to cancel`;
     el.classList.remove('hidden');
   }
 
@@ -940,7 +940,7 @@ export class Game {
   endGame(victory) {
     this.ended = true;
     document.getElementById('endScreen').classList.remove('hidden');
-    document.getElementById('endTitle').textContent = victory ? 'Ã°Å¸Ââ€  Victory!' : 'Ã°Å¸â€™â‚¬ Defeat';
+    document.getElementById('endTitle').textContent = victory ? '🏆 Victory!' : '💀 Defeat';
   }
 
   _formationUnitsCenter(units) {

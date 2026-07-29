@@ -244,7 +244,7 @@ export class Unit {
           else { this.state = 'idle'; return; }
         }
       } else {
-        // No path Ã¢â‚¬â€ try to find nearest walkable point near target and path to that
+        // No path — try to find nearest walkable point near target and path to that
         const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
         const near = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'land');
         if (near) {
@@ -270,7 +270,7 @@ export class Unit {
         this.path = path;
         this.moveTarget = this.path.shift();
       } else {
-        // No path Ã¢â‚¬â€ try nearest walkable sea cell near target
+        // No path — try nearest walkable sea cell near target
         const g = this.game.pathfinder.worldToGrid(targetPos.x, targetPos.z);
         const near = this.game.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
         if (near) {
@@ -349,7 +349,7 @@ export class Unit {
     if (this.hp <= 0) this.hp = 0;
     this._displayHp = this.hp;
 
-    // Hit flash Ã¢â‚¬â€ clone materials first to avoid corrupting shared MAT_CACHE
+    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE
     if (!this._hitFlashOrig) {
       this.mesh.traverse(c => {
         if (c.material?.color && c.userData.origColor === undefined) {
@@ -561,7 +561,7 @@ export class Unit {
       }
     }
 
-    // Amphibious auto-conversion: land unit in water Ã¢â€ â€™ boat, boat on land Ã¢â€ â€™ land
+    // Amphibious auto-conversion: land unit in water → boat, boat on land → land
     // MUST run before updateMove so the domain check in updateMove uses the correct domain
     if (this.domain !== 'air' && this.state !== 'dead') {
       const pos = this.mesh.position;
@@ -604,7 +604,7 @@ export class Unit {
     // Transport: sync carried units; skip combat
     if (this.isTransport) {
       this._updateTransport(dt);
-      // Transport can't attack Ã¢â‚¬â€ clear any target
+      // Transport can't attack — clear any target
       this.target = null;
     }
 
@@ -696,7 +696,7 @@ export class Unit {
       if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
       if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
     }
-    // Tactics Tier 1: Formation bonus Ã¢â‚¬â€ +10% dmg when 2+ allies within range 20
+    // Tactics Tier 1: Formation bonus — +10% dmg when 2+ allies within range 20
     const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
     if (tacticsTier >= 1) {
       let nearbyAllies = 0;
@@ -778,7 +778,7 @@ export class Unit {
     }
   }
 
-  /** Hit confirm flash Ã¢â‚¬â€ red ring expanding on target */
+  /** Hit confirm flash — red ring expanding on target */
   _spawnHitConfirm(pos) {
     const ring = acquireFromPool('hitConfirm', () => {
       const m = new THREE.Mesh(
@@ -996,8 +996,8 @@ export class Unit {
 
     // Phase 1: Empty ship looking for unclaimed troops
     if (this.carriedUnits.length === 0 && !this._disembarkPoint && !this._assignedEmbarkPoint) {
-      // Task 7: respect explicit player orders Ã¢â‚¬â€ don't hijack a ship mid-journey
-      if (this._manualOrder && this.state === 'moving') { _tlog(`[TRANS LOG] Ship ${this._debugTag} skipping Ã¢â‚¬â€ manual order in progress`); return; }
+      // Task 7: respect explicit player orders — don't hijack a ship mid-journey
+      if (this._manualOrder && this.state === 'moving') { _tlog(`[TRANS LOG] Ship ${this._debugTag} skipping — manual order in progress`); return; }
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       let bestDist = Infinity;
       let bestUnit = null;
@@ -1028,7 +1028,7 @@ export class Unit {
           this.state = 'moving';
           _tlog(`[TRANS LOG] Ship ${this._debugTag}: pathing to embark (${rawSeaPath.length} waypoints)`);
         } else {
-          _twarn(`[TRANS LOG] Ship ${this._debugTag}: FAILED path to embark Ã¢â‚¬â€ trying moveTo`);
+          _twarn(`[TRANS LOG] Ship ${this._debugTag}: FAILED path to embark — trying moveTo`);
           this.moveTo(embarkTarget);
         }
         this._assignedEmbarkPoint = embarkTarget;
@@ -1053,7 +1053,7 @@ export class Unit {
         }
         _tlog(`[TRANS LOG] Ship ${this._debugTag}: total claimed=${claimed} heading to (${this._assignedEmbarkPoint.x.toFixed(0)},${this._assignedEmbarkPoint.z.toFixed(0)})`);
       } else {
-        _tlog(`[TRANS LOG] Ship ${this._debugTag}: no waiting troops found Ã¢â‚¬â€ idle`);
+        _tlog(`[TRANS LOG] Ship ${this._debugTag}: no waiting troops found — idle`);
         if (this.state === 'idle' && !this._manualOrder) this._retreatToFriendlyBase();
       }
       return;
@@ -1276,7 +1276,7 @@ export class Unit {
       // Set correct Y position for domain
       const y = domain === 'sea' ? 0.3 : (LAND_HEIGHT + 0.5);
       this.mesh.position.set(world.x, y, world.z);
-      // Don't change rotation Ã¢â‚¬â€ keep current facing direction
+      // Don't change rotation — keep current facing direction
       // Re-path after push with delay to avoid spam
       if (this.attackMoveDest && this.state !== 'idle') {
         setTimeout(() => {
@@ -1358,7 +1358,7 @@ export class Unit {
     if (dist < 2) {
       this.moveTarget = this.path.length > 0 ? this.path.shift() : null;
       if (!this.moveTarget) {
-        // Check if we finished walking to embark point Ã¢â‚¬â€ need transport (land units only, not ships)
+        // Check if we finished walking to embark point — need transport (land units only, not ships)
         if (!this.isTransport && this._transportData && this._transportData.needsTransport && this._transportData.segments) {
           this.state = 'waitingForTransport';
           this._waitingTimer = 0;
@@ -1510,7 +1510,7 @@ export class Unit {
       for (const e of enemies) considerEnemy(e);
     }
 
-    // Tactics Tier 2: Focus fire Ã¢â‚¬â€ prefer enemies that allies are already attacking
+    // Tactics Tier 2: Focus fire — prefer enemies that allies are already attacking
     const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
     if (tacticsTier >= 2 && !airOnly && !baseOnly && !baseTarget) {
       const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
@@ -1562,11 +1562,11 @@ export class Unit {
           this._resumeAttackMove = this.attackMove;
           this._resumeAttackMoveDest = this.attackMoveDest ? this.attackMoveDest.clone() : null;
         }
-        // Within attack range Ã¢â‚¬â€ attack directly
+        // Within attack range — attack directly
         this.target = best;
         this.state = 'attacking';
       } else if (isCarrierFighter || (dist <= this.engageRange && this.stats.speed > 0)) {
-        // Within engage range (or carrier fighter: unlimited range) Ã¢â‚¬â€ pursue
+        // Within engage range (or carrier fighter: unlimited range) — pursue
         this._pursueTarget = best;
         this.state = 'pursuing';
       }
@@ -1613,7 +1613,7 @@ export class Unit {
       }
       return;
     }
-    // Base captured (faction changed) Ã¢â‚¬â€ release target
+    // Base captured (faction changed) — release target
     if (this.target.faction && this.target.faction === this.faction) {
       this.target = null;
       this._manualTarget = false;
@@ -1650,7 +1650,7 @@ export class Unit {
         if (coastPos) {
           this.moveTo(coastPos, this.attackMove);
         } else {
-          // No reachable coast Ã¢â‚¬â€ just try to approach
+          // No reachable coast — just try to approach
           const snap = this._snapToNearestSea(targetPos);
           if (snap) this.moveTo(snap, this.attackMove);
         }
@@ -1659,7 +1659,7 @@ export class Unit {
       }
       return;
     }
-    // In range Ã¢â‚¬â€ stop moving and attack
+    // In range — stop moving and attack
     this.path = [];
     this.moveTarget = null;
     this.state = 'attacking';
@@ -1711,7 +1711,7 @@ export class Unit {
     // Check alive (works for both units and base synthetic targets)
     const alive = this.target.alive != null ? this.target.alive : true;
     if (!alive) { this.target = null; return; }
-    // Base captured (faction changed) Ã¢â‚¬â€ release target
+    // Base captured (faction changed) — release target
     if (this.target.faction && this.target.faction === this.faction) { this.target = null; return; }
     const targetPos = this.target.mesh ? this.target.mesh.position : this.target.position;
     const dist = this._dist2d(targetPos);
@@ -1815,7 +1815,7 @@ export class Unit {
       if (this.cooldown <= 0) this.fire();
     }
 
-    // Move toward target Ã¢â‚¬â€ use pathfinding for ground units, straight line for air
+    // Move toward target — use pathfinding for ground units, straight line for air
     const dx = targetPos.x - this.mesh.position.x;
     const dz = targetPos.z - this.mesh.position.z;
     const targetAngle = Math.atan2(dx, dz);
@@ -1972,7 +1972,7 @@ export class Unit {
       _tlog(`[TRANS LOG] Troop ${this._debugTag} waiting: claimedBy=${this._claimedByShip?._debugTag || 'null'} target=${targetTransport._debugTag} d2d=${d2d.toFixed(1)}/${BOARDING_RANGE} pos=(${this.mesh.position.x.toFixed(0)},${this.mesh.position.z.toFixed(0)}) shipPos=(${targetTransport.mesh.position.x.toFixed(0)},${targetTransport.mesh.position.z.toFixed(0)})`);
 
       if (d2d <= BOARDING_RANGE) {
-        _tlog(`[TRANS LOG] Troop ${this._debugTag}: IN RANGE Ã¢â‚¬â€ attempting loadUnit`);
+        _tlog(`[TRANS LOG] Troop ${this._debugTag}: IN RANGE — attempting loadUnit`);
         targetTransport.loadUnit(this);
         if (!targetTransport._transportData) {
           targetTransport._transportData = this._transportData;
@@ -1992,16 +1992,16 @@ export class Unit {
             this.moveTo(embarkPos.clone());
             this._transportData = saved;
           } else {
-            _tlog(`[TRANS LOG] Troop ${this._debugTag}: near embark point but far from ship (d2d=${d2d.toFixed(1)}) Ã¢â‚¬â€ waiting for ship to arrive`);
+            _tlog(`[TRANS LOG] Troop ${this._debugTag}: near embark point but far from ship (d2d=${d2d.toFixed(1)}) — waiting for ship to arrive`);
           }
         } else {
-          _tlog(`[TRANS LOG] Troop ${this._debugTag}: no embarkPos Ã¢â‚¬â€ stuck waiting`);
+          _tlog(`[TRANS LOG] Troop ${this._debugTag}: no embarkPos — stuck waiting`);
         }
         return;
       }
     }
 
-    _tlog(`[TRANS LOG] Troop ${this._debugTag}: NO TRANSPORT FOUND Ã¢â‚¬â€ stuck waiting`);
+    _tlog(`[TRANS LOG] Troop ${this._debugTag}: NO TRANSPORT FOUND — stuck waiting`);
 
     if (this.domain === 'sea') {
       this.mesh.userData.bobPhase = (this.mesh.userData.bobPhase || 0) + dt * 2;
@@ -2019,7 +2019,7 @@ export class Unit {
     // Apply damage aura multiplier
     finalDmg *= this._dmgMult;
 
-    // Tactics Tier 3: Combined arms Ã¢â‚¬â€ +25% damage vs different-domain targets
+    // Tactics Tier 3: Combined arms — +25% damage vs different-domain targets
     if ((this.game.upgrades?.tiers?.tactics ?? 0) >= 3) {
       const targetDomain = this.target.domain || UNIT_TYPES[this.target.type]?.domain;
       if (targetDomain && this.domain !== targetDomain) finalDmg *= 1.25;
@@ -2195,7 +2195,7 @@ export class Unit {
     this.game.scene.userData.flakPuffs.push(puff);
   }
 
-  /** Carrier special ability Ã¢â‚¬â€ start deploying fighters gradually. */
+  /** Carrier special ability — start deploying fighters gradually. */
   launchFighters() {
     if (!this.canLaunch) return false;
     // If already fully deployed and all fighters returned, reset for new cycle

@@ -1,4 +1,4 @@
-// ai.js Ã¢â‚¬â€ Enemy AI controller with Easy / Normal / Hard behavior.
+// ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
 import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js?v=7';
 import { LAND_HEIGHT } from './terrain.js?v=3';
@@ -165,7 +165,7 @@ export function initAI(game) {
       // Target the WEAKEST player base (lowest HP)
       return playerBases.reduce((a, b) => (a.hp < b.hp ? a : b));
     }
-    // Easy/Normal Ã¢â‚¬â€ weighted random: lower HP = higher chance
+    // Easy/Normal — weighted random: lower HP = higher chance
     // This ensures wounded bases get finished off
     const totalHp = playerBases.reduce((s, b) => s + b.hp, 0);
     const weights = playerBases.map(b => Math.max(1, totalHp - b.hp + 1));
@@ -198,7 +198,7 @@ export function initAI(game) {
     const total = game.enemyUnits.filter(u => u.alive).length;
     // Flash warning when we gain 5+ units in one tick (rapid build-up)
     if (total >= 12 && total - lastKnownEnemyCount >= 3 && !buildUpWarningShown) {
-      game.flashMessage(`Ã¢Å¡Â Ã¯Â¸Â Enemy battalion detected! (~${total} units massing)`);
+      game.flashMessage(`⚠️ Enemy battalion detected! (~${total} units massing)`);
       buildUpWarningShown = true;
     }
     if (total < 8) buildUpWarningShown = false;
@@ -226,7 +226,7 @@ export function initAI(game) {
     const targets = multiTarget ? playerBases : [pickPlayerTarget()];
     if (!targets.length) return;
 
-    // Spawn additional mobile units near the attack target(s) Ã¢â‚¬â€ skip stationary defenses
+    // Spawn additional mobile units near the attack target(s) — skip stationary defenses
     const spawnCount = Math.min(3, maxSpawnsPerSecond);
     for (let i = 0; i < spawnCount; i++) {
       const desiredType = chooseUnitToBuild();
@@ -248,7 +248,7 @@ export function initAI(game) {
     if (attackers.length < 1) return;
 
     if (attackers.length >= 8) {
-      game.flashMessage(`Ã¢Å¡Â Ã¯Â¸Â Enemy attack inbound! ${attackers.length} units detected`);
+      game.flashMessage(`⚠️ Enemy attack inbound! ${attackers.length} units detected`);
     }
 
     const isHuge = attackers.length >= 10;
@@ -578,5 +578,5 @@ export function initAI(game) {
     }
   };
 
-  console.log(`Ã¢Å“â€¦ AI online Ã¢â‚¬â€ Difficulty: ${game.difficulty.toUpperCase()}`);
+  console.log(`✅ AI online — Difficulty: ${game.difficulty.toUpperCase()}`);
 }

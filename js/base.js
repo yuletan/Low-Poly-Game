@@ -39,7 +39,7 @@ export class Base {
     this.territory = 150 * size;
     if (name === 'Main Base') this.territory = 200 * size;
 
-    // Defensive turret stats Ã¢â‚¬â€ increased range and fire rate
+    // Defensive turret stats — increased range and fire rate
     this.turretRange = 80 * size;
     this.turretDamage = 25 * size * hpMult;
     this.turretCooldown = 0;
