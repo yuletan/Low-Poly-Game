@@ -399,13 +399,16 @@ export function initAI(game) {
     }
   }
 
-  // NEW: Launch staged attack
+  // NEW: Launch staged attack with rally readiness check
   function launchStagedAttack() {
     const playerBases = game.bases.filter(b => b.faction === 'player');
     if (playerBases.length === 0) return;
 
-    // Get all staging units + any idle attackers
-    const available = [...stagingUnits.filter(u => u.alive), ...gatherAttackers()];
+    // Get all staging units + any idle attackers, deduplicated
+    const available = [...new Set([
+      ...stagingUnits.filter(u => u.alive),
+      ...gatherAttackers()
+    ])];
     if (available.length < AI_MIN_ATTACK_SIZE) return;
 
     const target = pickPlayerTarget();
@@ -428,13 +431,14 @@ export function initAI(game) {
   }
 
   // ===== Hook the AI into the game's update loop =====
-  const ATTACK_GROUP_TARGET = { easy: 8, normal: 15, hard: 30 };
+  const ATTACK_GROUP_TARGET = { easy: 10, normal: 20, hard: 32 };
   const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
   let attackCooldown = 0;
 
-  // NEW: Staging system
+  // NEW: Staging system with rally position tracking
   let stagingUnits = [];
   let stagingTimer = 0;
+  let stagingRally = null;
   let attackPhase = 'building'; // 'building', 'staging', 'attacking'
 
   let aiTickTimer = 0;
@@ -535,11 +539,11 @@ export function initAI(game) {
             u.alive && u.domain !== 'sea' && !u.isTransport &&
             u.stats.damage > 0 && u.state === 'idle'
           );
-          const rallyPos = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
+          stagingRally = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
           const rallyUnits = idleUnits.slice(0, AI_MAX_STAGING_UNITS);
           const rallySlots = typeof game.assignFormationMoveTargets === 'function'
-            ? game.assignFormationMoveTargets(rallyUnits, rallyPos, 'square')
-            : game.computeFormation(rallyPos, rallyUnits.length, 'square')
+            ? game.assignFormationMoveTargets(rallyUnits, stagingRally, 'square')
+            : game.computeFormation(stagingRally, rallyUnits.length, 'square')
               .map((target, index) => ({ unit: rallyUnits[index], target }));
           rallySlots.forEach(({ unit, target }) => {
             if (!unit || !target) return;
@@ -551,7 +555,17 @@ export function initAI(game) {
       }
     } else if (attackPhase === 'staging') {
       // Keep spawning during staging
-      if (stagingTimer >= AI_STAGING_TIME || stagingUnits.length >= AI_MAX_STAGING_UNITS) {
+      const aliveStaging = stagingUnits.filter(unit => unit.alive);
+      const readyCount = stagingRally
+        ? aliveStaging.filter(unit => unit.mesh.position.distanceTo(stagingRally) <= 32).length
+        : 0;
+      const readyRatio = aliveStaging.length > 0 ? readyCount / aliveStaging.length : 0;
+
+      const enoughUnits = aliveStaging.length >= AI_MIN_ATTACK_SIZE;
+      const formationReady = enoughUnits && readyRatio >= 0.80;
+      const hardTimeout = stagingTimer >= AI_STAGING_TIME * 2;
+
+      if (formationReady || hardTimeout) {
         launchStagedAttack();
       }
     } else if (attackPhase === 'attacking') {
@@ -559,6 +573,7 @@ export function initAI(game) {
         attackPhase = 'building';
         attackCooldown = 0;
         stagingUnits = [];
+        stagingRally = null;
       }
     }
   };

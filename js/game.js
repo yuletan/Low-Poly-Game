@@ -620,8 +620,15 @@ export class Game {
     for (const u of this.enemyUnits)  u.update(dt);
     for (const b of this.bases) b.update(dt);
 
-    // Auto-spawn transports for troops waiting on beach
-    this._updateTransportLogistics(dt);
+    // Auto-spawn transports for troops waiting on beach — throttled to reduce CPU spikes
+    this._transportLogisticsTimer += dt;
+    if (this._transportLogisticsTimer >= 0.25) {
+      const elapsed = this._transportLogisticsTimer;
+      this._transportLogisticsTimer = 0;
+      this._transportSpawnCooldown.player = Math.max(0, this._transportSpawnCooldown.player - elapsed);
+      this._transportSpawnCooldown.enemy = Math.max(0, this._transportSpawnCooldown.enemy - elapsed);
+      this._updateTransportLogistics();
+    }
 
     // Soft unit collision (gentle nudge) — throttled by preset
     const scInterval = activePreset.softCollisionInterval;
@@ -759,94 +766,168 @@ export class Game {
     this.updateSelectionUI?.();
   }
 
-  _updateTransportLogistics(dt) {
+  _getTransportManifestKey(unit) {
+    const data = unit._transportData;
+    const embark = data?.shipEmbarkPoint;
+    const disembark = data?.shipDisembarkPoint;
+
+    if (!embark || !disembark) return null;
+
+    const embarkCell = this.pathfinder.worldToGrid(embark.x, embark.z);
+    const disembarkCell = this.pathfinder.worldToGrid(disembark.x, disembark.z);
+
+    const orderId = unit._aiWaveId ?? unit._formationOrderId ?? 'automatic';
+
+    return [unit.faction, orderId, `${embarkCell.gx},${embarkCell.gy}`, `${disembarkCell.gx},${disembarkCell.gy}`].join(':');
+  }
+
+  _assignTransportManifest(ship, troops, manifestKey) {
+    if (!ship || troops.length === 0) return false;
+
+    const transportData = troops[0]._transportData;
+    const embarkPoint = transportData?.shipEmbarkPoint?.clone();
+
+    if (!embarkPoint) return false;
+
+    ship._manifestKey = manifestKey;
+    ship._manifest = [...troops];
+    ship._transportData = transportData;
+    ship._assignedEmbarkPoint = embarkPoint;
+    ship._boardingTimer = 0;
+    ship._aiWaveId = troops[0]._aiWaveId ?? null;
+
+    for (const troop of troops) {
+      troop._claimedByShip = ship;
+      troop._boardingTarget = ship;
+    }
+
+    const path = this.pathfinder.findPath(ship.mesh.position, embarkPoint, 'sea', false);
+    ship.path = path ? path.map(point => point.clone()) : [];
+    ship.moveTarget = ship.path.shift() ?? embarkPoint.clone();
+    ship.state = 'moving';
+
+    return true;
+  }
+
+  _updateTransportLogistics() {
+    const capacity = UNIT_TYPES.transport.transportCapacity || 10;
+
     for (const faction of ['player', 'enemy']) {
       const units = faction === 'player' ? this.playerUnits : this.enemyUnits;
 
-      // 1. Count unclaimed waiting troops (exclude transports)
-      let waitingCount = 0;
-      let embarkSumX = 0, embarkSumZ = 0, embarkCount = 0;
-      for (const u of units) {
-        if (u.alive && !u.isTransport && u.domain === 'land' && u.state === 'waitingForTransport' && !u._claimedByShip) {
-          waitingCount++;
-          const ep = u._transportData?.shipEmbarkPoint;
-          if (ep) { embarkSumX += ep.x; embarkSumZ += ep.z; embarkCount++; }
+      // Group waiting troops by manifest key (faction + order + embark/disembark pair)
+      const groups = new Map();
+
+      for (const unit of units) {
+        if (!unit.alive || unit.isTransport || unit.domain !== 'land' || unit.state !== 'waitingForTransport' || unit.carried) {
+          continue;
         }
+
+        const key = this._getTransportManifestKey(unit);
+        if (!key) continue;
+
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(unit);
       }
 
-      if (waitingCount > 0) {
-        // 2. Count ships actively heading to pick up troops
-        let activeShips = 0;
-        for (const u of units) {
-          if (u.alive && u.isTransport && u._assignedEmbarkPoint && u.carriedUnits.length < u.transportCapacity) {
-            activeShips++;
-          }
+      // Find idle ships without a manifest assignment
+      const idleShips = units.filter(unit =>
+        unit.alive &&
+        unit.isTransport &&
+        !unit._manifestKey &&
+        !unit._manualOrder &&
+        unit.carriedUnits.length === 0
+      );
+
+      for (const [key, groupTroops] of groups) {
+        const unassigned = groupTroops.filter(troop => !troop._claimedByShip);
+
+        // Fill existing idle ships first
+        while (unassigned.length > 0 && idleShips.length > 0) {
+          const ship = idleShips.shift();
+          const manifest = unassigned.splice(0, capacity);
+          this._assignTransportManifest(ship, manifest, key);
         }
 
-        // 3. Spawn ships: 1 per 10 troops, minimum 1
-        const neededShips = Math.max(1, Math.ceil(waitingCount / (UNIT_TYPES.transport.transportCapacity || 10)));
-        const shipsToSpawn = neededShips - activeShips;
-        _tlog(`[TRANS LOG] ${faction} transport check: waiting=${waitingCount} activeShips=${activeShips} needed=${neededShips} toSpawn=${shipsToSpawn}`);
-        if (shipsToSpawn > 0) {
-          const cost = UNIT_TYPES.transport.cost;
-
-          // Pre-position ships at the sea tile nearest the embark coast
-          // where troops are waiting, instead of spawning at a far base.
-          let spawnPos = null;
-          if (embarkCount > 0) {
-            const avgX = embarkSumX / embarkCount;
-            const avgZ = embarkSumZ / embarkCount;
-            const g = this.pathfinder.worldToGrid(avgX, avgZ);
-            const seaTile = this.pathfinder.findNearestWalkable(g.gx, g.gy, 'sea');
-            if (seaTile) {
-              const w = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
-              spawnPos = new THREE.Vector3(w.x, 0.3, w.z);
-            }
-          }
-
-          // Fallback: spawn near a base (when no embark data available)
-          if (!spawnPos) {
-            const bases = this.bases.filter(b => b.faction === faction && b.alive);
-            for (const base of bases) {
-              const pos = this.findValidSpawn(base.mesh.position, 'sea');
-              if (pos) { spawnPos = pos; break; }
-            }
-          }
-
-          if (spawnPos) {
-            for (let i = 0; i < shipsToSpawn; i++) {
-              const money = faction === 'player' ? this.money : Infinity;
-              if (money < cost) { _tlog(`[TRANS LOG] ${faction}: BROKE — need ${cost} have ${money}`); break; }
-              if (faction === 'player') this.money -= cost;
-              _tlog(`[TRANS LOG] ${faction}: spawning transport at (${spawnPos.x.toFixed(0)},${spawnPos.z.toFixed(0)})`);
-              this.spawn('transport', faction, spawnPos);
-            }
-          } else {
-            _tlog(`[TRANS LOG] ${faction}: FAILED to find spawnPos for transport`);
-          }
+        // Skip spawning if no troops left or cooldown active
+        if (unassigned.length === 0 || this._transportSpawnCooldown[faction] > 0) {
+          continue;
         }
+
+        const cost = UNIT_TYPES.transport.cost;
+        if (faction === 'player' && this.money < cost) {
+          continue;
+        }
+
+        const embark = unassigned[0]._transportData.shipEmbarkPoint;
+        const grid = this.pathfinder.worldToGrid(embark.x, embark.z);
+        const seaTile = this.pathfinder.findNearestWalkable(grid.gx, grid.gy, 'sea');
+        if (!seaTile) continue;
+
+        const world = this.pathfinder.gridToWorld(seaTile.gx, seaTile.gy);
+
+        // Small deterministic offset prevents ships stacking
+        this._debugTransportSpawnIndex = (this._debugTransportSpawnIndex || 0) + 1;
+        const spawnPosition = new THREE.Vector3(
+          world.x + (this._debugTransportSpawnIndex % 3) * 7,
+          0.3,
+          world.z + (Math.floor(this._debugTransportSpawnIndex / 3) % 3) * 7
+        );
+
+        if (faction === 'player') {
+          this.money -= cost;
+        }
+
+        const ship = this.spawn('transport', faction, spawnPosition);
+        const manifest = unassigned.splice(0, capacity);
+        this._assignTransportManifest(ship, manifest, key);
+
+        // Prevent all required ships spawning in one frame
+        this._transportSpawnCooldown[faction] = 0.80;
       }
     }
   }
 
-  // Task 9: AI attack-wave transport synchronization
+  // Task 9: AI attack-wave transport synchronization with shared release timestamp
   registerAIWave(waveId, shipsNeeded) {
-    this._aiWaves.set(waveId, { shipsNeeded, readyShips: new Set(), firstReadyAt: null });
+    this._aiWaves.set(waveId, {
+      shipsNeeded,
+      readyShips: new Set(),
+      firstReadyAt: null,
+      releaseAt: null
+    });
   }
 
   shouldHoldForAIWave(ship) {
     if (ship._aiWaveId == null) return false;
     const wave = this._aiWaves.get(ship._aiWaveId);
     if (!wave) return false;
+
     wave.readyShips.add(ship);
-    if (wave.firstReadyAt == null) wave.firstReadyAt = this._currentTime;
-    const allReady = wave.readyShips.size >= wave.shipsNeeded;
-    const waitedTooLong = (this._currentTime - wave.firstReadyAt) > AI_WAVE_MAX_HOLD;
-    if (allReady || waitedTooLong) {
-      this._aiWaves.delete(ship._aiWaveId);
-      return false;
+
+    if (wave.firstReadyAt === null) {
+      wave.firstReadyAt = this._currentTime;
     }
-    return true;
+
+    const allReady = wave.readyShips.size >= wave.shipsNeeded;
+    const timedOut = this._currentTime - wave.firstReadyAt >= AI_WAVE_MAX_HOLD;
+
+    if (wave.releaseAt === null && (allReady || timedOut)) {
+      // Every sibling sees the same fleet release time
+      wave.releaseAt = this._currentTime + 0.35;
+    }
+
+    if (wave.releaseAt === null) {
+      return true;
+    }
+
+    const stillHolding = this._currentTime < wave.releaseAt;
+
+    if (!stillHolding && this._currentTime > wave.releaseAt + 5) {
+      this._aiWaves.delete(ship._aiWaveId);
+    }
+
+    return stillHolding;
   }
 
   checkWinCondition() {

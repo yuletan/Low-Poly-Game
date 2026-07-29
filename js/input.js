@@ -928,14 +928,32 @@ export function initInput(game, camera, renderer) {
     lastClickPos = { x: e.clientX, y: e.clientY };
     lastClickedUnit = u || null;
 
-    if (u) {
-      if (isDoubleTap && u.faction === 'player') {
+    // Mobile command mode handling
+    if (game.mobileCommandMode === 'attack') {
+      const hostileTarget =
+        u?.faction !== 'player'
+          ? u
+          : base?.faction !== 'player'
+            ? base
+            : null;
+
+      if (hostileTarget && game.selectedUnits.length > 0) {
+        issueAttackCommand(hostileTarget);
+        return;
+      }
+    }
+
+    if (u?.faction === 'player' || base?.faction === 'player') {
+      if (isDoubleTap && u?.faction === 'player') {
         handleDoubleClick(u);
       } else {
         selectUnit(u, false);
       }
       game.selectedBuilding = null;
-    } else if (base && base.faction === 'player') {
+      return;
+    }
+
+    if (base && base.faction === 'player') {
       clearSelection();
       game.selectedBuilding = {
         base: base,
@@ -943,10 +961,21 @@ export function initInput(game, camera, renderer) {
         isShipyard: game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z) === TERRAIN.SEA
       };
       updateSelectionUI();
-    } else {
-      clearSelection();
-      game.selectedBuilding = null;
+      return;
     }
+
+    // Move command in mobile move mode
+    if (game.mobileCommandMode === 'move' && game.selectedUnits.length > 0) {
+      const point = getGroundPoint(e);
+      if (point) {
+        issueMoveCommand(point);
+        updateCommandPreview(e);
+      }
+      return;
+    }
+
+    clearSelection();
+    game.selectedBuilding = null;
   }
 
   function issueTouchCommandAt(x, y) {
