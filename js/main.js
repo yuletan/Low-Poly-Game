@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Capacitor } from '@capacitor/core';
 
 import { Game } from './game.js?v=10';
