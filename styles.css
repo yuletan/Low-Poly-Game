@@ -85,6 +85,50 @@ canvas { display:block; }
   flex-direction: column;
 }
 
+/* Mobile touch UI: bottom command bar (move/attack/stop/formation/load/unload).
+   Only added to the DOM when mobileUI.js detects a touch-primary device. */
+html.mobile-ui #armoryPanel {
+  bottom: calc(58px + 10px + var(--safe-bottom));
+}
+
+#mobileCommandBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  gap: 4px;
+  padding: 8px calc(8px + var(--safe-left)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-right));
+  background: var(--bg-darker);
+  border-top: 1px solid var(--border);
+}
+
+#mobileCommandBar button {
+  flex: 1;
+  padding: 10px 4px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+#mobileCommandBar button[data-mode].active {
+  background: var(--primary);
+  color: #fff;
+}
+
+#mobileCommandBar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .armory-tabs {
   display: flex;
   gap: 0;
@@ -335,6 +379,10 @@ canvas { display:block; }
   z-index: 50;
   display: flex;
   flex-direction: column;
+}
+
+html.mobile-ui #selectionPanel {
+  bottom: calc(58px + 10px + var(--safe-bottom));
 }
 
 #selectionInfo {
