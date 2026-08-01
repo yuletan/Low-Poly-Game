@@ -9,7 +9,7 @@ describe('unitFactory.js - Unit Mesh Creation', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const mod = await import('../unitFactory.js?v=3');
+    const mod = await import('../unitFactory.js');
     createUnitMesh = mod.createUnitMesh;
   });
 

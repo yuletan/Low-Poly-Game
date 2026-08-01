@@ -1,11 +1,11 @@
 // game.js — Game orchestration: state, bases, units, placement, formations, main loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, AI_WAVE_MAX_HOLD, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
-import { createUnitMesh } from './unitFactory.js?v=3';
-import { updateExplosions, updateAllTrails, acquireFromPool, releaseToPool } from './combat.js?v=3';
-import { Pathfinder } from './pathfinder.js?v=4';
-import { FogOfWar } from './fogOfWar.js?v=3';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, AI_WAVE_MAX_HOLD, activePreset } from './config.js';
+import { LAND_HEIGHT, buildTerrain } from './terrain.js';
+import { createUnitMesh } from './unitFactory.js';
+import { updateExplosions, updateAllTrails, acquireFromPool, releaseToPool } from './combat.js';
+import { Pathfinder } from './pathfinder.js';
+import { FogOfWar } from './fogOfWar.js';
 import { Minimap } from './minimap.js';
 import { UpgradeManager } from './upgrades.js';
 import { Sound } from './sound.js';

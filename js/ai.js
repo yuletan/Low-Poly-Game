@@ -1,7 +1,7 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT } from './terrain.js?v=3';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
 
 export function initAI(game) {
   const cfg = DIFFICULTY[game.difficulty];

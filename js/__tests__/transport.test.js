@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('three');
 vi.mock('three/examples/jsm/geometries/RoundedBoxGeometry.js');
 vi.mock('../sound.js', () => ({ Sound: { init: vi.fn(), play: vi.fn() } }));
-vi.mock('../terrain.js?v=3', () => ({ LAND_HEIGHT: 0.5 }));
-vi.mock('../unitFactory.js?v=3', () => ({
+vi.mock('../terrain.js', () => ({ LAND_HEIGHT: 0.5 }));
+vi.mock('../unitFactory.js', () => ({
   createUnitMesh: vi.fn(() => {
     const THREE = require('three');
     const g = new THREE.Group();
@@ -14,11 +14,11 @@ vi.mock('../unitFactory.js?v=3', () => ({
   createBaseMesh: vi.fn(() => { const THREE = require('three'); return new THREE.Group(); }),
   createShipyardMesh: vi.fn(() => { const THREE = require('three'); return new THREE.Group(); }),
 }));
-vi.mock('../combat.js?v=3', () => ({
+vi.mock('../combat.js', () => ({
   Projectile: class {}, updateExplosions: vi.fn(), applyTerrainBonus: vi.fn(() => ({ dmg: 10, hp: 100 })),
   updateAllTrails: vi.fn(), createProjectilePattern: vi.fn(() => []), applyHitscanDamage: vi.fn(),
 }));
-vi.mock('../fogOfWar.js?v=3', () => ({ FogOfWar: class { constructor() { this.update = vi.fn(); } } }));
+vi.mock('../fogOfWar.js', () => ({ FogOfWar: class { constructor() { this.update = vi.fn(); } } }));
 vi.mock('../minimap.js', () => ({ Minimap: class { constructor() { this.draw = vi.fn(); this.pings = []; this.worldToMini = () => ({ x: 0, y: 0 }); } } }));
 vi.mock('../upgrades.js', () => ({ UpgradeManager: class { constructor() { this.applyTo = vi.fn(s => ({ ...s })); this.upgrades = { hp: 0, damage: 0, speed: 0, tactics: 0 }; } } }));
 
@@ -27,7 +27,7 @@ describe('Transport Logistics - _updateTransportLogistics', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Game = gameMod.Game;
 
     vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
@@ -39,7 +39,7 @@ describe('Transport Logistics - _updateTransportLogistics', () => {
 
     if (!Game) {
       THREE = await import('three');
-      const gameMod = await import('../game.js?v=6');
+      const gameMod = await import('../game.js');
       Game = gameMod.Game;
     }
 
@@ -161,7 +161,7 @@ describe('Transport Ship - Real Unit behavior', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -263,7 +263,7 @@ describe('Troop Waiting on Land', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -360,7 +360,7 @@ describe('Troop Disembark - Fans Out on Land', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -485,7 +485,7 @@ describe('Transport Capacity — 10 units', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -515,12 +515,12 @@ describe('Transport Capacity — 10 units', () => {
   });
 
   it('transport capacity is 10 in config', async () => {
-    const mod = await import('../config.js?v=6');
+    const mod = await import('../config.js');
     expect(mod.UNIT_TYPES.transport.transportCapacity).toBe(10);
   });
 
   it('transport capacity description says 10', async () => {
-    const mod = await import('../config.js?v=6');
+    const mod = await import('../config.js');
     expect(mod.UNIT_TYPES.transport.special).toContain('10');
   });
 
@@ -545,7 +545,7 @@ describe('Transport Capacity — 10 units', () => {
   });
 
   it('transportCapacity field matches config constant', async () => {
-    const mod = await import('../config.js?v=6');
+    const mod = await import('../config.js');
     expect(mod.UNIT_TYPES.transport.transportCapacity).toBe(10);
     expect(typeof mod.UNIT_TYPES.transport.transportCapacity).toBe('number');
   });
@@ -556,7 +556,7 @@ describe('Disembark Point — Enemy coast near target, not player base', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -695,7 +695,7 @@ describe('Boarding Distance — coast to sea (12 units)', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
 
@@ -797,7 +797,7 @@ describe('Cargo Hover Tooltip — manifest data', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
     vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
@@ -866,7 +866,7 @@ describe('Transport Pre-Positioning & Stranded Troops', () => {
 
   beforeAll(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Game = gameMod.Game;
     vi.spyOn(Game.prototype, 'findValidSpawn').mockImplementation(() => new THREE.Vector3(50, 0.3, 50));
     vi.spyOn(Game.prototype, 'spawn').mockImplementation(() => ({}));
@@ -876,7 +876,7 @@ describe('Transport Pre-Positioning & Stranded Troops', () => {
     vi.clearAllMocks();
     if (!Game) {
       THREE = await import('three');
-      const gameMod = await import('../game.js?v=6');
+      const gameMod = await import('../game.js');
       Game = gameMod.Game;
     }
     game = new Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());

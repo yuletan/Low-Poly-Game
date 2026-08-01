@@ -1,7 +1,7 @@
 // combat.js â€” Handles projectile flight, damage rolls, and FX.
 import * as THREE from 'three';
 
-import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS, activePreset } from './config.js?v=4';
+import { CRIT_CHANCE, CRIT_MULT, TERRAIN_BONUSES, PROJECTILE_TYPES, PROJECTILE_PATTERNS, activePreset } from './config.js';
 
 // Object Pooling
 const POOL = {};

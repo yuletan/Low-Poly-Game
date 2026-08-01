@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('three');
-vi.mock('../terrain.js?v=3', () => ({ LAND_HEIGHT: 0.5 }));
-vi.mock('../unitFactory.js?v=3', () => ({
+vi.mock('../terrain.js', () => ({ LAND_HEIGHT: 0.5 }));
+vi.mock('../unitFactory.js', () => ({
   createUnitMesh: vi.fn(() => {
     const THREE = require('three');
     const g = new THREE.Group();
@@ -10,7 +10,7 @@ vi.mock('../unitFactory.js?v=3', () => ({
     return g;
   }),
 }));
-vi.mock('../combat.js?v=3', () => ({
+vi.mock('../combat.js', () => ({
   Projectile: class {},
   updateExplosions: vi.fn(),
   applyTerrainBonus: vi.fn(() => ({ dmg: 10, hp: 100 })),
@@ -18,7 +18,7 @@ vi.mock('../combat.js?v=3', () => ({
   createProjectilePattern: vi.fn(() => []),
   applyHitscanDamage: vi.fn(),
 }));
-vi.mock('../pathfinder.js?v=4', () => ({
+vi.mock('../pathfinder.js', () => ({
   Pathfinder: class {
     constructor() { this.cell = 12; }
     worldToGrid(x, z) { return { gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }; }
@@ -30,7 +30,7 @@ vi.mock('../pathfinder.js?v=4', () => ({
     walkable() { return true; }
   },
 }));
-vi.mock('../fogOfWar.js?v=3', () => ({
+vi.mock('../fogOfWar.js', () => ({
   FogOfWar: class { constructor() { this.update = vi.fn(); } },
 }));
 vi.mock('../minimap.js', () => ({
@@ -50,7 +50,7 @@ describe('findTarget() priority logic', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Game = gameMod.Game;
   });
@@ -167,5 +167,47 @@ describe('findTarget() priority logic', () => {
     attacker.findTarget();
 
     expect(attacker.target).toBe(nearBase);
+  });
+
+  it('AI wave units prefer the wave focus shortlist over a closer unrelated target', () => {
+    const game = makeGame();
+
+    const attacker = new Unit(game, 'tank', 'enemy', new THREE.Vector3(0, 0, 0));
+    attacker._aiWaveId = 7;
+    game.enemyUnits.push(attacker);
+
+    // Closer player unit NOT in the shortlist (would win on distance alone)
+    const unrelated = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 20));
+    game.playerUnits.push(unrelated);
+
+    // Farther player unit IN the shortlist (within attack range 50, engage 78)
+    const focused = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 30));
+    game.playerUnits.push(focused);
+
+    game._aiWaves = new Map([[7, { objective: { target: null, focus: [focused] } }]]);
+
+    attacker.findTarget();
+
+    expect(attacker.target).toBe(focused);
+  });
+
+  it('wave focus entries outside engage range are ignored', () => {
+    const game = makeGame();
+
+    const attacker = new Unit(game, 'tank', 'enemy', new THREE.Vector3(0, 0, 0));
+    attacker._aiWaveId = 7;
+    game.enemyUnits.push(attacker);
+
+    const unrelated = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 20));
+    game.playerUnits.push(unrelated);
+
+    const farFocused = new Unit(game, 'infantry', 'player', new THREE.Vector3(0, 0, 200));
+    game.playerUnits.push(farFocused);
+
+    game._aiWaves = new Map([[7, { objective: { target: null, focus: [farFocused] } }]]);
+
+    attacker.findTarget();
+
+    expect(attacker.target).toBe(unrelated);
   });
 });

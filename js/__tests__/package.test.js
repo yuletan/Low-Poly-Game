@@ -3,10 +3,25 @@
 // coordinator ownership, and the mobile drawer state store.
 
 import { describe, it, expect, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+describe('Module import hygiene', () => {
+  it('no runtime source file imports a module with a cache-busting query string', () => {
+    const jsDir = join(process.cwd(), 'js');
+    const offenders = [];
+    for (const name of readdirSync(jsDir)) {
+      if (!name.endsWith('.js')) continue;
+      const src = readFileSync(join(jsDir, name), 'utf8');
+      if (/from\s+['"]\.\/[^'"]+\?v=/.test(src)) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
 
 describe('Quality presets', () => {
   it('keeps the active preset pixel ratio after resize', async () => {
-    const mod = await import('../config.js?v=8');
+    const mod = await import('../config.js');
     mod.setActivePreset('low');
 
     // resizeRenderer() in main.js clamps to the active preset:
@@ -18,13 +33,13 @@ describe('Quality presets', () => {
   });
 
   it('setActivePreset falls back to medium for unknown keys', async () => {
-    const mod = await import('../config.js?v=8');
+    const mod = await import('../config.js');
     mod.setActivePreset('not-a-preset');
     expect(mod.activePreset).toBe(mod.QUALITY_PRESETS.medium);
   });
 
   it('ultraLow preset keeps soft collision throttled', async () => {
-    const mod = await import('../config.js?v=8');
+    const mod = await import('../config.js');
     expect(mod.QUALITY_PRESETS.ultraLow.softCollisionInterval).toBe(0.20);
     expect(mod.QUALITY_PRESETS.ultraLow.pixelRatio).toBe(0.75);
   });

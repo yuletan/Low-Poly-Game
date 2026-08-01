@@ -25,7 +25,7 @@ describe('input.js - Selection & Double-Click', () => {
   }
 
   beforeAll(async () => {
-    const mod = await import('../input.js?v=5');
+    const mod = await import('../input.js');
     initInput = mod.initInput;
   });
 

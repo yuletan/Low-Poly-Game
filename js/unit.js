@@ -1,9 +1,9 @@
 // unit.js — Unit class: movement, combat, transport, and unique unit mechanics.
 import * as THREE from 'three';
-import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT } from './terrain.js?v=3';
-import { createUnitMesh } from './unitFactory.js?v=3';
-import { createProjectilePattern, applyHitscanDamage, applyTerrainBonus, acquireFromPool } from './combat.js?v=3';
+import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, activePreset } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
+import { createUnitMesh } from './unitFactory.js';
+import { createProjectilePattern, applyHitscanDamage, applyTerrainBonus, acquireFromPool } from './combat.js';
 import { Sound } from './sound.js';
 import { tlog as _tlog, twarn as _twarn } from './debug.js';
 import { createHpBar, updateHpBar, createSelectionRing, buildRangeRing, disposeUnitVisuals } from './unitVisuals.js';
@@ -687,24 +687,41 @@ export class Unit {
   _recalcAuras() {
     this._dmgMult = 1;
     this._hpMult = 1;
-    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-    for (const u of allies) {
-      if (!u.alive || u === this) continue;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    // Max buffRange across unit stats is 30 (default when unset), so a single
+    // query covers every buff source. Candidates are not distance-filtered by
+    // the grid; the per-candidate range check below is kept exact.
+    const BUFF_QUERY_RADIUS = 30;
+    const considerBuff = u => {
+      if (u.faction !== this.faction || !u.alive || u === this) return;
       const d = this.mesh.position.distanceTo(u.mesh.position);
       const range = u.stats.buffRange || 30;
-      if (d > range) continue;
+      if (d > range) return;
       if (u.stats.buffDamage) this._dmgMult *= (1 + u.stats.buffDamage);
       if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
       if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
+    };
+    if (grid) {
+      const p = this.mesh.position;
+      grid.queryCircle(p.x, p.z, BUFF_QUERY_RADIUS, considerBuff);
+    } else {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const u of allies) considerBuff(u);
     }
     // Tactics Tier 1: Formation bonus — +10% dmg when 2+ allies within range 20
     const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
     if (tacticsTier >= 1) {
       let nearbyAllies = 0;
-      for (const u of allies) {
-        if (!u.alive || u === this) continue;
-        const d = this.mesh.position.distanceTo(u.mesh.position);
-        if (d <= 20) nearbyAllies++;
+      const considerFormation = u => {
+        if (u.faction !== this.faction || !u.alive || u === this) return;
+        if (this.mesh.position.distanceTo(u.mesh.position) <= 20) nearbyAllies++;
+      };
+      if (grid) {
+        const p = this.mesh.position;
+        grid.queryCircle(p.x, p.z, 20, considerFormation);
+      } else {
+        const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allies) considerFormation(u);
       }
       if (nearbyAllies >= 2) this._dmgMult *= 1.1;
     }
@@ -719,13 +736,17 @@ export class Unit {
 
   /** Healer: heal nearby friendly air and land units 5% HP/sec, follow lowest HP */
   _healNearby(dt) {
-    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    // Bounded scan: covers heal range (max 50), the idle-follow radius (60) and
+    // the nearest-enemy positioning scan with margin. The pre-grid scan was
+    // unbounded; the bound preserves behavior in practice.
+    const HEAL_QUERY_RADIUS = 120;
     let lowestHp = null;
     let lowestRatio = 1;
 
-    for (const u of allies) {
-      if (!u.alive || u === this) continue;
-      if (u.domain !== 'air' && u.domain !== 'land') continue;
+    const consider = u => {
+      if (u.faction !== this.faction || !u.alive || u === this) return;
+      if (u.domain !== 'air' && u.domain !== 'land') return;
       const ratio = u.hp / u.maxHp;
 
       // Heal if in range
@@ -743,24 +764,46 @@ export class Unit {
         lowestRatio = ratio;
         lowestHp = u;
       }
+    };
+    if (grid) {
+      const p = this.mesh.position;
+      grid.queryCircle(p.x, p.z, HEAL_QUERY_RADIUS, consider);
+    } else {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const u of allies) consider(u);
     }
 
     // Follow behind tanks or between multiple tanks when idle
     if (this.state === 'idle') {
-      const combat = allies.filter(u =>
-        u.alive && u !== this && u.domain === 'land' && !u.isTransport && u.stats.speed > 0 &&
-        u.state !== 'waitingForTransport' && !u.carried &&
-        this.mesh.position.distanceTo(u.mesh.position) < 60
-      );
+      let combat = [];
+      const considerCombat = u => {
+        if (u.faction !== this.faction || !u.alive || u === this) return;
+        if (u.domain !== 'land' || u.isTransport || u.stats.speed <= 0) return;
+        if (u.state === 'waitingForTransport' || u.carried) return;
+        if (this.mesh.position.distanceTo(u.mesh.position) >= 60) return;
+        combat.push(u);
+      };
+      if (grid) {
+        const p = this.mesh.position;
+        grid.queryCircle(p.x, p.z, 60, considerCombat);
+      } else {
+        const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allies) considerCombat(u);
+      }
       if (combat.length > 0) {
         // Follow the unit with least % HP remaining (12 units behind)
         const lowest = combat.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
-        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
         let closestEnemy = null, closestDist = Infinity;
-        for (const e of enemies) {
-          if (!e.alive) continue;
+        const considerEnemy = e => {
+          if (!e.alive || e.faction === this.faction) return;
           const d = lowest.mesh.position.distanceTo(e.mesh.position);
           if (d < closestDist) { closestDist = d; closestEnemy = e; }
+        };
+        if (grid) {
+          grid.queryCircle(lowest.mesh.position.x, lowest.mesh.position.z, HEAL_QUERY_RADIUS, considerEnemy);
+        } else {
+          const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+          for (const e of enemies) considerEnemy(e);
         }
         const followPos = lowest.mesh.position.clone();
         if (closestEnemy) {
@@ -1137,6 +1180,12 @@ export class Unit {
       // Manually unload each unit
       const units = [...this.carriedUnits];
       this.carriedUnits = [];
+      // Role-shaped landing: vanguard and anti-air take the inner ring, ranged
+      // and healers the middle, reserve trails on the outer ring.
+      const ROLE_LEAD_ORDER = { vanguard: 0, antiAir: 1, ranged: 2, healer: 3, reserve: 4 };
+      units.sort((a, b) =>
+        (ROLE_LEAD_ORDER[a._aiRole] ?? 2) - (ROLE_LEAD_ORDER[b._aiRole] ?? 2)
+      );
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
         if (!u.alive) continue;
@@ -1539,6 +1588,28 @@ export class Unit {
     } else {
       const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
       for (const e of enemies) considerEnemy(e);
+    }
+
+    // AI wave focus-fire: prefer the wave objective's focus shortlist so the
+    // whole group converges on one target instead of scattering onto unrelated
+    // picks. Priority 0 beats the regular unit(1)/base(2)/sea(3) priorities.
+    if (this._aiWaveId != null) {
+      const wave = this.game._aiWaves?.get(this._aiWaveId);
+      const focus = wave?.objective?.focus;
+      if (focus && focus.length) {
+        let focusBest = null, focusD = Infinity;
+        for (const e of focus) {
+          if (!e?.alive || e.faction === this.faction) continue;
+          if (airOnly && e.domain !== 'air') continue;
+          if (this.stats.seaOnly && e.domain !== 'sea') continue;
+          if (this.stats.groundOnly && e.domain === 'air') continue;
+          if (isLand && !airOnly && e.domain === 'air') continue;
+          const d = this._dist2d(e.mesh.position);
+          if (d > this.engageRange) continue;
+          if (d < focusD) { focusBest = e; focusD = d; }
+        }
+        if (focusBest) { best = focusBest; bestD = focusD; bestPriority = 0; }
+      }
     }
 
     // Tactics Tier 2: Focus fire — prefer enemies that allies are already attacking

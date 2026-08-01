@@ -4,7 +4,7 @@
 //   initFPSDisplay(renderer, scene)  // once the renderer + scene exist
 //   recordFrameTiming(frameMs, updateMs, renderMs)  // every frame from animate()
 
-import { activePreset } from './config.js?v=7';
+import { activePreset } from './config.js';
 
 let _running = false;
 let _frameCount = 0;

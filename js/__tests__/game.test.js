@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('three');
 vi.mock('three/examples/jsm/geometries/RoundedBoxGeometry.js');
-vi.mock('../terrain.js?v=3', () => ({
+vi.mock('../terrain.js', () => ({
   LAND_HEIGHT: 0.5,
   buildTerrain: vi.fn(() => ({ getTerrainAt: vi.fn(() => 'land'), mountains: [] })),
 }));
-vi.mock('../unitFactory.js?v=3', () => ({
+vi.mock('../unitFactory.js', () => ({
   createUnitMesh: vi.fn(() => {
     const THREE = require('three');
     const g = new THREE.Group();
@@ -20,7 +20,7 @@ vi.mock('../unitFactory.js?v=3', () => ({
     const THREE = require('three'); const g = new THREE.Group(); return g;
   }),
 }));
-vi.mock('../combat.js?v=3', () => ({
+vi.mock('../combat.js', () => ({
   Projectile: class {},
   updateExplosions: vi.fn(),
   applyTerrainBonus: vi.fn(() => ({ dmg: 10, hp: 100 })),
@@ -28,7 +28,7 @@ vi.mock('../combat.js?v=3', () => ({
   createProjectilePattern: vi.fn(() => []),
   applyHitscanDamage: vi.fn(),
 }));
-vi.mock('../pathfinder.js?v=4', () => ({
+vi.mock('../pathfinder.js', () => ({
   Pathfinder: class {
     constructor() { this.cell = 12; }
     worldToGrid(x, z) { return { gx: Math.floor((x + 600) / 12), gy: Math.floor((z + 600) / 12) }; }
@@ -40,7 +40,7 @@ vi.mock('../pathfinder.js?v=4', () => ({
     walkable() { return true; }
   },
 }));
-vi.mock('../fogOfWar.js?v=3', () => ({
+vi.mock('../fogOfWar.js', () => ({
   FogOfWar: class { constructor() { this.update = vi.fn(); } },
 }));
 vi.mock('../minimap.js', () => ({
@@ -60,9 +60,9 @@ describe('game.js - Game Logic Fixes', () => {
 
   beforeEach(async () => {
     THREE = await import('three');
-    const configMod = await import('../config.js?v=6');
+    const configMod = await import('../config.js');
     UNIT_TYPES = configMod.UNIT_TYPES;
-    const gameMod = await import('../game.js?v=6');
+    const gameMod = await import('../game.js');
     Unit = gameMod.Unit;
     Base = gameMod.Base;
     Game = gameMod.Game;
@@ -208,6 +208,31 @@ describe('game.js - Game Logic Fixes', () => {
     it('has empty unit arrays on creation', () => {
       expect(game.playerUnits).toEqual([]);
       expect(game.enemyUnits).toEqual([]);
+    });
+  });
+
+  describe('Quality preset module identity', () => {
+    it('presets throttle gameplay through the same config instance the game reads', async () => {
+      vi.spyOn(Game.prototype, 'updateHUD').mockImplementation(() => {});
+      const cfg = await import('../config.js');
+      const gameMod = await import('../game.js');
+
+      const spy = vi.spyOn(gameMod.Game.prototype, '_applySoftCollision').mockImplementation(() => {});
+      const g = new gameMod.Game(new THREE.Scene(), new THREE.PerspectiveCamera(), 'easy', new THREE.Vector3());
+
+      cfg.setActivePreset('medium');
+      for (let i = 0; i < 5; i++) g.update(0.1);
+      const mediumCalls = spy.mock.calls.length;
+      spy.mockClear();
+
+      cfg.setActivePreset('ultraLow');
+      for (let i = 0; i < 5; i++) g.update(0.1);
+      const ultraLowCalls = spy.mock.calls.length;
+
+      // medium: softCollisionInterval 0.10s -> every frame, both armies (x2)
+      expect(mediumCalls).toBe(10);
+      // ultraLow: softCollisionInterval 0.20s -> every other frame, both armies (x2)
+      expect(ultraLowCalls).toBe(4);
     });
   });
 });

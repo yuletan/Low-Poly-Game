@@ -10,7 +10,7 @@ vi.mock('three', () => ({
   }
 }));
 
-vi.mock('../terrain.js?v=3', () => ({ LAND_HEIGHT: 0.5 }));
+vi.mock('../terrain.js', () => ({ LAND_HEIGHT: 0.5 }));
 
 describe('ai.js - AI Staging Attack System', () => {
   let initAI, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS;
@@ -25,12 +25,12 @@ describe('ai.js - AI Staging Attack System', () => {
 
     THREE = await import('three');
 
-    const configMod = await import('../config.js?v=6');
+    const configMod = await import('../config.js');
     AI_STAGING_TIME = configMod.AI_STAGING_TIME;
     AI_MIN_ATTACK_SIZE = configMod.AI_MIN_ATTACK_SIZE;
     AI_MAX_STAGING_UNITS = configMod.AI_MAX_STAGING_UNITS;
 
-    const aiMod = await import('../ai.js?v=5');
+    const aiMod = await import('../ai.js');
     initAI = aiMod.initAI;
 
     const playerBase = {

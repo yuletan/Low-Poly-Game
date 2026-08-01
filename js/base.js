@@ -1,9 +1,9 @@
 // base.js — Base class: capturable buildings with HP, territory, and a defensive turret.
 import * as THREE from 'three';
-import { DIFFICULTY, TERRAIN } from './config.js?v=7';
-import { LAND_HEIGHT } from './terrain.js?v=3';
-import { createBaseMesh, createShipyardMesh } from './unitFactory.js?v=3';
-import { createProjectilePattern } from './combat.js?v=3';
+import { DIFFICULTY, TERRAIN } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
+import { createBaseMesh, createShipyardMesh } from './unitFactory.js';
+import { createProjectilePattern } from './combat.js';
 import { Sound } from './sound.js';
 
 export class Base {
