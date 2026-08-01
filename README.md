@@ -152,6 +152,16 @@ Rendering, timing, and allocation fixes with no gameplay change:
 - Projectile/FX lists update backwards with swap-and-pop instead of O(n) `splice` per removal.
 - `applyHitscanDamage` splash damage iterates the two army arrays directly instead of building a temporary combined array per hit.
 
+### Phase 2 — spatial grid
+
+`SpatialGrid` is now a persistent generation-counter index instead of a map that is cleared and rebuilt every frame:
+
+- Cells survive between frames; `build()` refreshes per-unit generation stamps, so a unit that did not change cells is O(1) to rebuild and the per-frame allocation of every cell array is gone.
+- Units carry `_gridKey`/`_gridStamp` permanently; a unit that moved cells is spliced out of its old cell and pushed into the new one in place.
+- Dead and out-of-build entries are dropped lazily by `queryCircle()` / `forEach()` via in-place compaction, so cell arrays never accumulate garbage across a match.
+- Public API (`build` / `queryCircle` / `forEach`) is unchanged, so targeting, provoke, aura, and healing scans keep working verbatim.
+- Remaining full-army loops routed onto the grid: destroyer `_fireFlak` (radius 25) and the crusher's impact knockback (radius 100, with the per-candidate `Vector3` allocation replaced by a shared scratch vector).
+
 ## AI waves
 
 Amphibious attack waves carry one shared wave id and objective. The objective keeps a small focus shortlist: wave members prefer shortlisted targets within engage range instead of each unit picking an unrelated target, and `_aiRole` (vanguard, ranged, anti-air, healer, reserve) shapes the landing formation — lead roles take the inner ring, reserve trails on the outer ring.

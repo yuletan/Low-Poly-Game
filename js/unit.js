@@ -2325,15 +2325,22 @@ export class Unit {
       // Crusher: knockback enemies near the impact point
       if (this.type === 'crusher') {
         const impact = targetPos;
-        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-        for (const e of enemies) {
-          if (!e.alive || e === this) continue;
+        const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+        const dir = _deathLabelScratch;
+        const knock = e => {
+          if (!e.alive || e === this) return;
           const d = e.mesh.position.distanceTo(impact);
-          if (d > 100) continue;
-          const dir = new THREE.Vector3().subVectors(e.mesh.position, impact).normalize();
+          if (d > 100) return;
+          dir.subVectors(e.mesh.position, impact).normalize();
           const force = (1 - d / 100) * 20;
           e.mesh.position.x += dir.x * force;
           e.mesh.position.z += dir.z * force;
+        };
+        if (grid) {
+          grid.queryCircle(impact.x, impact.z, 100, knock);
+        } else {
+          const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+          for (const e of enemies) knock(e);
         }
       }
     }
@@ -2342,9 +2349,9 @@ export class Unit {
   /** Destroyer unique: Flak cloud vs enemy air units in radius */
   _fireFlak(muzzlePos) {
     const flakRadius = 25;
-    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-    for (const unit of enemies) {
-      if (!unit.alive || unit.domain !== 'air') continue;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    const hit = unit => {
+      if (!unit.alive || unit.domain !== 'air') return;
       const d = unit.mesh.position.distanceTo(this.mesh.position);
       if (d <= flakRadius) {
         const flakDmg = this.stats.damage * 0.6; // 60% damage
@@ -2352,6 +2359,12 @@ export class Unit {
         // Visual flak puff
         this._spawnFlakPuff(unit.mesh.position);
       }
+    };
+    if (grid) {
+      grid.queryCircle(this.mesh.position.x, this.mesh.position.z, flakRadius, hit);
+    } else {
+      const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+      for (const unit of enemies) hit(unit);
     }
   }
 
