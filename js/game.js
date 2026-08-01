@@ -13,6 +13,9 @@ import { tlog as _tlog } from './debug.js';
 import { Unit } from './unit.js';
 import { Base } from './base.js';
 import { SpatialGrid } from './spatialGrid.js';
+import { RuntimeScheduler } from './runtimeScheduler.js';
+import { TransportCoordinator } from './transportCoordinator.js';
+import { createNotificationQueue } from './notificationQueue.js';
 
 // Re-export so existing imports from './game.js' (and the test suite) keep working.
 export { Unit, Base };
@@ -35,7 +38,10 @@ export class Game {
     // Task 9: registry of in-flight AI amphibious attack waves
     this._aiWaves = new Map();
 
-    // Transport logistics: throttle coordination and spawn cooldowns
+    // Transport logistics: explicit manifests and controlled ship spawning
+    this.scheduler = new RuntimeScheduler({ slotCount: 8 });
+    this.transportCoordinator = new TransportCoordinator(this);
+    this.uiDirty = { hud: true, selection: true, armory: true };
     this._transportLogisticsTimer = 0;
     this._transportSpawnCooldown = {
       player: 0,
@@ -45,6 +51,7 @@ export class Game {
     this.selectedUnits = [];
     this.formation = 'line';
     this.attackMoveMode = false;
+    this.pickableMeshes = [];
 
     this.aiTimer = 0;
     this.ended = false;
@@ -121,7 +128,23 @@ export class Game {
   spawn(type, faction, position) {
     const u = new Unit(this, type, faction, position);
     (faction === 'player' ? this.playerUnits : this.enemyUnits).push(u);
+    this._registerPickable(u);
     return u;
+  }
+
+  // Keep one mesh registry for picking instead of rebuilding arrays per event.
+  _registerPickable(entity) {
+    if (!entity?.mesh) return;
+    entity.mesh.userData.entity = entity;
+    if (!entity.kind) entity.kind = 'unit';
+    this.pickableMeshes.push(entity.mesh);
+  }
+
+  unregisterPickable(entity) {
+    if (!entity?.mesh) return;
+    entity.mesh.userData.entity = null;
+    const index = this.pickableMeshes.indexOf(entity.mesh);
+    if (index >= 0) this.pickableMeshes.splice(index, 1);
   }
 
   purchaseUnit(type) {
@@ -570,7 +593,7 @@ export class Game {
   }
 
   // ===== Selection commands =====
-  // Shared actions used by the mobile command bar (mobileUI.js) and
+  // Shared actions used by the mobile command bar and the compact shell,
   // available for any other UI entry point that wants the same behavior
   // as the desktop's F1-F4 formation hotkeys and transport buttons.
   stopSelectedUnits() {
@@ -618,23 +641,15 @@ export class Game {
     if (typeof this.updateSelectionUI === 'function') this.updateSelectionUI();
   }
 
-  flashMessage(text) {
-    let el = document.getElementById('flashMsg');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'flashMsg';
-      el.style.cssText = `
-        position:fixed; top:60px; left:50%; transform:translateX(-50%);
-        background:rgba(170,40,40,0.9); color:#fff; padding:8px 16px;
-        border-radius:6px; font-family:monospace; z-index:100;
-        pointer-events:none; transition:opacity 0.3s;
-      `;
-      document.body.appendChild(el);
-    }
-    el.textContent = text;
-    el.style.opacity = '1';
-    clearTimeout(this._flashT);
-    this._flashT = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+  flashMessage(text, opts = {}) {
+    // Compatibility wrapper — routed through the notification queue so alerts
+    // stack instead of blocking. Stable keys (e.g. 'enemy-wave') let repeated
+    // messages update in place rather than piling up.
+    if (!this._notifications) this._notifications = createNotificationQueue();
+    this._notifications.show(text, {
+      key: opts.key || text,
+      duration: opts.duration || 3000
+    });
   }
 
   queueDeath(u) { this.deadUnits.push(u); }
@@ -655,6 +670,15 @@ export class Game {
   update(dt) {
     if (this.ended || this.paused) return;
     this._currentTime += dt;
+    this.scheduler.update(dt);
+    this.transportCoordinator.update(dt);
+
+    // AI wave bookkeeping (objective/membership) — throttled, cheap.
+    this._aiWaveCompletionTimer = (this._aiWaveCompletionTimer || 0) + dt;
+    if (this._aiWaveCompletionTimer >= 2) {
+      this._aiWaveCompletionTimer = 0;
+      this._updateAIWaveCompletion();
+    }
 
     const owned = this.bases.filter(b => b.faction === 'player').length;
     this.money += PASSIVE_INCOME * owned * dt;
@@ -669,15 +693,9 @@ export class Game {
     for (const u of this.enemyUnits)  u.update(dt);
     for (const b of this.bases) b.update(dt);
 
-    // Auto-spawn transports for troops waiting on beach — throttled to reduce CPU spikes
-    this._transportLogisticsTimer += dt;
-    if (this._transportLogisticsTimer >= 0.25) {
-      const elapsed = this._transportLogisticsTimer;
-      this._transportLogisticsTimer = 0;
-      this._transportSpawnCooldown.player = Math.max(0, this._transportSpawnCooldown.player - elapsed);
-      this._transportSpawnCooldown.enemy = Math.max(0, this._transportSpawnCooldown.enemy - elapsed);
-      this._updateTransportLogistics();
-    }
+    // Auto-spawn transports for troops waiting on beach is owned by
+    // this.transportCoordinator.update(dt) above. The old per-frame logistics
+    // timer block has been removed after coordinator parity was tested.
 
     // Soft unit collision (gentle nudge) — throttled by preset
     const scInterval = activePreset.softCollisionInterval;
@@ -976,13 +994,43 @@ export class Game {
   }
 
   // Task 9: AI attack-wave transport synchronization with shared release timestamp
-  registerAIWave(waveId, shipsNeeded) {
+  registerAIWave(waveId, shipsNeeded, members = []) {
     this._aiWaves.set(waveId, {
       shipsNeeded,
+      members: new Set(members),
+      objective: null,
       readyShips: new Set(),
       firstReadyAt: null,
       releaseAt: null
     });
+  }
+
+  setAIWaveObjective(waveId, objective) {
+    const wave = this._aiWaves.get(waveId);
+    if (wave) wave.objective = objective;
+  }
+
+  declareWaveComplete(waveId) {
+    const wave = this._aiWaves.get(waveId);
+    if (!wave) return;
+    for (const u of wave.members) {
+      if (u?._aiWaveId === waveId) u._aiWaveId = null;
+    }
+    this._aiWaves.delete(waveId);
+  }
+
+  /** Wave is done when live membership falls below a threshold or the
+      objective was captured/destroyed. Runs on a throttle inside update. */
+  _updateAIWaveCompletion() {
+    for (const [waveId, wave] of this._aiWaves) {
+      const members = [...wave.members].filter(u => u?.alive);
+      const target = wave.objective?.target;
+      const objectiveGone = !target || !target.alive || target.faction !== 'enemy';
+      const drained = wave.members.size > 0 && members.length < wave.members.size * 0.4;
+      if (members.length === 0 || drained || objectiveGone) {
+        this.declareWaveComplete(waveId);
+      }
+    }
   }
 
   shouldHoldForAIWave(ship) {

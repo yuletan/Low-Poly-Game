@@ -1,252 +1,13 @@
 // ui.js — Modern UI with bottom dock layout and glassmorphism
 import * as THREE from 'three';
-import { UNIT_TYPES, UPGRADES, QUALITY_PRESETS, setActivePreset } from './config.js?v=4';
+import { UNIT_TYPES, UPGRADES, QUALITY_PRESETS, setActivePreset } from './config.js';
 import { Sound } from './sound.js';
 import { saveGame, loadSaveData, deleteSave, hasSave } from './saveLoad.js';
+import { getUnitIconDataUrl } from './unitIconRenderer.js';
+import { createNotificationQueue } from './notificationQueue.js';
+import { collectNearby } from './proximity.js';
 
-// Generate unit icon as data URL using canvas 2D
-function generateUnitIcon(type, color, size = 48) {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  function roundRect(ctx, x, y, w, h, r) {
-    const rad = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rad, y);
-    ctx.lineTo(x + w - rad, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
-    ctx.lineTo(x + w, y + h - rad);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
-    ctx.lineTo(x + rad, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
-    ctx.lineTo(x, y + rad);
-    ctx.quadraticCurveTo(x, y, x + rad, y);
-    ctx.closePath();
-  }
-
-  ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
-  ctx.strokeStyle = '#4af';
-  ctx.lineWidth = 1;
-
-  const cx = size / 2;
-  const cy = size / 2;
-  const s = size * 0.35;
-
-  ctx.beginPath();
-  switch (type) {
-    case 'infantry':
-      ctx.moveTo(cx, cy - s);
-      ctx.lineTo(cx - s * 0.6, cy + s * 0.5);
-      ctx.lineTo(cx + s * 0.6, cy + s * 0.5);
-      ctx.closePath();
-      break;
-    case 'tank':
-      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 3);
-      ctx.moveTo(cx - s * 0.3, cy - s * 0.7);
-      ctx.lineTo(cx + s * 0.3, cy - s * 0.7);
-      ctx.lineTo(cx + s * 0.3, cy - s * 1.2);
-      ctx.lineTo(cx - s * 0.3, cy - s * 1.2);
-      ctx.closePath();
-      break;
-    case 'heavyTank':
-      roundRect(ctx, cx - s * 1.2, cy - s * 0.8, s * 2.4, s * 1.6, 3);
-      ctx.moveTo(cx - s * 0.35, cy - s * 0.8);
-      ctx.lineTo(cx + s * 0.35, cy - s * 0.8);
-      ctx.lineTo(cx + s * 0.35, cy - s * 1.4);
-      ctx.lineTo(cx - s * 0.35, cy - s * 1.4);
-      ctx.closePath();
-      break;
-    case 'crusher':
-      roundRect(ctx, cx - s * 1.3, cy - s * 0.9, s * 2.6, s * 1.8, 3);
-      ctx.moveTo(cx - s * 0.4, cy - s * 0.9);
-      ctx.lineTo(cx + s * 0.4, cy - s * 0.9);
-      ctx.lineTo(cx + s * 0.4, cy - s * 1.5);
-      ctx.lineTo(cx - s * 0.4, cy - s * 1.5);
-      ctx.closePath();
-      break;
-    case 'artillery':
-      roundRect(ctx, cx - s, cy - s * 0.6, s * 2, s * 1.2, 2);
-      ctx.moveTo(cx + s * 0.1, cy);
-      ctx.lineTo(cx + s * 1.5, cy - s * 0.3);
-      ctx.lineTo(cx + s * 1.5, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.1, cy);
-      ctx.closePath();
-      break;
-    case 'missileDefense':
-      roundRect(ctx, cx - s * 0.8, cy - s * 0.6, s * 1.6, s * 1.2, 2);
-      ctx.moveTo(cx, cy - s * 0.6);
-      ctx.lineTo(cx, cy - s * 1.3);
-      ctx.lineTo(cx + s * 0.3, cy - s * 1.1);
-      ctx.lineTo(cx, cy - s * 1.3);
-      ctx.lineTo(cx - s * 0.3, cy - s * 1.1);
-      ctx.closePath();
-      break;
-    case 'coastal':
-      roundRect(ctx, cx - s * 1, cy - s * 0.3, s * 2, s * 0.6, 1);
-      ctx.moveTo(cx - s * 0.3, cy - s * 0.3);
-      ctx.lineTo(cx + s * 0.3, cy - s * 0.3);
-      ctx.lineTo(cx + s * 0.3, cy - s * 0.8);
-      ctx.lineTo(cx - s * 0.3, cy - s * 0.8);
-      ctx.closePath();
-      break;
-    case 'destroyer':
-    case 'battleship':
-      ctx.moveTo(cx - s * 1.2, cy + s * 0.3);
-      ctx.lineTo(cx + s * 1.2, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.8, cy - s * 0.4);
-      ctx.lineTo(cx - s * 0.8, cy - s * 0.4);
-      ctx.closePath();
-      break;
-    case 'frigate':
-      ctx.moveTo(cx - s * 0.9, cy + s * 0.3);
-      ctx.lineTo(cx + s * 1.2, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.9, cy - s * 0.3);
-      ctx.lineTo(cx - s * 0.6, cy - s * 0.3);
-      ctx.closePath();
-      break;
-    case 'cruiser':
-      ctx.moveTo(cx - s * 1.3, cy + s * 0.3);
-      ctx.lineTo(cx + s * 1.3, cy + s * 0.3);
-      ctx.lineTo(cx + s * 1, cy - s * 0.4);
-      ctx.lineTo(cx - s * 1, cy - s * 0.4);
-      ctx.closePath();
-      break;
-    case 'submarine':
-      ctx.ellipse(cx, cy, s * 1.3, s * 0.5, 0, 0, Math.PI * 2);
-      ctx.closePath();
-      break;
-    case 'carrier':
-      ctx.moveTo(cx - s * 1.3, cy + s * 0.2);
-      ctx.lineTo(cx + s * 1.3, cy + s * 0.2);
-      ctx.lineTo(cx + s * 1.3, cy - s * 0.3);
-      ctx.lineTo(cx - s * 1.3, cy - s * 0.3);
-      ctx.closePath();
-      ctx.moveTo(cx + s * 0.4, cy - s * 0.3);
-      ctx.lineTo(cx + s * 0.4, cy - s * 0.8);
-      ctx.lineTo(cx + s * 0.9, cy - s * 0.5);
-      ctx.lineTo(cx + s * 0.9, cy - s * 0.3);
-      ctx.closePath();
-      break;
-    case 'fighter':
-      ctx.moveTo(cx, cy - s * 1.1);
-      ctx.lineTo(cx + s * 0.6, cy + s * 0.2);
-      ctx.lineTo(cx + s * 0.3, cy + s * 0.2);
-      ctx.lineTo(cx + s * 0.4, cy + s * 0.6);
-      ctx.lineTo(cx, cy + s * 0.4);
-      ctx.lineTo(cx - s * 0.4, cy + s * 0.6);
-      ctx.lineTo(cx - s * 0.3, cy + s * 0.2);
-      ctx.lineTo(cx - s * 0.6, cy + s * 0.2);
-      ctx.closePath();
-      break;
-    case 'bomber':
-      ctx.moveTo(cx, cy - s * 1.2);
-      ctx.lineTo(cx + s * 0.8, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.4, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.5, cy + s * 0.7);
-      ctx.lineTo(cx, cy + s * 0.5);
-      ctx.lineTo(cx - s * 0.5, cy + s * 0.7);
-      ctx.lineTo(cx - s * 0.4, cy + s * 0.3);
-      ctx.lineTo(cx - s * 0.8, cy + s * 0.3);
-      ctx.closePath();
-      break;
-    case 'heli':
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + s * 0.8, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.8, cy - s * 0.3);
-      ctx.lineTo(cx, cy - s * 0.2);
-      ctx.lineTo(cx - s * 0.8, cy - s * 0.1);
-      ctx.lineTo(cx - s * 0.8, cy + s * 0.1);
-      ctx.closePath();
-      break;
-    case 'gunship':
-      roundRect(ctx, cx - s, cy - s * 0.4, s * 2, s * 0.8, 2);
-      ctx.moveTo(cx - s * 1.5, cy);
-      ctx.lineTo(cx + s * 1.5, cy);
-      ctx.lineTo(cx + s * 1.5, cy + s * 0.15);
-      ctx.lineTo(cx - s * 1.5, cy + s * 0.15);
-      ctx.closePath();
-      break;
-    case 'mlrs':
-      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 2);
-      ctx.moveTo(cx - s * 0.6, cy - s * 0.4);
-      ctx.lineTo(cx + s * 0.6, cy - s * 0.4);
-      ctx.lineTo(cx + s * 0.4, cy - s * 1);
-      ctx.lineTo(cx - s * 0.4, cy - s * 1);
-      ctx.closePath();
-      break;
-    case 'healer':
-      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 2);
-      ctx.moveTo(cx - s * 0.3, cy); ctx.lineTo(cx + s * 0.3, cy);
-      ctx.moveTo(cx, cy - s * 0.3); ctx.lineTo(cx, cy + s * 0.3);
-      ctx.closePath();
-      break;
-    case 'medHeli':
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + s * 0.8, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.8, cy - s * 0.3);
-      ctx.lineTo(cx, cy - s * 0.2);
-      ctx.lineTo(cx - s * 0.8, cy - s * 0.1);
-      ctx.lineTo(cx - s * 0.8, cy + s * 0.1);
-      ctx.closePath();
-      ctx.moveTo(cx - s * 0.2, cy - s * 0.3);
-      ctx.lineTo(cx + s * 0.2, cy - s * 0.3);
-      ctx.moveTo(cx, cy - s * 0.5);
-      ctx.lineTo(cx, cy - s * 0.1);
-      ctx.closePath();
-      break;
-    case 'escortJet':
-      ctx.moveTo(cx, cy - s * 1.1); ctx.lineTo(cx + s * 0.7, cy + s * 0.2);
-      ctx.lineTo(cx + s * 0.4, cy + s * 0.2); ctx.lineTo(cx + s * 0.5, cy + s * 0.6);
-      ctx.lineTo(cx, cy + s * 0.4); ctx.lineTo(cx - s * 0.5, cy + s * 0.6);
-      ctx.lineTo(cx - s * 0.4, cy + s * 0.2); ctx.lineTo(cx - s * 0.7, cy + s * 0.2);
-      ctx.closePath();
-      break;
-    case 'b2':
-      ctx.moveTo(cx, cy - s * 0.4); ctx.lineTo(cx - s * 1.3, cy + s * 0.5);
-      ctx.lineTo(cx - s * 1.3, cy + s * 0.7); ctx.lineTo(cx + s * 1.3, cy + s * 0.7);
-      ctx.lineTo(cx + s * 1.3, cy + s * 0.5);
-      ctx.closePath();
-      break;
-    case 'escortBomber':
-      ctx.moveTo(cx, cy - s * 1.3); ctx.lineTo(cx + s * 1, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.6, cy + s * 0.3); ctx.lineTo(cx + s * 0.7, cy + s * 0.8);
-      ctx.lineTo(cx, cy + s * 0.6); ctx.lineTo(cx - s * 0.7, cy + s * 0.8);
-      ctx.lineTo(cx - s * 0.6, cy + s * 0.3); ctx.lineTo(cx - s * 1, cy + s * 0.3);
-      ctx.closePath();
-      break;
-    case 'minigunnerVehicle':
-      roundRect(ctx, cx - s * 1.1, cy - s * 0.7, s * 2.2, s * 1.4, 3);
-      ctx.moveTo(cx + s * 0.8, cy - s * 0.3);
-      ctx.lineTo(cx + s * 1.5, cy - s * 0.5);
-      ctx.lineTo(cx + s * 1.5, cy + s * 0.1);
-      ctx.lineTo(cx + s * 0.8, cy + s * 0.1);
-      ctx.closePath();
-      break;
-    case 'megaMedic':
-      roundRect(ctx, cx - s, cy - s * 0.7, s * 2, s * 1.4, 2);
-      ctx.moveTo(cx - s * 0.4, cy); ctx.lineTo(cx + s * 0.4, cy);
-      ctx.moveTo(cx, cy - s * 0.4); ctx.lineTo(cx, cy + s * 0.4);
-      ctx.closePath();
-      break;
-    case 'minigunner':
-      ctx.moveTo(cx, cy - s);
-      ctx.lineTo(cx - s * 0.6, cy + s * 0.5);
-      ctx.lineTo(cx + s * 0.6, cy + s * 0.5);
-      ctx.closePath();
-      ctx.moveTo(cx + s * 0.1, cy + s * 0.3);
-      ctx.lineTo(cx + s * 0.8, cy);
-      ctx.lineTo(cx + s * 0.8, cy + s * 0.5);
-      ctx.lineTo(cx + s * 0.1, cy + s * 0.5);
-      ctx.closePath();
-      break;
-  }
-  ctx.fill();
-  ctx.stroke();
-
-  return canvas.toDataURL('image/png');
-}
+// Unit icons come from the shared module-scope canvas cache (unitIconRenderer.js).
 
 // Create enhanced tooltip with grid layout
 function createEnhancedTooltip(type, stats) {
@@ -274,7 +35,7 @@ function createEnhancedTooltip(type, stats) {
 // Create a unit button with icon, name, cost, hotkey, tooltip
 function createUnitButton(key, hotkey, game) {
   const stats = UNIT_TYPES[key];
-  const iconDataUrl = generateUnitIcon(key, stats.color);
+  const iconDataUrl = getUnitIconDataUrl(key, stats.color);
 
   const b = document.createElement('button');
   b.className = 'unitBtn';
@@ -438,23 +199,44 @@ function updateFormationHelpText(formation, helpEl) {
   `;
 }
 
-function flashMessage(msg) {
-  let el = document.getElementById('flashMsg');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'flashMsg';
-    el.className = 'flash-msg';
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.classList.add('visible');
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.classList.remove('visible'), 3000);
+// Notification queue: stacked, deduplicated alerts. Created lazily so it works
+// even when called before initUI (e.g. during game construction).
+let notifications = null;
+function notificationQueue() {
+  if (!notifications) notifications = createNotificationQueue();
+  return notifications;
 }
 
-// Update selection panel UI
+export function showNotification(message, config = {}) {
+  notificationQueue().show(message, config);
+}
+
+export function clearNotifications() {
+  notificationQueue().clear();
+}
+
+// Update selection panel UI — dirty-rendered: DOM is only replaced when the
+// meaningful selection state actually changes.
+let lastSelectionSignature = '';
+
+function selectionSignature(game) {
+  const sb = game.selectedBuilding;
+  const baseSig = sb?.base
+    ? `${sb.base.name}:${sb.base.faction}:${Math.round(sb.base.hp ?? 0)}:${sb.isShipyard ? 'shipyard' : 'barracks'}`
+    : '';
+  return game.selectedUnits
+    .filter(unit => unit?.alive && !unit.carried)
+    .map(unit => `${unit._debugId}:${Math.round(unit.hp)}:${unit.carried ? 1 : 0}`)
+    .sort()
+    .join('|') + `:${game.formation}:${baseSig}`;
+}
+
 function updateSelectionUI(game, selectionInfo, selectionPanel) {
   if (!selectionInfo) return;
+
+  const signature = selectionSignature(game);
+  if (signature === lastSelectionSignature) return;
+  lastSelectionSignature = signature;
 
   const selected = game.selectedUnits.filter(u => u && u.alive && !u.carried);
   if (selected.length !== game.selectedUnits.length) {
@@ -535,19 +317,26 @@ function updateSelectionUI(game, selectionInfo, selectionPanel) {
 
   const transport = selected.find(u => u.isTransport && u.alive);
   if (transport) {
-    const nearbyLand = game.playerUnits.filter(u =>
-      u.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit(u)
+    // Nearby eligible land units are computed once through the spatial grid
+    // and reused by the load button (no second full-array filter).
+    const nearbyLand = collectNearby(game, transport.mesh.position, transport.loadRange || 12, u =>
+      u?.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit?.(u)
     );
-    const canLoad = nearbyLand.length > 0;
-    const canUnload = transport.carriedUnits.length > 0;
+    const carried = transport.carriedUnits?.length || 0;
+    const capacity = transport.transportCapacity || 10;
 
     html += `
+      <div class="transport-status">
+        Cargo: ${carried} / ${capacity}
+        <span>Load available: ${nearbyLand.length > 0 ? 'yes' : 'no'}</span>
+        <span>Unload available: ${carried > 0 ? 'yes' : 'no'}</span>
+      </div>
       <div class="transport-actions">
-        <button class="action-btn" id="loadBtn" ${canLoad ? '' : 'disabled'}>
-          Load${canLoad ? ` (${nearbyLand.length})` : ' (no units)'}
+        <button class="action-btn" data-action="load" ${nearbyLand.length > 0 ? '' : 'disabled'}>
+          Load${nearbyLand.length > 0 ? ` (${nearbyLand.length})` : ''}
         </button>
-        <button class="action-btn" id="unloadBtn" ${canUnload ? '' : 'disabled'}>
-          Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (empty)'}
+        <button class="action-btn" data-action="unload" ${carried > 0 ? '' : 'disabled'}>
+          Unload${carried > 0 ? ` (${carried})` : ''}
         </button>
       </div>
     `;
@@ -555,35 +344,42 @@ function updateSelectionUI(game, selectionInfo, selectionPanel) {
 
   selectionInfo.innerHTML = html;
 
-  const loadBtn = document.getElementById('loadBtn');
-  if (loadBtn) {
-    loadBtn.addEventListener('click', () => {
-      const t = game.selectedUnits.find(u => u.isTransport);
-      if (!t) return;
-      const toLoad = game.playerUnits.filter(u =>
-        u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
-      );
-      for (const u of toLoad) t.loadUnit(u);
-      game.updateSelectionUI?.();
-    });
-  }
+  selectionInfo.querySelector('[data-action="load"]')?.addEventListener('click', () => {
+    if (game.commands?.loadSelected) game.commands.loadSelected();
+    else game.loadSelectedTransport?.();
+    game.updateSelectionUI?.();
+  });
 
-  const unloadBtn = document.getElementById('unloadBtn');
-  if (unloadBtn) {
-    unloadBtn.addEventListener('click', () => {
-      const t = game.selectedUnits.find(u => u.isTransport);
-      if (t) t.unloadAll();
-      game.updateSelectionUI?.();
-    });
-  }
+  selectionInfo.querySelector('[data-action="unload"]')?.addEventListener('click', () => {
+    if (game.commands?.unloadSelected) game.commands.unloadSelected();
+    else game.unloadSelectedTransport?.();
+    game.updateSelectionUI?.();
+  });
 }
 
 export function initUI(game) {
-  // === Create Armory Panel (Bottom Dock) ===
+  // Close the mobile drawer this panel runs in (no-op on desktop).
+  function closePanelDrawer() {
+    game.uiStore?.closeDrawer?.();
+    const root = document.documentElement;
+    root.classList.remove('mobile-armory-open', 'mobile-selection-open', 'mobile-drawer-open', 'mobile-menu-open');
+  }
+
+  // === Create Armory Panel (Bottom Dock / mobile right drawer) ===
   const armoryPanel = document.createElement('div');
   armoryPanel.id = 'armoryPanel';
   armoryPanel.className = 'panel';
+  armoryPanel.dataset.uiPanel = 'armory';
   document.body.appendChild(armoryPanel);
+
+  const armoryHeader = document.createElement('div');
+  armoryHeader.className = 'panel-header';
+  armoryHeader.innerHTML = `
+    <div class="panel-title">Build</div>
+    <button type="button" class="panel-close-btn" data-close-panel="armory" aria-label="Close build panel">×</button>
+  `;
+  armoryPanel.appendChild(armoryHeader);
+  armoryHeader.querySelector('.panel-close-btn').addEventListener('click', closePanelDrawer);
 
   const armoryTabs = document.createElement('div');
   armoryTabs.className = 'armory-tabs';
@@ -653,17 +449,19 @@ export function initUI(game) {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // === Create Selection Panel (Bottom Left) ===
+  // === Create Selection Panel (Bottom Left / mobile left drawer) ===
   const selectionPanel = document.createElement('div');
   selectionPanel.id = 'selectionPanel';
   selectionPanel.className = 'panel';
+  selectionPanel.dataset.uiPanel = 'selection';
   selectionPanel.innerHTML = `
-    <div style="padding:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-size:11px;font-weight:bold;color:var(--primary);text-transform:uppercase;letter-spacing:1px;">Selection</div>
-      <button id="selectAllBtn" class="topBtn" style="font-size:10px;padding:3px 8px;">All</button>
+    <div class="panel-header">
+      <div class="panel-title">Selection</div>
+      <button id="selectAllBtn" class="topBtn panel-all-btn">All</button>
+      <button type="button" class="panel-close-btn" data-close-panel="selection" aria-label="Close selection panel">×</button>
     </div>
     <div id="selectionInfo">
-      <div style="color:var(--text-muted);text-align:center;padding:20px;">
+      <div class="selection-empty">
         Click/tap or drag to select units
       </div>
     </div>
@@ -692,6 +490,7 @@ export function initUI(game) {
   const selectionInfo = document.getElementById('selectionInfo');
   const formationHelpText = selectionPanel.querySelector('#formationHelpText');
   game.updateSelectionUI = () => updateSelectionUI(game, selectionInfo, selectionPanel);
+  selectionPanel.querySelector('.panel-close-btn').addEventListener('click', closePanelDrawer);
 
   const formationBtns = selectionPanel.querySelectorAll('.formation-btn');
   function setFormation(formation, announce = true) {

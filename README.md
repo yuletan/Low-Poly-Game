@@ -1,202 +1,137 @@
 # Low-Poly Command
 
-Low-Poly Command is a browser-based 3D real-time strategy game built with Three.js, vanilla JavaScript modules, Vite, and Capacitor. It supports land, sea, and air combat, base capture, formations, fog of war, upgrades, naval transport, and three AI difficulty levels.
+Low-Poly Command is a browser-based 3D real-time strategy game built with Three.js, vanilla ECMAScript modules, Vite, and Capacitor. It includes land, sea, and air combat, base capture, formations, fog of war, upgrades, carriers, transports, and three AI difficulty profiles.
 
-## Project status
+## Project goals
 
-- Web application: Vite development and production builds
-- Android wrapper: Capacitor 6
-- Rendering: Three.js
-- Tests: Vitest with jsdom
-- Python helper: optional standard-library development server
+- Keep the battlefield readable and responsive on desktop and mobile.
+- Keep mobile play landscape-first with compact contextual controls.
+- Avoid unrestricted whole-army work in per-frame or per-unit hot paths.
+- Build generated output from source instead of tracking it in Git.
+- Preserve visible gameplay behavior while systems are refactored behind stable interfaces.
 
-## Gameplay
+## Requirements
 
-### Main systems
+- Node.js 18 or newer for the current toolchain.
+- npm.
+- A modern browser with WebGL support.
+- Android Studio and JDK 17 for the current Capacitor 6 Android wrapper.
+- Python 3 only when using the optional standard-library server.
 
-- Land, sea, and air units with domain-specific movement and targeting
-- A* pathfinding and amphibious transport routes
-- Base capture, passive income, build costs, and upgrades
-- Line, wedge, square, and column formations
-- Fog of war and a tactical minimap
-- Carrier aircraft, submarine stealth, healing, artillery, and area damage
-- Save and load through browser local storage
-- Easy, Normal, and Hard AI profiles
+## Install and run
 
-### Desktop controls
+```text
+npm install
+npm run dev
+```
+
+Production verification:
+
+```text
+npm run check
+```
+
+The production build is generated in `dist/`. The directory is ignored and must not be committed.
+
+## Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start Vite development mode |
+| `npm run build` | Generate the production web build |
+| `npm run check` | Run tests and then build |
+| `npm test` | Run the test suite once |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:coverage` | Run tests with V8 coverage |
+| `npm run cap:sync` | Build and synchronize the Capacitor project |
+
+## Controls
+
+### Desktop
 
 | Action | Control |
 | --- | --- |
 | Pan camera | W A S D or arrow keys |
 | Zoom | Mouse wheel |
-| Select | Left-click |
-| Box select | Left-click and drag |
-| Move | Right-click terrain |
-| Attack | Right-click an enemy |
+| Select | Left click |
+| Box select | Left drag |
+| Toggle selection | Shift click |
+| Move | Right click terrain |
+| Attack | Right click hostile target |
+| Deselect / close | Escape |
 | Focus headquarters | F |
-| Select all | Ctrl+A / Cmd+A |
-| Deselect or close | Escape |
-| Help | H |
-| Formation | F1-F4 or the selection panel |
+| Select all | Ctrl+A or Cmd+A |
+| Formation | F1 to F4 |
 
-### Mobile controls
+### Mobile landscape
 
-The touch layer supports unit selection, box selection, camera pan, pinch zoom, movement, attack commands, formation controls, and transport actions. Keep command controls clear of device safe areas when changing the mobile layout.
+The compact mobile shell uses contextual commands and exclusive drawers.
 
-## Requirements
+- Tap a friendly unit to select it.
+- Use Move or Attack mode and then tap the destination or target.
+- Open Build to access the armory drawer.
+- Tap the selection summary to open grouped unit details.
+- Use More for formation, carrier, fleet, headquarters, help, and settings actions.
+- Load and Unload are shown only when a transport is selected.
+- Portrait displays a rotate notice instead of compressing the full interface.
 
-- Node.js 18 or newer
-- npm
-- A modern browser with WebGL support
-- Android Studio and JDK 17 for Android builds
-- Python 3 only when using `start.py`
-
-The Python helper uses only the standard library. No third-party Python package is required.
-
-## Install and run
-
-```bash
-npm install
-npm run dev
-```
-
-Vite prints the local development URL in the terminal.
-
-Alternative lightweight server:
-
-```bash
-python start.py
-```
-
-## Available scripts
-
-```bash
-npm run dev           # Start Vite development server
-npm run build         # Create a production build in dist/
-npm test              # Run the Vitest suite once
-npm run test:watch    # Run tests in watch mode
-npm run test:coverage # Run tests with V8 coverage
-npm run check         # Run tests, then create a production build
-npm run clean         # Remove generated build and coverage output
-npm run cap:sync      # Build the web app and sync Capacitor
-```
-
-## Production build
-
-```bash
-npm run check
-```
-
-Generated output is written to `dist/`. The directory is intentionally ignored by Git and should be recreated from source rather than committed.
-
-## Android build
-
-The current project uses Capacitor 6.
-
-```bash
-npm install
-npm run cap:sync
-npx cap open android
-```
-
-When the native Android project has not been created yet:
-
-```bash
-npx cap add android
-npm run cap:sync
-```
-
-Do not run `npx cap init` again when `capacitor.config.ts` already exists.
-
-## Repository layout
+## Architecture
 
 ```text
-Low-Poly-Game/
-├── index.html
-├── styles.css
-├── package.json
-├── package-lock.json
-├── capacitor.config.ts
-├── vite.config.js
-├── vitest.config.js
-├── vercel.json
-├── start.py
-├── req.txt
-├── scripts/
-│   ├── clean.mjs
-│   └── analyze-fps.mjs
-├── __mocks__/
-└── js/
-    ├── main.js          Application bootstrap, renderer, camera, main loop
-    ├── game.js          Match state and orchestration
-    ├── unit.js          Unit state and behavior
-    ├── base.js          Base state and capture behavior
-    ├── ai.js            Enemy economy, defense, staging, and attacks
-    ├── input.js         Desktop and touch input orchestration
-    ├── mobileUI.js      Mobile command-bar presentation
-    ├── ui.js            HUD, armory, dialogs, and selection display
-    ├── config.js        Unit data, quality presets, and balance constants
-    ├── pathfinder.js    Grid and route calculations
-    ├── spatialGrid.js   Broad-phase proximity queries
-    ├── terrain.js       Terrain generation and terrain queries
-    ├── combat.js        Projectiles, damage, effects, and pools
-    ├── unitFactory.js   Three.js unit meshes
-    ├── unitVisuals.js   Shared unit visual helpers
-    ├── minimap.js       Tactical map
-    ├── fogOfWar.js      Visibility state
-    ├── upgrades.js      Upgrade progression
-    ├── sound.js         Runtime sound
-    ├── saveLoad.js      Persistence
-    ├── debug.js         Development logging switches
-    ├── fpsDisplay.js    Runtime profiling overlay
-    └── __tests__/       Automated tests
+js/
+  main.js                  bootstrap renderer camera and main loop
+  game.js                  match lifecycle and system orchestration
+  unit.js                  stable unit object and delegated behavior
+  ai.js                    enemy strategy and staging
+  input.js                 pointer touch and selection gestures
+  ui.js                    desktop HUD dialogs and shared rendering
+  mobileShell.js           compact mobile presentation
+  uiStateStore.js          exclusive drawer and command state
+  commandController.js     shared unit commands
+  notificationQueue.js     deduplicated alerts
+  runtimeScheduler.js      staggered periodic work
+  transportCoordinator.js  manifests ship assignment and fleet release
+  proximity.js             spatial-grid query helpers
+  unitIconRenderer.js      persistent shared icon cache
+  pathfinder.js            grid routing
+  spatialGrid.js           broad-phase neighbor queries
+  minimap.js               tactical map
+  fogOfWar.js              visibility state
+  combat.js                projectiles damage and effects
+  config.js                units quality presets and balance
+  saveLoad.js              persistence
 ```
 
 ## Performance rules
 
-Performance-sensitive code should follow these rules:
+1. Do not run unrestricted target, aura, healer, collision, transport, or path scans from every unit every frame.
+2. Spread periodic work across phases.
+3. Repath when a destination cell changes or a route expires, not on a synchronized global second.
+4. Use the spatial grid for nearby entities.
+5. Keep transport ownership in explicit manifests.
+6. Render UI only when its source state is dirty.
+7. Reuse icon, geometry, material, vector, projectile, and effect objects where practical.
+8. Disable production debug logging and profiler controls by default.
 
-1. Never perform unrestricted whole-army scans from every unit on every frame.
-2. Use the shared spatial grid for nearby-unit queries.
-3. Stagger periodic work so all units do not target, repath, heal, or scan on the same frame.
-4. Repath only when a destination cell changes, a route is exhausted, or a timeout is reached.
-5. Reuse vectors, materials, geometries, projectiles, and effects where practical.
-6. Keep DOM updates and minimap rendering on explicit intervals.
-7. Keep debug logging disabled in production hot paths.
-8. Build `dist/` from source; never use committed generated output as the source of truth.
+## Testing before merge
 
-## Testing
-
-```bash
-npm test
-npm run build
-```
-
-Before merging gameplay or refactoring changes, verify at least:
-
-- The game starts on each difficulty.
-- Units can select, move, attack, pursue, and stop.
-- Formations preserve unit assignment.
-- Transport ships load, sail, unload, and release claims.
-- AI staging eventually launches an attack.
-- Save and load restore units, bases, upgrades, fog, and camera position.
-- Low quality remains selected after resize and orientation changes.
-- Touch input does not trigger duplicate mouse commands.
+- Run `npm test`.
+- Run `npm run build`.
+- Verify every difficulty starts.
+- Verify desktop selection, movement, attack, stop, formations, building, transport, save, and load.
+- Verify mobile landscape drawers never overlap.
+- Verify Low quality remains active after resize and rotation.
+- Verify a large AI attack assembles before launch.
+- Verify each transport owns a unique manifest and fleet siblings release together.
+- Run a 10-minute low-quality match with at least 150 units and inspect frame-time spikes.
 
 ## Repository hygiene
 
-Do not commit:
+Do not commit dependencies, generated builds, coverage, local environment files, mobile build output, temporary archives, duplicated source dumps, profiling captures, or local agent/editor configuration.
 
-- `node_modules/`
-- `dist/`
-- coverage output
-- local environment files
-- IDE metadata
-- Android build output
-- temporary archives or duplicated source dumps
-- FPS captures and ad-hoc debug output
+## Native runtime
 
-Keep durable documentation in the README or a focused file under `docs/`. Delete temporary implementation plans once their work is represented by code, tests, or tracked issues.
+The repository currently uses Capacitor 6. Upgrade Capacitor in a separate branch only after the web UI and gameplay refactor are stable and tested.
 
 ## License
 

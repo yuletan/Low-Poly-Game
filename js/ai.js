@@ -356,6 +356,33 @@ export function initAI(game) {
   // ===== Task 9: Amphibious attack-wave synchronization =====
   let _nextAIWaveId = 1;
 
+  /** Split a wave into small role arrays used for focused, staggered attacks. */
+  function splitWaveByRole(units) {
+    const roles = { vanguard: [], ranged: [], antiAir: [], healer: [], reserve: [] };
+    for (const u of units) {
+      const t = u.type;
+      if (t === 'healer' || t === 'medHeli' || t === 'megaMedic') {
+        roles.healer.push(u);
+      } else if (t === 'artillery' || t === 'mlrs' || t === 'battleship' || t === 'cruiser' || t === 'submarine' || t === 'bomber' || t === 'b2' || t === 'escortBomber') {
+        roles.ranged.push(u);
+      } else if (t === 'fighter' || t === 'gunship' || t === 'escortJet' || t === 'missileDefense') {
+        roles.antiAir.push(u);
+      } else if (t === 'tank' || t === 'heavyTank' || t === 'crusher' || t === 'minigunnerVehicle') {
+        roles.vanguard.push(u);
+      } else {
+        roles.reserve.push(u);
+      }
+    }
+    return roles;
+  }
+
+  function roleOf(u, roles) {
+    for (const [role, list] of Object.entries(roles)) {
+      if (list.includes(u)) return role;
+    }
+    return 'reserve';
+  }
+
   function dispatchGroundWave(groundAttackers, target) {
     if (!groundAttackers.length) return;
 
@@ -382,11 +409,18 @@ export function initAI(game) {
       return;
     }
 
+    // Small role arrays shape the wave: vanguard and anti-air lead, ranged and
+    // healer follow, reserve trails. No unit balance is touched.
+    const roles = splitWaveByRole(needsShip);
+
     const waveId = _nextAIWaveId++;
+    const waveMembers = [];
     let boarded = 0;
     for (const u of needsShip) {
       if (u.assignSharedTransportPlan(plan, target.mesh.position)) {
         u._aiWaveId = waveId;
+        u._aiRole = roleOf(u, roles);
+        waveMembers.push(u);
         boarded++;
       } else {
         u.moveTo(target.mesh.position.clone(), true);
@@ -395,7 +429,13 @@ export function initAI(game) {
 
     if (boarded > 0) {
       const shipsNeeded = Math.max(1, Math.ceil(boarded / UNIT_TYPES.transport.transportCapacity));
-      game.registerAIWave(waveId, shipsNeeded);
+      // One wave objective with a small focus-target shortlist near it.
+      const focusShortlist = [];
+      game.spatialGrid?.queryCircle(target.mesh.position.x, target.mesh.position.z, 140, u => {
+        if (u?.alive && u.faction === 'player' && focusShortlist.length < 4) focusShortlist.push(u);
+      });
+      game.registerAIWave(waveId, shipsNeeded, waveMembers);
+      game.setAIWaveObjective?.(waveId, { target, focus: focusShortlist });
     }
   }
 

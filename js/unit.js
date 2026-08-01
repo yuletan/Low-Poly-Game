@@ -998,6 +998,14 @@ export class Unit {
     if (this.carriedUnits.length === 0 && !this._disembarkPoint && !this._assignedEmbarkPoint) {
       // Task 7: respect explicit player orders — don't hijack a ship mid-journey
       if (this._manualOrder && this.state === 'moving') { _tlog(`[TRANS LOG] Ship ${this._debugTag} skipping — manual order in progress`); return; }
+      // With a transport coordinator active, ship assignment is owned by the
+      // coordinator's manifests. Skip the whole-faction scan while the
+      // coordinator manages this faction; otherwise fall back to the legacy
+      // nearest-waiting-troop scan (kept for direct-call tests and parity).
+      if (this.game.transportCoordinator?.hasPendingFor(this.faction)) {
+        if (this.state === 'idle' && !this._manualOrder) this._retreatToFriendlyBase();
+        return;
+      }
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       let bestDist = Infinity;
       let bestUnit = null;
@@ -1062,6 +1070,21 @@ export class Unit {
     // Phase 2: Arrived at embark point, waiting for troops to board
     if (this._assignedEmbarkPoint && this.path.length === 0) {
       this._boardingTimer += dt;
+
+      const coordinator = this.game.transportCoordinator;
+      if (coordinator) {
+        // Departure readiness is decided by the manifest owner.
+        if (coordinator.readyToDepart(this)) {
+          // Task 9: hold for sibling ships in the same AI wave
+          if (this.game.shouldHoldForAIWave(this)) {
+            _tlog(`[TRANS LOG] Ship ${this._debugTag}: AI WAVE HOLD — waiting for sibling ships`);
+            return;
+          }
+          _tlog(`[TRANS LOG] Ship ${this._debugTag} SAILING: manifest=${!!this._manifest} carried=${this.carriedUnits.length}`);
+          this._sailToDisembark();
+        }
+        return;
+      }
 
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
 
@@ -1145,6 +1168,8 @@ export class Unit {
       this._assignedEmbarkPoint = null;
       this._manifest = null;
       this._manifestKey = null;
+      // The manifest owner clears claims for completed voyages.
+      this.game.transportCoordinator?.complete(this);
       this._retreatToFriendlyBase();
       return;
     }
@@ -1175,9 +1200,13 @@ export class Unit {
     this._disembarkPoint = disembarkPt;
     this._assignedEmbarkPoint = null;
 
-    // Unclaim any troops that didn't make it
-    for (const u of allUnits) {
-      if (u._claimedByShip === this) u._claimedByShip = null;
+    // Unclaim any troops that didn't make it. With an active coordinator the
+    // manifest owns claims; its removeInvalidClaims() handles cleanup instead
+    // of this whole-faction scan.
+    if (!this.game.transportCoordinator && allUnits) {
+      for (const u of allUnits) {
+        if (u._claimedByShip === this) u._claimedByShip = null;
+      }
     }
   }
 
@@ -1948,6 +1977,10 @@ export class Unit {
       // The cached transport is known to be invalid here; restart the search
       // with no candidate so the first eligible transport can be selected.
       targetTransport = null;
+      // With a transport coordinator active, the manifest owns the claim;
+      // the coordinator's removeInvalidClaims() reassigns us after a dead
+      // ship is cleaned up instead of scanning the whole faction here.
+      if (this.game.transportCoordinator) return;
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       for (const t of allUnits) {
         if (!t.alive || !t.isTransport) continue;
@@ -2236,6 +2269,7 @@ export class Unit {
     if (this._cleaned) return;
     this._cleaned = true;
     this.game.scene.remove(this.mesh);
+    if (this.game.unregisterPickable) this.game.unregisterPickable(this);
     this._removePathLine();
     if (this._rangeRing) this.game.scene.remove(this._rangeRing);
     // Dispose per-instance visuals (ring/fill materials, cloned mats, range ring).

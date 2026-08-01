@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { Capacitor } from '@capacitor/core';
 
-import { Game } from './game.js?v=10';
-import { initInput } from './input.js?v=5';
-import { initAI }    from './ai.js?v=8';
-import { initUI }    from './ui.js?v=5';
-import { initMobileUI } from './mobileUI.js';
+import { Game } from './game.js';
+import { initInput } from './input.js';
+import { initAI }    from './ai.js';
+import { initUI }    from './ui.js';
+import { initMobileShell } from './mobileShell.js';
+import { createCommandController } from './commandController.js';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
-import { MAP_SIZE, QUALITY_PRESETS, setActivePreset, activePreset }  from './config.js?v=8';
+import { MAP_SIZE, QUALITY_PRESETS, setActivePreset, activePreset }  from './config.js';
 import { initFPSDisplay, recordFrameTiming } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
@@ -161,21 +162,21 @@ function startGame(difficulty, saveData) {
       applySave(game, saveData);
     }
 
-    initInput(game, camera, renderer);
+    const inputCommands = initInput(game, camera, renderer);
     console.log('[INIT] Input initialized');
     initAI(game);
     console.log('[INIT] AI initialized');
     initUI(game);
-    initMobileUI(game, {
-      stopSelected: () => game.stopSelectedUnits(),
-      cycleFormation: () => game.cycleFormation(),
-      loadSelected: () => game.loadSelectedTransport(),
-      unloadSelected: () => game.unloadSelectedTransport(),
-    });
+    const commands = createCommandController(game, inputCommands);
+    game.commands = commands;
+    initMobileShell(game, commands);
     // Apply saved settings
     if (window.__applySettings) window.__applySettings();
-    // Initialize FPS display overlay
-    initFPSDisplay(renderer, scene);
+    // Gate the profiler instead of always displaying it:
+    debugEnabled =
+      import.meta.env.DEV ||
+      new URLSearchParams(location.search).get('debug') === '1';
+    if (debugEnabled) initFPSDisplay(renderer, scene);
     console.log('[INIT] UI initialized — game ready!');
   } catch(err) {
     console.error('[INIT] CRASH:', err);
@@ -238,29 +239,32 @@ function applySave(game, save) {
 
 const clock = new THREE.Clock();
 let _lastFrameTs = performance.now();
+let debugEnabled = false;
+
+// Pause expensive simulation while hidden. Rendering may continue at a very low rate
+// only if a platform requirement demands it.
+let documentVisible = !document.hidden;
+document.addEventListener('visibilitychange', () => {
+  documentVisible = !document.hidden;
+});
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-
-  // Frame profiling: wall-clock delta since previous frame
-  const now = performance.now();
-  const frameMs = now - _lastFrameTs;
-  _lastFrameTs = now;
+  if (!documentVisible) return;
 
   updateCamera(dt);
 
-  // Time the game logic update
-  const tUpdate0 = performance.now();
   if (game) game.update(dt);
-  const updateMs = performance.now() - tUpdate0;
-
-  // Time the render pass
-  const tRender0 = performance.now();
   renderer.render(scene, camera);
-  const renderMs = performance.now() - tRender0;
 
-  recordFrameTiming(frameMs, updateMs, renderMs);
+  if (debugEnabled) {
+    // Frame profiling: wall-clock delta since previous frame
+    const now = performance.now();
+    const frameMs = now - _lastFrameTs;
+    _lastFrameTs = now;
+    recordFrameTiming(frameMs, 0, 0);
+  }
 }
 animate();
 

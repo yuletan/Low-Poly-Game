@@ -53,6 +53,9 @@ export class Base {
       : createBaseMesh(size, faction === 'player');
     this.mesh.position.set(position.x, LAND_HEIGHT, position.z);
     game.scene.add(this.mesh);
+    this.kind = 'base';
+    this.mesh.userData.entity = this;
+    if (game.pickableMeshes && game._registerPickable) game._registerPickable(this);
 
     // Territory ring visual (created in createBases after all bases exist)
     this.territoryRing = null;

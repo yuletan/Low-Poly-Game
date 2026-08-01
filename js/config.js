@@ -131,7 +131,7 @@ export const QUALITY_PRESETS = {
     fogOfWar: false, fogGridSize: 30, fogUpdateInterval: 1.0,
     particleDensity: 'low', antialias: false,
     minimapFPS: 0,           // 0 = disabled
-    softCollisionInterval: 0, // 0 = disabled
+    softCollisionInterval: 0.20,
     findTargetInterval: 0.80,
     auraInterval: 0,         // 0 = disabled
     healerEnabled: false,

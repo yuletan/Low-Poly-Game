@@ -1,24 +1,8 @@
 // input.js — Mouse selection (click + box drag) and command issuing.
 import * as THREE from 'three';
-import { LAND_HEIGHT } from './terrain.js?v=3';
+import { LAND_HEIGHT } from './terrain.js';
 import { Sound } from './sound.js';
-import { UNIT_TYPES, TERRAIN, MAP_SIZE } from './config.js?v=4';
-
-// Canvas roundRect helper for icon generation
-function roundRect(ctx, x, y, w, h, r) {
-  const rad = Math.min(r, w/2, h/2);
-  ctx.beginPath();
-  ctx.moveTo(x + rad, y);
-  ctx.lineTo(x + w - rad, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
-  ctx.lineTo(x + w, y + h - rad);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
-  ctx.lineTo(x + rad, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
-  ctx.lineTo(x, y + rad);
-  ctx.quadraticCurveTo(x, y, x + rad, y);
-  ctx.closePath();
-}
+import { UNIT_TYPES, TERRAIN, MAP_SIZE } from './config.js';
 
 export function initInput(game, camera, renderer) {
   const raycaster = new THREE.Raycaster();
@@ -56,30 +40,60 @@ export function initInput(game, camera, renderer) {
     return hit;
   }
 
-  /** Returns first unit under the cursor, or null. */
-  function getUnitUnderMouse(e) {
+  /**
+   * One raycast per pointer event. Units and bases register their root mesh in
+   * game.pickableMeshes with userData.entity set, so a single intersect call
+   * resolves the unit or base under the cursor plus the ground point.
+   */
+  function pickScene(e) {
     setMouseNDC(e);
     raycaster.setFromCamera(mouse, camera);
-    const all = [...game.playerUnits, ...game.enemyUnits].filter(u => u.alive && u.selectable !== false);
-    const meshes = all.map(u => u.mesh);
-    const hits = raycaster.intersectObjects(meshes, true);
-    if (hits.length === 0) return null;
-    // Walk up to find the unit's root group
-    let obj = hits[0].object;
-    while (obj && !all.find(u => u.mesh === obj)) obj = obj.parent;
-    return all.find(u => u.mesh === obj) || null;
+
+    const groundPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(groundPlane, groundPoint);
+
+    const hits = raycaster.intersectObjects(game.pickableMeshes, true);
+    let object = hits[0]?.object || null;
+    while (object && !object.userData.entity) object = object.parent;
+
+    let entity = object?.userData.entity || null;
+    // Dead units are unregistered at cleanup; guard the in-between frame.
+    if (entity?.alive === false || entity?._cleaned) entity = null;
+    return {
+      groundPoint,
+      unit: entity?.kind === 'unit' ? entity : null,
+      base: entity?.kind === 'base' ? entity : null
+    };
+  }
+
+  /** Returns first unit under the cursor, or null. */
+  function getUnitUnderMouse(e) {
+    return pickScene(e).unit;
   }
 
   /** Returns first base under the cursor, or null. */
   function getBaseUnderMouse(e) {
-    setMouseNDC(e);
-    raycaster.setFromCamera(mouse, camera);
-    const meshes = game.bases.map(b => b.mesh);
-    const hits = raycaster.intersectObjects(meshes, true);
-    if (hits.length === 0) return null;
-    let obj = hits[0].object;
-    while (obj && !game.bases.find(b => b.mesh === obj)) obj = obj.parent;
-    return game.bases.find(b => b.mesh === obj) || null;
+    return pickScene(e).base;
+  }
+
+  /** True when events originate from a UI panel rather than the battlefield. */
+  function isUIEvent(e) {
+    const path = e.composedPath ? e.composedPath() : [];
+    const blocked = [
+      '#topBar',
+      '#armoryPanel',
+      '#selectionPanel',
+      '#mobileCommandBar',
+      '#mobileSelectionChip',
+      '#mobileBuildButton',
+      '#mobileMapButton',
+      '#mobileMoreMenu'
+    ];
+    for (const target of path) {
+      if (!target || !target.matches) continue;
+      if (blocked.some(selector => target.matches(selector))) return true;
+    }
+    return false;
   }
 
   /** True when a unit's origin is inside the current camera viewport. */
@@ -269,6 +283,12 @@ export function initInput(game, camera, renderer) {
     updateSelectionUI();
   }
 
+  // Selection DOM rendering is owned by ui.js. Input only updates the model
+  // and asks the canonical renderer to refresh.
+  function updateSelectionUI() {
+    game.updateSelectionUI?.();
+  }
+
   function selectUnit(u, additive = false) {
     if (!u || u.faction !== 'player' || !u.alive || u.selectable === false || u.carried) return;
 
@@ -335,150 +355,35 @@ export function initInput(game, camera, renderer) {
     updateSelectionUI();
   }
 
-  function updateSelectionUI() {
-    const info = document.getElementById('selectionInfo');
-    if (game.selectedUnits.length === 0) {
-      if (game.selectedBuilding) {
-        const sb = game.selectedBuilding;
-        info.innerHTML = `<div style="color:#4af;text-align:center;padding:10px;">Selected: ${sb.base.name}<br><span style="color:#888;">${sb.isShipyard ? '🏭 Shipyard' : '🏛️ Barracks'}</span></div>`;
-      } else {
-        info.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Click/tap or drag to select units</div>';
-      }
-      return;
+  function selectAllPlayerUnits() {
+    clearSelection();
+    let added = 0;
+    for (const u of game.playerUnits) {
+      if (!u.alive || u.selectable === false || u.carried) continue;
+      u.setSelected(true);
+      game.selectedUnits.push(u);
+      added++;
     }
-    // Group by type
-    const counts = {};
-    for (const u of game.selectedUnits) {
-      counts[u.type] = (counts[u.type] || 0) + 1;
-    }
-    
-    // Generate unit icon data URLs for portraits
-    const iconCache = {};
-    function getIcon(type, color) {
-      if (!iconCache[type]) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 24; canvas.height = 24;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
-        ctx.strokeStyle = '#4af'; ctx.lineWidth = 0.5;
-        const cx = 12, cy = 12, s = 7;
-        ctx.beginPath();
-        switch (type) {
-          case 'infantry': ctx.moveTo(cx, cy-s); ctx.lineTo(cx-s*0.6, cy+s*0.5); ctx.lineTo(cx+s*0.6, cy+s*0.5); ctx.closePath(); break;
-          case 'tank': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
-          case 'heavyTank': ctx.roundRect(cx-s*1.2, cy-s*0.8, s*2.4, s*1.6, 2); ctx.closePath(); break;
-          case 'crusher': ctx.roundRect(cx-s*1.3, cy-s*0.9, s*2.6, s*1.8, 2); ctx.closePath(); break;
-          case 'artillery': ctx.roundRect(cx-s, cy-s*0.6, s*2, s*1.2, 1.5); ctx.closePath(); break;
-          case 'missileDefense': ctx.roundRect(cx-s*0.8, cy-s*0.6, s*1.6, s*1.2, 1); ctx.moveTo(cx, cy-s*0.6); ctx.lineTo(cx, cy-s*1.3); ctx.closePath(); break;
-          case 'mlrs': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.6, cy-s*0.4); ctx.lineTo(cx+s*0.4, cy-s*1); ctx.lineTo(cx-s*0.4, cy-s*1); ctx.closePath(); break;
-          case 'coastal': ctx.roundRect(cx-s, cy-s*0.3, s*2, s*0.6, 1); ctx.moveTo(cx-s*0.3, cy-s*0.3); ctx.lineTo(cx+s*0.3, cy-s*0.3); ctx.lineTo(cx+s*0.3, cy-s*0.8); ctx.lineTo(cx-s*0.3, cy-s*0.8); ctx.closePath(); break;
-          case 'healer': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.moveTo(cx-s*0.3, cy); ctx.lineTo(cx+s*0.3, cy); ctx.moveTo(cx, cy-s*0.3); ctx.lineTo(cx, cy+s*0.3); ctx.closePath(); break;
-          case 'medHeli': ctx.moveTo(cx, cy); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.3); ctx.lineTo(cx, cy-s*0.2); ctx.lineTo(cx-s*0.8, cy-s*0.1); ctx.lineTo(cx-s*0.8, cy+s*0.1); ctx.closePath(); break;
-          case 'escortJet': ctx.moveTo(cx, cy-s*1.1); ctx.lineTo(cx+s*0.7, cy+s*0.2); ctx.lineTo(cx+s*0.4, cy+s*0.2); ctx.lineTo(cx+s*0.5, cy+s*0.6); ctx.lineTo(cx, cy+s*0.4); ctx.lineTo(cx-s*0.5, cy+s*0.6); ctx.lineTo(cx-s*0.4, cy+s*0.2); ctx.lineTo(cx-s*0.7, cy+s*0.2); ctx.closePath(); break;
-          case 'b2': ctx.moveTo(cx, cy-s*0.4); ctx.lineTo(cx-s*1.3, cy+s*0.5); ctx.lineTo(cx-s*1.3, cy+s*0.7); ctx.lineTo(cx+s*1.3, cy+s*0.7); ctx.lineTo(cx+s*1.3, cy+s*0.5); ctx.closePath(); break;
-          case 'escortBomber': ctx.moveTo(cx, cy-s*1.3); ctx.lineTo(cx+s*1, cy+s*0.3); ctx.lineTo(cx+s*0.6, cy+s*0.3); ctx.lineTo(cx+s*0.7, cy+s*0.8); ctx.lineTo(cx, cy+s*0.6); ctx.lineTo(cx-s*0.7, cy+s*0.8); ctx.lineTo(cx-s*0.6, cy+s*0.3); ctx.lineTo(cx-s*1, cy+s*0.3); ctx.closePath(); break;
-          case 'destroyer': case 'battleship': ctx.moveTo(cx-s*1.2, cy+s*0.3); ctx.lineTo(cx+s*1.2, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.4); ctx.lineTo(cx-s*0.8, cy-s*0.4); ctx.closePath(); break;
-          case 'frigate': ctx.moveTo(cx-s*0.9, cy+s*0.3); ctx.lineTo(cx+s*1.2, cy+s*0.3); ctx.lineTo(cx+s*0.9, cy-s*0.3); ctx.lineTo(cx-s*0.6, cy-s*0.3); ctx.closePath(); break;
-          case 'cruiser': ctx.moveTo(cx-s*1.3, cy+s*0.3); ctx.lineTo(cx+s*1.3, cy+s*0.3); ctx.lineTo(cx+s*1, cy-s*0.4); ctx.lineTo(cx-s*1, cy-s*0.4); ctx.closePath(); break;
-          case 'submarine': ctx.ellipse(cx, cy, s*1.3, s*0.5, 0, 0, Math.PI*2); ctx.closePath(); break;
-          case 'carrier': ctx.moveTo(cx-s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy+s*0.2); ctx.lineTo(cx+s*1.3, cy-s*0.3); ctx.lineTo(cx-s*1.3, cy-s*0.3); ctx.closePath(); break;
-          case 'fighter': ctx.moveTo(cx, cy-s*1.1); ctx.lineTo(cx+s*0.6, cy+s*0.2); ctx.lineTo(cx+s*0.3, cy+s*0.2); ctx.lineTo(cx+s*0.4, cy+s*0.6); ctx.lineTo(cx, cy+s*0.4); ctx.lineTo(cx-s*0.4, cy+s*0.6); ctx.lineTo(cx-s*0.3, cy+s*0.2); ctx.lineTo(cx-s*0.6, cy+s*0.2); ctx.closePath(); break;
-          case 'bomber': ctx.moveTo(cx, cy-s*1.2); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.4, cy+s*0.3); ctx.lineTo(cx+s*0.5, cy+s*0.7); ctx.lineTo(cx, cy+s*0.5); ctx.lineTo(cx-s*0.5, cy+s*0.7); ctx.lineTo(cx-s*0.4, cy+s*0.3); ctx.lineTo(cx-s*0.8, cy+s*0.3); ctx.closePath(); break;
-          case 'heli': ctx.moveTo(cx, cy); ctx.lineTo(cx+s*0.8, cy+s*0.3); ctx.lineTo(cx+s*0.8, cy-s*0.3); ctx.lineTo(cx, cy-s*0.2); ctx.lineTo(cx-s*0.8, cy-s*0.1); ctx.lineTo(cx-s*0.8, cy+s*0.1); ctx.closePath(); break;
-          case 'gunship': ctx.roundRect(cx-s, cy-s*0.4, s*2, s*0.8, 2); ctx.moveTo(cx-s*1.5, cy); ctx.lineTo(cx+s*1.5, cy); ctx.lineTo(cx+s*1.5, cy+s*0.15); ctx.lineTo(cx-s*1.5, cy+s*0.15); ctx.closePath(); break;
-          case 'transport': ctx.roundRect(cx-s, cy-s*0.5, s*2, s, 2); ctx.closePath(); break;
-          case 'minigunnerVehicle': ctx.roundRect(cx-s*1.1, cy-s*0.7, s*2.2, s*1.4, 2); ctx.closePath(); break;
-          case 'megaMedic': ctx.roundRect(cx-s, cy-s*0.7, s*2, s*1.4, 2); ctx.closePath(); break;
-          case 'minigunner': ctx.moveTo(cx, cy-s); ctx.lineTo(cx-s*0.6, cy+s*0.5); ctx.lineTo(cx+s*0.6, cy+s*0.5); ctx.closePath(); break;
-        }
-        ctx.fill(); ctx.stroke();
-        iconCache[type] = canvas.toDataURL('image/png');
-      }
-      return iconCache[type];
-    }
-    
-    const domainCounts = {};
-    for (const u of game.selectedUnits) {
-      const domain = u.domain || UNIT_TYPES[u.type]?.domain || 'mixed';
-      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
-    }
-    const typeSummary = Object.entries(counts).map(([type, count]) => `${count} ${type}`).join(' • ');
-    const domainSummary = Object.entries(domainCounts).map(([domain, count]) => `${count} ${domain}`).join(' • ');
+    if (added > 0) Sound.play('select');
+    updateSelectionUI();
+    if (added > 0) game.flashMessage?.(`Selected ${added} units`);
+  }
 
-    // Build HTML with unit portraits (per-type stats)
-    let html = `
-      <div class="selection-summary">
-        <strong>${game.selectedUnits.length}</strong> selected
-        <span>${typeSummary}</span>
-        <small>${domainSummary}</small>
-      </div>
-    `;
-    for (const [type, count] of Object.entries(counts)) {
-      const stats = UNIT_TYPES[type];
-      const iconDataUrl = getIcon(type, stats.color);
-      // Calculate per-type stats from selected units of this type
-      let typeHp = 0, typeDmg = 0, typeRange = 0, typeCount = 0;
-      for (const u of game.selectedUnits) {
-        if (u.type === type) {
-          typeHp += u.hp;
-          typeDmg += u.stats.damage;
-          typeRange = Math.max(typeRange, u.stats.range);
-          typeCount++;
-        }
-      }
-      const avgHp = Math.round(typeHp / typeCount);
-      const avgDmg = Math.round(typeDmg / typeCount);
-      html += `
-        <div class="selection-item">
-          <img class="selection-icon" src="${iconDataUrl}" alt="${type}">
-          <div>
-            <div class="selection-type">${type.toUpperCase()}</div>
-            <div class="selection-stats">HP: ${avgHp} | DMG: ${avgDmg} | RNG: ${typeRange}</div>
-          </div>
-          <div class="selection-count">×${count}</div>
-        </div>
-      `;
-    }
-    html += `<div class="selection-tip">Shift-click toggles units • Drag/touch-drag box-selects • Pick a formation, then move to send each unit to its own slot</div>`;
-
-    // Transport ship: show Load/Unload buttons
-    const hasTransport = game.selectedUnits.some(u => u.isTransport && u.alive);
-    if (hasTransport) {
-      const transport = game.selectedUnits.find(u => u.isTransport);
-      // Check for nearby friendly land units (not just selected)
-      const nearbyLand = game.playerUnits.filter(u =>
-        u.alive && u.domain === 'land' && !u.carried && transport.canLoadUnit(u)
-      );
-      const canLoad = nearbyLand.length > 0;
-      const canUnload = transport.carriedUnits.length > 0;
-      html += `<div class="transport-actions" style="display:flex;gap:8px;margin-top:8px;justify-content:center;">`;
-      html += `<button id="loadBtn" class="action-btn" style="background:#2a6;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canLoad ? '' : ' disabled'}>📦 Load${canLoad ? '' : ' (no units nearby)'}</button>`;
-      html += `<button id="unloadBtn" class="action-btn" style="background:#a62;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-family:inherit;"${canUnload ? '' : ' disabled'}>📤 Unload${canUnload ? ` (${transport.carriedUnits.length})` : ' (no cargo)'}</button>`;
-      html += `</div>`;
-    }
-
-    info.innerHTML = html;
-
-    // Bind transport buttons (fresh each frame)
-    const loadBtn = document.getElementById('loadBtn');
-    if (loadBtn) {
-      loadBtn.addEventListener('click', () => {
-        const t = game.selectedUnits.find(u => u.isTransport);
-        if (!t) return;
-        const toLoad = game.playerUnits.filter(u =>
-          u.alive && u.domain === 'land' && !u.carried && t.canLoadUnit(u)
-        );
-        for (const u of toLoad) t.loadUnit(u);
-        game.updateSelectionUI();
-      });
-    }
-    const unloadBtn = document.getElementById('unloadBtn');
-    if (unloadBtn) {
-      unloadBtn.addEventListener('click', () => {
-        const t = game.selectedUnits.find(u => u.isTransport);
-        if (t) t.unloadAll();
-        game.updateSelectionUI();
-      });
+  // Mobile tap helper: pick the friendly unit/base under the tap and select it.
+  function selectTouchTarget(u, base) {
+    if (u?.faction === 'player') {
+      selectUnit(u, false);
+    } else if (base?.faction === 'player') {
+      clearSelection();
+      game.selectedBuilding = {
+        base: base,
+        faction: base.faction,
+        isShipyard: game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z) === TERRAIN.SEA
+      };
+      updateSelectionUI();
+    } else {
+      clearSelection();
+      game.selectedBuilding = null;
     }
   }
 
@@ -501,10 +406,10 @@ export function initInput(game, camera, renderer) {
   }
 
   function getCommandTarget(e) {
-    const targetUnit = getUnitUnderMouse(e);
-    if (targetUnit) return targetUnit;
-    const targetBase = getBaseUnderMouse(e);
-    return makeBaseCommandTarget(targetBase);
+    const pick = pickScene(e);
+    if (pick.unit) return pick.unit;
+    if (pick.base) return makeBaseCommandTarget(pick.base);
+    return null;
   }
 
   function commandTargetLabel(target) {
@@ -592,8 +497,9 @@ export function initInput(game, camera, renderer) {
   let hoveredEnemyUnit = null;
 
   function updateHoverTooltip(e) {
-    const u = getUnitUnderMouse(e);
-    const base = getBaseUnderMouse(e);
+    const pick = pickScene(e);
+    const u = pick.unit;
+    const base = pick.base;
 
     // Prefer unit over base
     const target = u || base;
@@ -689,6 +595,7 @@ export function initInput(game, camera, renderer) {
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   canvas.addEventListener('mousedown', e => {
+    if (isUIEvent(e)) return;
     if (e.button === 0) {  // LEFT click — selection / box start
       // Skip during placement mode
       if (game.placementMode && game.placementMode.active) {
@@ -704,6 +611,11 @@ export function initInput(game, camera, renderer) {
   const isMobile = matchMedia('(pointer: coarse)').matches;
 
   canvas.addEventListener('mousemove', e => {
+    if (isUIEvent(e)) {
+      hideCommandHint();
+      updateGroundCursor(null);
+      return;
+    }
     // Hover HP tooltip
     updateHoverTooltip(e);
 
@@ -742,6 +654,7 @@ export function initInput(game, camera, renderer) {
   });
 
   canvas.addEventListener('mouseup', e => {
+    if (isUIEvent(e)) return;
     // Placement mode — confirm on left-click, cancel on right-click
     if (game.placementMode && game.placementMode.active) {
       if (e.button === 0) {
@@ -759,8 +672,9 @@ export function initInput(game, camera, renderer) {
         selectionBox.style.display = 'none';
       } else {
         // Single click — select unit or base or clear
-        const u = getUnitUnderMouse(e);
-        const base = getBaseUnderMouse(e);
+        const pick = pickScene(e);
+        const u = pick.unit;
+        const base = pick.base;
 
         // Double-click detection is target-aware so a quick second click on another unit
         // does not unexpectedly select an unrelated type.
@@ -797,8 +711,8 @@ export function initInput(game, camera, renderer) {
       if (target && target.faction !== 'player') {
         issueAttackCommand(target);
       } else {
-        const point = getGroundPoint(e);
-        if (point) {
+        const point = pickScene(e).groundPoint;
+        if (point && point.x !== 0 && point.z !== 0) {
           issueMoveCommand(point);
         }
       }
@@ -915,11 +829,13 @@ export function initInput(game, camera, renderer) {
   }
 
   function handleTouchTap(touch) {
+    if (isUIEvent(touch)) return;
     const e = pointerEventFromTouch(touch);
-    const u = getUnitUnderMouse(e);
-    const base = getBaseUnderMouse(e);
+    const pick = pickScene(e);
+    const u = pick.unit;
+    const base = pick.base;
 
-    // Reuse the Task 13 desktop double-click state as double-tap state.
+    // Reuse the desktop double-click state as a double-tap helper.
     const now = Date.now();
     const dist = Math.hypot(e.clientX - lastClickPos.x, e.clientY - lastClickPos.y);
     const sameUnitType = !!(u && lastClickedUnit && u.faction === lastClickedUnit.faction && u.type === lastClickedUnit.type);
@@ -928,54 +844,41 @@ export function initInput(game, camera, renderer) {
     lastClickPos = { x: e.clientX, y: e.clientY };
     lastClickedUnit = u || null;
 
-    // Mobile command mode handling
-    if (game.mobileCommandMode === 'attack') {
-      const hostileTarget =
-        u?.faction !== 'player'
-          ? u
-          : base?.faction !== 'player'
-            ? base
-            : null;
-
-      if (hostileTarget && game.selectedUnits.length > 0) {
-        issueAttackCommand(hostileTarget);
-        return;
-      }
-    }
-
+    // Friendly unit/base under the tap → select it.
     if (u?.faction === 'player' || base?.faction === 'player') {
       if (isDoubleTap && u?.faction === 'player') {
         handleDoubleClick(u);
       } else {
-        selectUnit(u, false);
+        selectTouchTarget(u, base);
       }
+      return;
+    }
+
+    // Nothing selected → clear.
+    if (game.selectedUnits.length === 0) {
+      clearSelection();
       game.selectedBuilding = null;
       return;
     }
 
-    if (base && base.faction === 'player') {
-      clearSelection();
-      game.selectedBuilding = {
-        base: base,
-        faction: base.faction,
-        isShipyard: game.terrain.getTerrainAt(base.mesh.position.x, base.mesh.position.z) === TERRAIN.SEA
-      };
-      updateSelectionUI();
-      return;
-    }
-
-    // Move command in mobile move mode
-    if (game.mobileCommandMode === 'move' && game.selectedUnits.length > 0) {
-      const point = getGroundPoint(e);
-      if (point) {
-        issueMoveCommand(point);
+    // Command mode tap: attack hostile target.
+    if (game.mobileCommandMode === 'attack') {
+      const hostile =
+        u?.faction !== 'player' ? u :
+        base?.faction !== 'player' ? base : null;
+      if (hostile) {
+        issueAttackCommand(hostile);
         updateCommandPreview(e);
       }
       return;
     }
 
-    clearSelection();
-    game.selectedBuilding = null;
+    // Default move mode: tap ground to move the selection.
+    const point = pick.groundPoint;
+    if (point && point.x !== 0 && point.z !== 0) {
+      issueMoveCommand(point);
+      updateCommandPreview(e);
+    }
   }
 
   function issueTouchCommandAt(x, y) {
@@ -1063,6 +966,9 @@ export function initInput(game, camera, renderer) {
     }
 
     clearLongPressTimer();
+    // The compact mobile shell is the primary command flow — the legacy
+    // 500 ms command long-press only stays as a desktop/accessibility shortcut.
+    if (document.documentElement.classList.contains('mobile-ui')) return;
     longPressTimer = setTimeout(() => {
       if (touchMoved || touchSelecting || touchMode !== 'single') return;
       longPressFired = true;
@@ -1187,9 +1093,16 @@ export function initInput(game, camera, renderer) {
     updateGroundCursor(null);
   }, { passive: false });
 
-  // Expose selection UI updater and renderer so the game can refresh / project
-  game.updateSelectionUI = updateSelectionUI;
+  // game.updateSelectionUI is owned by ui.js — input only calls it.
   game.renderer = renderer;
 
   console.log('✅ Input system online — LMB select/drag, RMB move/attack, touch enabled.');
+
+  return {
+    issueMoveCommand,
+    issueAttackCommand,
+    pickScene,
+    clearSelection,
+    selectAllPlayerUnits
+  };
 }
