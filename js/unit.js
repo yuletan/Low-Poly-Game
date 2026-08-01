@@ -300,6 +300,7 @@ export class Unit {
    * findTransportPath() from this unit's own position.
    */
   assignSharedTransportPlan(plan, finalTargetPos, attackMove = true) {
+    if (this.stats?.speed === 0) return false;
     const walkToShip = this.game.pathfinder.findPath(this.mesh.position, plan.embarkPoint, 'land');
     if (!walkToShip || walkToShip.length === 0) return false;
     this.attackMove = attackMove;
@@ -909,6 +910,7 @@ export class Unit {
     if (unit.faction !== this.faction) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} faction mismatch`); return false; }
     if (!unit.alive) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} dead`); return false; }
     if (unit.domain !== 'land') { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} domain ${unit.domain}`); return false; }
+    if (unit.stats?.speed === 0) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} stationary defenses cannot board`); return false; }
     if (this.carriedUnits.length >= this.transportCapacity) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} capacity ${this.carriedUnits.length}/${this.transportCapacity}`); return false; }
     // Ships and troops have different Y levels; boarding is horizontal.
     const d = Math.hypot(

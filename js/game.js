@@ -1319,14 +1319,24 @@ export class Game {
           const overlap = minimumDistance - distance;
           if (overlap < 0.5) return;
 
+          // Stationary defenses (speed === 0) are locked in place: only the
+          // moving unit is pushed apart.
+          const aImmobile = a.stats?.speed === 0;
+          const bImmobile = b.stats?.speed === 0;
+          if (aImmobile && bImmobile) return;
+
           const push = overlap * 0.5;
           const nx = dx / distance;
           const nz = dz / distance;
 
-          a.mesh.position.x -= nx * push;
-          a.mesh.position.z -= nz * push;
-          b.mesh.position.x += nx * push;
-          b.mesh.position.z += nz * push;
+          if (!aImmobile) {
+            a.mesh.position.x -= nx * push;
+            a.mesh.position.z -= nz * push;
+          }
+          if (!bImmobile) {
+            b.mesh.position.x += nx * push;
+            b.mesh.position.z += nz * push;
+          }
         }
       );
     }

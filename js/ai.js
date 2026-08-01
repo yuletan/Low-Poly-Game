@@ -187,6 +187,7 @@ export function initAI(game) {
       u.alive &&
       u.domain !== 'sea' &&
       !u.isTransport &&
+      u.stats.speed > 0 &&
       u.state !== 'waitingForTransport' &&
       !u.carried &&
       u.stats.damage > 0
@@ -211,7 +212,7 @@ export function initAI(game) {
     if (playerBases.length === 0) return;
 
     const available = gatherAttackers();
-    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
+    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 && u.stats.damage > 0).length;
 
     let attackSize;
     if (totalEnemy < 4) attackSize = totalEnemy;
@@ -564,7 +565,7 @@ export function initAI(game) {
 
     // Staging phase logic
     const totalCombat = game.enemyUnits.filter(u =>
-      u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
+      u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 && u.stats.damage > 0
     ).length;
 
     if (attackPhase === 'building') {
@@ -576,7 +577,7 @@ export function initAI(game) {
           .sort((a, b) => b.hp - a.hp)[0];
         if (stagingBase) {
           const idleUnits = game.enemyUnits.filter(u =>
-            u.alive && u.domain !== 'sea' && !u.isTransport &&
+            u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 &&
             u.stats.damage > 0 && u.state === 'idle'
           );
           stagingRally = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));
