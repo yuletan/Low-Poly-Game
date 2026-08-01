@@ -1,11 +1,11 @@
 // game.js — Game orchestration: state, bases, units, placement, formations, main loop.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, AI_WAVE_MAX_HOLD, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT, buildTerrain } from './terrain.js?v=3';
-import { createUnitMesh } from './unitFactory.js?v=3';
-import { updateExplosions, updateAllTrails, acquireFromPool, releaseToPool } from './combat.js?v=3';
-import { Pathfinder } from './pathfinder.js?v=4';
-import { FogOfWar } from './fogOfWar.js?v=3';
+import { UNIT_TYPES, DIFFICULTY, STARTING_MONEY, PASSIVE_INCOME, TERRAIN, MAP_SIZE, AI_WAVE_MAX_HOLD, activePreset } from './config.js';
+import { LAND_HEIGHT, buildTerrain } from './terrain.js';
+import { createUnitMesh } from './unitFactory.js';
+import { updateExplosions, updateAllTrails, acquireFromPool, releaseToPool } from './combat.js';
+import { Pathfinder } from './pathfinder.js';
+import { FogOfWar } from './fogOfWar.js';
 import { Minimap } from './minimap.js';
 import { UpgradeManager } from './upgrades.js';
 import { Sound } from './sound.js';
@@ -13,9 +13,16 @@ import { tlog as _tlog } from './debug.js';
 import { Unit } from './unit.js';
 import { Base } from './base.js';
 import { SpatialGrid } from './spatialGrid.js';
+import { UnitInstanceLayer } from './unitInstancing.js';
+import { RuntimeScheduler } from './runtimeScheduler.js';
+import { TransportCoordinator } from './transportCoordinator.js';
+import { createNotificationQueue } from './notificationQueue.js';
 
 // Re-export so existing imports from './game.js' (and the test suite) keep working.
 export { Unit, Base };
+
+// Phase 0: worst-frame window — 2 s at up to 120 Hz input.
+const PERF_WINDOW_FRAMES = 240;
 
 export class Game {
   constructor(scene, camera, difficulty, cameraTarget) {
@@ -35,7 +42,10 @@ export class Game {
     // Task 9: registry of in-flight AI amphibious attack waves
     this._aiWaves = new Map();
 
-    // Transport logistics: throttle coordination and spawn cooldowns
+    // Transport logistics: explicit manifests and controlled ship spawning
+    this.scheduler = new RuntimeScheduler({ slotCount: 8 });
+    this.transportCoordinator = new TransportCoordinator(this);
+    this.uiDirty = { hud: true, selection: true, armory: true };
     this._transportLogisticsTimer = 0;
     this._transportSpawnCooldown = {
       player: 0,
@@ -45,6 +55,11 @@ export class Game {
     this.selectedUnits = [];
     this.formation = 'line';
     this.attackMoveMode = false;
+    this.pickableMeshes = [];
+
+    // Phase 3: instanced rendering layer for unit bodies (drawn from per-type
+    // InstancedMesh pools; unit.mesh stays the logical transform owner).
+    this.unitLayer = new UnitInstanceLayer(this.scene);
 
     this.aiTimer = 0;
     this.ended = false;
@@ -59,6 +74,54 @@ export class Game {
     this._softCollisionTimer = 0;
     this._minimapTimer = 0;
     this._hudTimer = 0;
+
+    // Phase 0: always-on frame-time tracker (independent of the debug-gated
+    // FPS overlay). Rolling 60-frame average + worst frame in the last 2 s,
+    // plus a once-per-second draw-call readout. Exposed as window.__perf.
+    this.perf = {
+      fps: 0,
+      avgFrameMs: 0,
+      worstFrameMs: 0,
+      drawCalls: 0,
+      _ring: new Float32Array(60),
+      _ringIndex: 0,
+      _ringCount: 0,
+      _sum60: 0,
+      _ms: new Float32Array(PERF_WINDOW_FRAMES),
+      _winIndex: 0,
+      _winCount: 0,
+      _sampleTimer: 0,
+    };
+  }
+
+  /** Phase 0: feed one wall-clock frame time (ms) into the tracker. */
+  recordFrame(frameMs) {
+    const p = this.perf;
+    const slot = p._ringIndex;
+    p._sum60 += frameMs - p._ring[slot];
+    p._ring[slot] = frameMs;
+    p._ringIndex = (slot + 1) % 60;
+    if (p._ringCount < 60) p._ringCount++;
+    const avg = p._sum60 / p._ringCount;
+    p.avgFrameMs = avg;
+    p.fps = avg > 0 ? 1000 / avg : 0;
+
+    const w = p._winIndex;
+    p._ms[w] = frameMs;
+    p._winIndex = w === PERF_WINDOW_FRAMES - 1 ? 0 : w + 1;
+    if (p._winCount < PERF_WINDOW_FRAMES) p._winCount++;
+  }
+
+  /** Phase 0: called once per second — refresh worst frame + draw calls. */
+  samplePerf(drawCalls) {
+    const p = this.perf;
+    let worst = 0;
+    for (let i = 0; i < p._winCount; i++) {
+      const t = p._ms[i];
+      if (t > worst) worst = t;
+    }
+    p.worstFrameMs = worst;
+    p.drawCalls = drawCalls;
   }
 
   init() {
@@ -121,7 +184,23 @@ export class Game {
   spawn(type, faction, position) {
     const u = new Unit(this, type, faction, position);
     (faction === 'player' ? this.playerUnits : this.enemyUnits).push(u);
+    this._registerPickable(u);
     return u;
+  }
+
+  // Keep one mesh registry for picking instead of rebuilding arrays per event.
+  _registerPickable(entity) {
+    if (!entity?.mesh) return;
+    entity.mesh.userData.entity = entity;
+    if (!entity.kind) entity.kind = 'unit';
+    this.pickableMeshes.push(entity.mesh);
+  }
+
+  unregisterPickable(entity) {
+    if (!entity?.mesh) return;
+    entity.mesh.userData.entity = null;
+    const index = this.pickableMeshes.indexOf(entity.mesh);
+    if (index >= 0) this.pickableMeshes.splice(index, 1);
   }
 
   purchaseUnit(type) {
@@ -570,7 +649,7 @@ export class Game {
   }
 
   // ===== Selection commands =====
-  // Shared actions used by the mobile command bar (mobileUI.js) and
+  // Shared actions used by the mobile command bar and the compact shell,
   // available for any other UI entry point that wants the same behavior
   // as the desktop's F1-F4 formation hotkeys and transport buttons.
   stopSelectedUnits() {
@@ -618,23 +697,15 @@ export class Game {
     if (typeof this.updateSelectionUI === 'function') this.updateSelectionUI();
   }
 
-  flashMessage(text) {
-    let el = document.getElementById('flashMsg');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'flashMsg';
-      el.style.cssText = `
-        position:fixed; top:60px; left:50%; transform:translateX(-50%);
-        background:rgba(170,40,40,0.9); color:#fff; padding:8px 16px;
-        border-radius:6px; font-family:monospace; z-index:100;
-        pointer-events:none; transition:opacity 0.3s;
-      `;
-      document.body.appendChild(el);
-    }
-    el.textContent = text;
-    el.style.opacity = '1';
-    clearTimeout(this._flashT);
-    this._flashT = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+  flashMessage(text, opts = {}) {
+    // Compatibility wrapper — routed through the notification queue so alerts
+    // stack instead of blocking. Stable keys (e.g. 'enemy-wave') let repeated
+    // messages update in place rather than piling up.
+    if (!this._notifications) this._notifications = createNotificationQueue();
+    this._notifications.show(text, {
+      key: opts.key || text,
+      duration: opts.duration || 3000
+    });
   }
 
   queueDeath(u) { this.deadUnits.push(u); }
@@ -655,6 +726,15 @@ export class Game {
   update(dt) {
     if (this.ended || this.paused) return;
     this._currentTime += dt;
+    this.scheduler.update(dt);
+    this.transportCoordinator.update(dt);
+
+    // AI wave bookkeeping (objective/membership) — throttled, cheap.
+    this._aiWaveCompletionTimer = (this._aiWaveCompletionTimer || 0) + dt;
+    if (this._aiWaveCompletionTimer >= 2) {
+      this._aiWaveCompletionTimer = 0;
+      this._updateAIWaveCompletion();
+    }
 
     const owned = this.bases.filter(b => b.faction === 'player').length;
     this.money += PASSIVE_INCOME * owned * dt;
@@ -669,15 +749,13 @@ export class Game {
     for (const u of this.enemyUnits)  u.update(dt);
     for (const b of this.bases) b.update(dt);
 
-    // Auto-spawn transports for troops waiting on beach — throttled to reduce CPU spikes
-    this._transportLogisticsTimer += dt;
-    if (this._transportLogisticsTimer >= 0.25) {
-      const elapsed = this._transportLogisticsTimer;
-      this._transportLogisticsTimer = 0;
-      this._transportSpawnCooldown.player = Math.max(0, this._transportSpawnCooldown.player - elapsed);
-      this._transportSpawnCooldown.enemy = Math.max(0, this._transportSpawnCooldown.enemy - elapsed);
-      this._updateTransportLogistics();
-    }
+    // Phase 3: sync unit transforms into the instanced pools (after every
+    // unit moved and aimed this frame, before render).
+    this.unitLayer.update();
+
+    // Auto-spawn transports for troops waiting on beach is owned by
+    // this.transportCoordinator.update(dt) above. The old per-frame logistics
+    // timer block has been removed after coordinator parity was tested.
 
     // Soft unit collision (gentle nudge) — throttled by preset
     const scInterval = activePreset.softCollisionInterval;
@@ -690,18 +768,22 @@ export class Game {
       }
     }
 
-    // Update projectiles
+    // Update projectiles — swap-and-pop: order is irrelevant for projectiles,
+    // and splice() in a loop is O(n) per removal.
     for (let i = this.projectiles.length-1; i>=0; i--) {
       const p = this.projectiles[i];
       p.update(dt);
-      if (!p.alive) this.projectiles.splice(i,1);
+      if (!p.alive) {
+        this.projectiles[i] = this.projectiles[this.projectiles.length - 1];
+        this.projectiles.pop();
+      }
     }
 
     // Update FX
     updateExplosions(this.scene, dt);
     updateAllTrails(this.scene, dt);
 
-    // Hit confirm rings
+    // Hit confirm rings — swap-and-pop (backwards iteration, order irrelevant)
     const hitConfirms = this.scene.userData.hitConfirms || [];
     for (let i = hitConfirms.length - 1; i >= 0; i--) {
       const h = hitConfirms[i];
@@ -711,7 +793,8 @@ export class Game {
       h.material.opacity = 0.9 * (1 - t);
       if (h.userData.life <= 0) {
         releaseToPool(h);
-        hitConfirms.splice(i, 1);
+        hitConfirms[i] = hitConfirms[hitConfirms.length - 1];
+        hitConfirms.pop();
       }
     }
 
@@ -720,7 +803,9 @@ export class Game {
       flashes[i].userData.life -= dt;
       flashes[i].scale.multiplyScalar(0.9);
       if (flashes[i].userData.life <= 0) {
-        releaseToPool(flashes[i]); flashes.splice(i,1);
+        releaseToPool(flashes[i]);
+        flashes[i] = flashes[flashes.length - 1];
+        flashes.pop();
       }
     }
 
@@ -731,11 +816,13 @@ export class Game {
       m.material.opacity = 0.8 * (m.userData.life / 2.0);
       m.scale.multiplyScalar(1.02);
       if (m.userData.life <= 0) {
-        releaseToPool(m); spawnMarkers.splice(i,1);
+        releaseToPool(m);
+        spawnMarkers[i] = spawnMarkers[spawnMarkers.length - 1];
+        spawnMarkers.pop();
       }
     }
 
-    // Flak puff cleanup
+    // Flak puff cleanup — swap-and-pop
     const flakPuffs = this.scene.userData.flakPuffs || [];
     for (let i=flakPuffs.length-1;i>=0;i--) {
       const p = flakPuffs[i];
@@ -743,7 +830,9 @@ export class Game {
       p.material.opacity = 0.6 * (p.userData.life / 0.5);
       p.scale.multiplyScalar(1.05);
       if (p.userData.life <= 0) {
-        releaseToPool(p); flakPuffs.splice(i,1);
+        releaseToPool(p);
+        flakPuffs[i] = flakPuffs[flakPuffs.length - 1];
+        flakPuffs.pop();
       }
     }
 
@@ -753,15 +842,30 @@ export class Game {
       for (let i=this.minimap.pings.length-1;i>=0;i--) {
         const p = this.minimap.pings[i];
         p.life -= dt;
-        if (p.life <= 0) this.minimap.pings.splice(i,1);
+        if (p.life <= 0) {
+          this.minimap.pings[i] = this.minimap.pings[this.minimap.pings.length - 1];
+          this.minimap.pings.pop();
+        }
       }
     }
 
-    // Cleanup dead units
-    const deadCount = this.deadUnits.length;
-    this.playerUnits = this.playerUnits.filter(u => !u._cleaned);
-    this.enemyUnits  = this.enemyUnits.filter(u => !u._cleaned);
-    this.selectedUnits = this.selectedUnits.filter(u => u.alive);
+    // Cleanup dead units — in-place compaction instead of .filter() so the
+    // army arrays are not reallocated (and re-GC'd) every frame.
+    let w = 0;
+    for (let i = 0; i < this.playerUnits.length; i++) {
+      if (!this.playerUnits[i]._cleaned) this.playerUnits[w++] = this.playerUnits[i];
+    }
+    this.playerUnits.length = w;
+    w = 0;
+    for (let i = 0; i < this.enemyUnits.length; i++) {
+      if (!this.enemyUnits[i]._cleaned) this.enemyUnits[w++] = this.enemyUnits[i];
+    }
+    this.enemyUnits.length = w;
+    w = 0;
+    for (let i = 0; i < this.selectedUnits.length; i++) {
+      if (this.selectedUnits[i].alive) this.selectedUnits[w++] = this.selectedUnits[i];
+    }
+    this.selectedUnits.length = w;
 
     // AI
     this.aiTimer += dt;
@@ -976,13 +1080,43 @@ export class Game {
   }
 
   // Task 9: AI attack-wave transport synchronization with shared release timestamp
-  registerAIWave(waveId, shipsNeeded) {
+  registerAIWave(waveId, shipsNeeded, members = []) {
     this._aiWaves.set(waveId, {
       shipsNeeded,
+      members: new Set(members),
+      objective: null,
       readyShips: new Set(),
       firstReadyAt: null,
       releaseAt: null
     });
+  }
+
+  setAIWaveObjective(waveId, objective) {
+    const wave = this._aiWaves.get(waveId);
+    if (wave) wave.objective = objective;
+  }
+
+  declareWaveComplete(waveId) {
+    const wave = this._aiWaves.get(waveId);
+    if (!wave) return;
+    for (const u of wave.members) {
+      if (u?._aiWaveId === waveId) u._aiWaveId = null;
+    }
+    this._aiWaves.delete(waveId);
+  }
+
+  /** Wave is done when live membership falls below a threshold or the
+      objective was captured/destroyed. Runs on a throttle inside update. */
+  _updateAIWaveCompletion() {
+    for (const [waveId, wave] of this._aiWaves) {
+      const members = [...wave.members].filter(u => u?.alive);
+      const target = wave.objective?.target;
+      const objectiveGone = !target || !target.alive || target.faction !== 'enemy';
+      const drained = wave.members.size > 0 && members.length < wave.members.size * 0.4;
+      if (members.length === 0 || drained || objectiveGone) {
+        this.declareWaveComplete(waveId);
+      }
+    }
   }
 
   shouldHoldForAIWave(ship) {
@@ -1271,14 +1405,24 @@ export class Game {
           const overlap = minimumDistance - distance;
           if (overlap < 0.5) return;
 
+          // Stationary defenses (speed === 0) are locked in place: only the
+          // moving unit is pushed apart.
+          const aImmobile = a.stats?.speed === 0;
+          const bImmobile = b.stats?.speed === 0;
+          if (aImmobile && bImmobile) return;
+
           const push = overlap * 0.5;
           const nx = dx / distance;
           const nz = dz / distance;
 
-          a.mesh.position.x -= nx * push;
-          a.mesh.position.z -= nz * push;
-          b.mesh.position.x += nx * push;
-          b.mesh.position.z += nz * push;
+          if (!aImmobile) {
+            a.mesh.position.x -= nx * push;
+            a.mesh.position.z -= nz * push;
+          }
+          if (!bImmobile) {
+            b.mesh.position.x += nx * push;
+            b.mesh.position.z += nz * push;
+          }
         }
       );
     }

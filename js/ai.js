@@ -1,7 +1,7 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT } from './terrain.js?v=3';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
 
 export function initAI(game) {
   const cfg = DIFFICULTY[game.difficulty];
@@ -187,6 +187,7 @@ export function initAI(game) {
       u.alive &&
       u.domain !== 'sea' &&
       !u.isTransport &&
+      u.stats.speed > 0 &&
       u.state !== 'waitingForTransport' &&
       !u.carried &&
       u.stats.damage > 0
@@ -211,7 +212,7 @@ export function initAI(game) {
     if (playerBases.length === 0) return;
 
     const available = gatherAttackers();
-    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0).length;
+    const totalEnemy = game.enemyUnits.filter(u => u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 && u.stats.damage > 0).length;
 
     let attackSize;
     if (totalEnemy < 4) attackSize = totalEnemy;
@@ -356,6 +357,33 @@ export function initAI(game) {
   // ===== Task 9: Amphibious attack-wave synchronization =====
   let _nextAIWaveId = 1;
 
+  /** Split a wave into small role arrays used for focused, staggered attacks. */
+  function splitWaveByRole(units) {
+    const roles = { vanguard: [], ranged: [], antiAir: [], healer: [], reserve: [] };
+    for (const u of units) {
+      const t = u.type;
+      if (t === 'healer' || t === 'medHeli' || t === 'megaMedic') {
+        roles.healer.push(u);
+      } else if (t === 'artillery' || t === 'mlrs' || t === 'battleship' || t === 'cruiser' || t === 'submarine' || t === 'bomber' || t === 'b2' || t === 'escortBomber') {
+        roles.ranged.push(u);
+      } else if (t === 'fighter' || t === 'gunship' || t === 'escortJet' || t === 'missileDefense') {
+        roles.antiAir.push(u);
+      } else if (t === 'tank' || t === 'heavyTank' || t === 'crusher' || t === 'minigunnerVehicle') {
+        roles.vanguard.push(u);
+      } else {
+        roles.reserve.push(u);
+      }
+    }
+    return roles;
+  }
+
+  function roleOf(u, roles) {
+    for (const [role, list] of Object.entries(roles)) {
+      if (list.includes(u)) return role;
+    }
+    return 'reserve';
+  }
+
   function dispatchGroundWave(groundAttackers, target) {
     if (!groundAttackers.length) return;
 
@@ -382,11 +410,18 @@ export function initAI(game) {
       return;
     }
 
+    // Small role arrays shape the wave: vanguard and anti-air lead, ranged and
+    // healer follow, reserve trails. No unit balance is touched.
+    const roles = splitWaveByRole(needsShip);
+
     const waveId = _nextAIWaveId++;
+    const waveMembers = [];
     let boarded = 0;
     for (const u of needsShip) {
       if (u.assignSharedTransportPlan(plan, target.mesh.position)) {
         u._aiWaveId = waveId;
+        u._aiRole = roleOf(u, roles);
+        waveMembers.push(u);
         boarded++;
       } else {
         u.moveTo(target.mesh.position.clone(), true);
@@ -395,7 +430,13 @@ export function initAI(game) {
 
     if (boarded > 0) {
       const shipsNeeded = Math.max(1, Math.ceil(boarded / UNIT_TYPES.transport.transportCapacity));
-      game.registerAIWave(waveId, shipsNeeded);
+      // One wave objective with a small focus-target shortlist near it.
+      const focusShortlist = [];
+      game.spatialGrid?.queryCircle(target.mesh.position.x, target.mesh.position.z, 140, u => {
+        if (u?.alive && u.faction === 'player' && focusShortlist.length < 4) focusShortlist.push(u);
+      });
+      game.registerAIWave(waveId, shipsNeeded, waveMembers);
+      game.setAIWaveObjective?.(waveId, { target, focus: focusShortlist });
     }
   }
 
@@ -524,7 +565,7 @@ export function initAI(game) {
 
     // Staging phase logic
     const totalCombat = game.enemyUnits.filter(u =>
-      u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.damage > 0
+      u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 && u.stats.damage > 0
     ).length;
 
     if (attackPhase === 'building') {
@@ -536,7 +577,7 @@ export function initAI(game) {
           .sort((a, b) => b.hp - a.hp)[0];
         if (stagingBase) {
           const idleUnits = game.enemyUnits.filter(u =>
-            u.alive && u.domain !== 'sea' && !u.isTransport &&
+            u.alive && u.domain !== 'sea' && !u.isTransport && u.stats.speed > 0 &&
             u.stats.damage > 0 && u.state === 'idle'
           );
           stagingRally = stagingBase.mesh.position.clone().add(new THREE.Vector3(30, 0, 30));

@@ -101,7 +101,7 @@ function trackMat() {
   );
 }
 
-function mixColor(a, b, t) {
+export function mixColor(a, b, t) {
   const ca = new THREE.Color(a);
   const cb = new THREE.Color(b);
   return ca.lerp(cb, t).getHex();

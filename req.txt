@@ -1,3 +1,2 @@
-# Low-Poly Command uses Python only for the optional local HTTP server.
-# start.py depends exclusively on the Python standard library.
 # No third-party Python packages are required.
+# start.py uses only the Python standard library.

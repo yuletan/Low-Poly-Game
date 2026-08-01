@@ -1,14 +1,18 @@
 // unit.js — Unit class: movement, combat, transport, and unique unit mechanics.
 import * as THREE from 'three';
-import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, activePreset } from './config.js?v=7';
-import { LAND_HEIGHT } from './terrain.js?v=3';
-import { createUnitMesh } from './unitFactory.js?v=3';
-import { createProjectilePattern, applyHitscanDamage, applyTerrainBonus, acquireFromPool } from './combat.js?v=3';
+import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, CAPTURE_SCAN_INTERVAL, FIGHTER_COUNT_INTERVAL, activePreset } from './config.js';
+import { LAND_HEIGHT } from './terrain.js';
+import { createUnitMesh } from './unitFactory.js';
+import { createProjectilePattern, applyHitscanDamage, applyTerrainBonus, acquireFromPool } from './combat.js';
 import { Sound } from './sound.js';
 import { tlog as _tlog, twarn as _twarn } from './debug.js';
 import { createHpBar, updateHpBar, createSelectionRing, buildRangeRing, disposeUnitVisuals } from './unitVisuals.js';
 
 let _nextUnitId = 1;
+
+// Phase 1: scratch vector reused by _updateDeathLabel (one dead unit per
+// frame would otherwise allocate a Vector3 every frame).
+const _deathLabelScratch = new THREE.Vector3();
 
 export class Unit {
   constructor(game, type, faction, position) {
@@ -44,12 +48,21 @@ export class Unit {
     this._fighterSpawnTimer = 0;
     this._deployedFighters = 0;
     this._allDeployed = false;
+    this._fighterCountTimer = 0;
     this.canFireWhileMoving = !!this.stats.canFireWhileMoving;
     this._targetScanTimer = 0;
 
     // Debug identifier for tracing units in log output
     this._debugId = _nextUnitId++;
     this._debugTag = `${this.type}#${this._debugId}`;
+
+    // Phase 1: last getTerrainAt result keyed by (x, z) — a unit queries its
+    // terrain up to 4x per frame (amphibious check, enforcement, move clamp,
+    // candidate check); a moving unit's position barely changes per frame so
+    // this collapses repeated lookups to one real call.
+    this._tcx = NaN;
+    this._tcz = NaN;
+    this._tc = TERRAIN.LAND;
 
     // Transport ship
     this.isTransport = this.type === 'transport';
@@ -75,6 +88,7 @@ export class Unit {
     // Path arrow line visualization
     this._pathLine = null;
     this._pathArrowHead = null;
+    this._pathLineKey = '';
 
     // Aura system
     this._dmgMult = 1;
@@ -111,7 +125,28 @@ export class Unit {
     this._pursuePathKey = null;
     this._pursuePath = [];
 
-    this.mesh = createUnitMesh(type, baseStats.color, faction);
+    // Phase 3: instanced rendering. Supported types get a logical transform
+    // group (position/rotation/visible) whose body is drawn by
+    // game.unitLayer's per-type InstancedMesh pools; types with unique
+    // per-unit visuals (submarine stealth) keep the full per-unit mesh.
+    this._instanced = false;
+    const layer = this.game.unitLayer;
+    if (layer?.supports(type)) {
+      const tpl = layer.getTemplate(type);
+      this.mesh = new THREE.Group();
+      this.mesh.userData.muzzleOffset = tpl.muzzleOffset ? tpl.muzzleOffset.clone() : null;
+      this.mesh.userData.bobPhase = tpl.bobPhase ?? Math.random() * Math.PI * 2;
+      if (tpl.turretLocal) {
+        const turret = new THREE.Object3D();
+        turret.position.setFromMatrixPosition(tpl.turretLocal);
+        turret.quaternion.setFromRotationMatrix(tpl.turretLocal);
+        this.mesh.userData.turret = turret;
+        this.mesh.add(turret);
+      }
+      this._instanced = true;
+    } else {
+      this.mesh = createUnitMesh(type, baseStats.color, faction);
+    }
 
     // Per-instance materials cloned from the shared caches (stealth / hit-flash).
     // Tracked so cleanup() can dispose them (shared cache materials are left intact).
@@ -141,19 +176,28 @@ export class Unit {
     this.mesh.add(ring);
     this.mesh.add(fill);
 
-    // HP bar (shared geometry/materials, per-unit mesh transforms)
+    // HP bar. Instanced units draw the fill/trail from the shared instanced
+    // HP pools (game.unitLayer); legacy units keep per-unit bar meshes.
+    // Either way the rendered state is (barWidth, barY, hp, trail, visible).
     const barWidth = type === 'carrier' ? 7 : type === 'battleship' ? 6 : type === 'destroyer' ? 5
                    : (type === 'tank' || type === 'artillery') ? 4 : type === 'infantry' ? 3 : 2.5;
     const barHeight = 0.5; // taller bar for visibility
     const barY = this.domain === 'air' ? -3 : (this.domain === 'sea' ? 2.5 : 3.5);
     this._barWidth = barWidth;
+    this._barY = barY;
 
-    const hpBar = createHpBar(faction, barWidth, barHeight, barY);
-    this.mesh.add(hpBar.group);
-
-    this._hpBar = { fg: hpBar.fg, trail: hpBar.trail, barWidth };
+    if (this._instanced) {
+      this._hpBar = { barWidth, barY };
+    } else {
+      const hpBar = createHpBar(faction, barWidth, barHeight, barY);
+      this.mesh.add(hpBar.group);
+      this._hpBar = { fg: hpBar.fg, trail: hpBar.trail, barWidth };
+    }
     this._displayHp = this.maxHp;
     this._trailHp = this.maxHp;
+    this._lastBarHp = -1;
+    this._lastBarTrail = -1;
+    this._lastBarVisible = false;
 
     // Hit flash state
     this._hitFlash = false;
@@ -175,7 +219,11 @@ export class Unit {
     this._lastDx = 0;
     this._lastDz = 0;
 
+    // Phase 1: capture-scan throttle (infantry)
+    this._captureTimer = 0;
+
     game.scene.add(this.mesh);
+    if (game.unitLayer) game.unitLayer.addUnit(this);
   }
 
   setSelected(sel) {
@@ -300,6 +348,7 @@ export class Unit {
    * findTransportPath() from this unit's own position.
    */
   assignSharedTransportPlan(plan, finalTargetPos, attackMove = true) {
+    if (this.stats?.speed === 0) return false;
     const walkToShip = this.game.pathfinder.findPath(this.mesh.position, plan.embarkPoint, 'land');
     if (!walkToShip || walkToShip.length === 0) return false;
     this.attackMove = attackMove;
@@ -349,8 +398,9 @@ export class Unit {
     if (this.hp <= 0) this.hp = 0;
     this._displayHp = this.hp;
 
-    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE
-    if (!this._hitFlashOrig) {
+    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE.
+    // Instanced units flash via per-instance colors in the unit layer instead.
+    if (!this._instanced && !this._hitFlashOrig) {
       this.mesh.traverse(c => {
         if (c.material?.color && c.userData.origColor === undefined) {
           c.userData.origColor = c.material.color.getHex();
@@ -412,7 +462,7 @@ export class Unit {
 
   _updateDeathLabel() {
     if (!this._deathLabel) return;
-    const vec = new THREE.Vector3();
+    const vec = _deathLabelScratch;
     vec.copy(this.mesh.position);
     vec.y += this._labelHeight || 3;
     vec.project(this.game.camera);
@@ -421,6 +471,15 @@ export class Unit {
     this._deathLabel.style.left = `${x}px`;
     this._deathLabel.style.top = `${y}px`;
     this._deathLabel.style.display = vec.z < 1 ? 'block' : 'none';
+  }
+
+  /** Phase 1: cached getTerrainAt — same (x, z) within a frame returns the stored value. */
+  _terrainAt(x, z) {
+    if (x === this._tcx && z === this._tcz) return this._tc;
+    this._tcx = x;
+    this._tcz = z;
+    this._tc = this.game.terrain.getTerrainAt(x, z);
+    return this._tc;
   }
 
   update(dt) {
@@ -474,17 +533,22 @@ export class Unit {
     // CARRIER: Spawn 1 fighter every 2s, max 12 deployed, then 30s cooldown
     if (this.type === 'carrier' && this.canLaunch) {
       this.launchCooldown -= dt; // already done above, but ensures tick-down
-      // Count alive fighters belonging to this carrier
-      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-      let aliveFighters = 0;
-      for (const u of allUnits) {
-        if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
-      }
-      // If all deployed fighters have returned (or died), reset deployment cycle
-      if (this._allDeployed && aliveFighters === 0) {
-        this._allDeployed = false;
-        this._deployedFighters = 0;
-        this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+      // Count alive fighters belonging to this carrier — gated so the
+      // O(army) scan runs once per second instead of every frame.
+      this._fighterCountTimer += dt;
+      if (this._fighterCountTimer >= FIGHTER_COUNT_INTERVAL) {
+        this._fighterCountTimer = 0;
+        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        let aliveFighters = 0;
+        for (const u of allUnits) {
+          if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
+        }
+        // If all deployed fighters have returned (or died), reset deployment cycle
+        if (this._allDeployed && aliveFighters === 0) {
+          this._allDeployed = false;
+          this._deployedFighters = 0;
+          this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+        }
       }
       // Spawn fighters one at a time every 2s
       if (!this._allDeployed && this.launchCooldown <= 0 && this._deployedFighters < CARRIER_FIGHTER_COUNT) {
@@ -531,9 +595,13 @@ export class Unit {
       }
     }
 
-    // INFANTRY: Capture adjacent enemy/neutral bases
+    // INFANTRY: Capture adjacent enemy/neutral bases — gated by preset interval
     if (this.type === 'infantry') {
-      this._tryCaptureBase(dt);
+      this._captureTimer += dt;
+      if (this._captureTimer >= CAPTURE_SCAN_INTERVAL) {
+        this._captureTimer = 0;
+        this._tryCaptureBase(CAPTURE_SCAN_INTERVAL);
+      }
     }
 
     // Periodic auto-target scan — throttled by preset
@@ -565,7 +633,7 @@ export class Unit {
     // MUST run before updateMove so the domain check in updateMove uses the correct domain
     if (this.domain !== 'air' && this.state !== 'dead') {
       const pos = this.mesh.position;
-      const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const terrain = this._terrainAt(pos.x, pos.z);
       if (this.domain === 'land' && terrain === TERRAIN.SEA) {
         this._amphibious = true;
         this.domain = 'sea';
@@ -627,7 +695,7 @@ export class Unit {
     // Terrain enforcement: push to valid terrain (skip amphibious boats)
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
-      const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const terrain = this._terrainAt(pos.x, pos.z);
       if (this.domain === 'sea' && terrain !== TERRAIN.SEA) {
         this._pushToValidTerrain('sea');
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
@@ -686,24 +754,41 @@ export class Unit {
   _recalcAuras() {
     this._dmgMult = 1;
     this._hpMult = 1;
-    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-    for (const u of allies) {
-      if (!u.alive || u === this) continue;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    // Max buffRange across unit stats is 30 (default when unset), so a single
+    // query covers every buff source. Candidates are not distance-filtered by
+    // the grid; the per-candidate range check below is kept exact.
+    const BUFF_QUERY_RADIUS = 30;
+    const considerBuff = u => {
+      if (u.faction !== this.faction || !u.alive || u === this) return;
       const d = this.mesh.position.distanceTo(u.mesh.position);
       const range = u.stats.buffRange || 30;
-      if (d > range) continue;
+      if (d > range) return;
       if (u.stats.buffDamage) this._dmgMult *= (1 + u.stats.buffDamage);
       if (u.stats.buffHp) this._hpMult *= (1 + u.stats.buffHp);
       if (u.stats.buffInfantryHp && this.type === 'infantry') this._hpMult *= (1 + u.stats.buffInfantryHp);
+    };
+    if (grid) {
+      const p = this.mesh.position;
+      grid.queryCircle(p.x, p.z, BUFF_QUERY_RADIUS, considerBuff);
+    } else {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const u of allies) considerBuff(u);
     }
     // Tactics Tier 1: Formation bonus — +10% dmg when 2+ allies within range 20
     const tacticsTier = this.game.upgrades?.tiers?.tactics ?? 0;
     if (tacticsTier >= 1) {
       let nearbyAllies = 0;
-      for (const u of allies) {
-        if (!u.alive || u === this) continue;
-        const d = this.mesh.position.distanceTo(u.mesh.position);
-        if (d <= 20) nearbyAllies++;
+      const considerFormation = u => {
+        if (u.faction !== this.faction || !u.alive || u === this) return;
+        if (this.mesh.position.distanceTo(u.mesh.position) <= 20) nearbyAllies++;
+      };
+      if (grid) {
+        const p = this.mesh.position;
+        grid.queryCircle(p.x, p.z, 20, considerFormation);
+      } else {
+        const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allies) considerFormation(u);
       }
       if (nearbyAllies >= 2) this._dmgMult *= 1.1;
     }
@@ -718,13 +803,17 @@ export class Unit {
 
   /** Healer: heal nearby friendly air and land units 5% HP/sec, follow lowest HP */
   _healNearby(dt) {
-    const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    // Bounded scan: covers heal range (max 50), the idle-follow radius (60) and
+    // the nearest-enemy positioning scan with margin. The pre-grid scan was
+    // unbounded; the bound preserves behavior in practice.
+    const HEAL_QUERY_RADIUS = 120;
     let lowestHp = null;
     let lowestRatio = 1;
 
-    for (const u of allies) {
-      if (!u.alive || u === this) continue;
-      if (u.domain !== 'air' && u.domain !== 'land') continue;
+    const consider = u => {
+      if (u.faction !== this.faction || !u.alive || u === this) return;
+      if (u.domain !== 'air' && u.domain !== 'land') return;
       const ratio = u.hp / u.maxHp;
 
       // Heal if in range
@@ -742,24 +831,46 @@ export class Unit {
         lowestRatio = ratio;
         lowestHp = u;
       }
+    };
+    if (grid) {
+      const p = this.mesh.position;
+      grid.queryCircle(p.x, p.z, HEAL_QUERY_RADIUS, consider);
+    } else {
+      const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+      for (const u of allies) consider(u);
     }
 
     // Follow behind tanks or between multiple tanks when idle
     if (this.state === 'idle') {
-      const combat = allies.filter(u =>
-        u.alive && u !== this && u.domain === 'land' && !u.isTransport && u.stats.speed > 0 &&
-        u.state !== 'waitingForTransport' && !u.carried &&
-        this.mesh.position.distanceTo(u.mesh.position) < 60
-      );
+      let combat = [];
+      const considerCombat = u => {
+        if (u.faction !== this.faction || !u.alive || u === this) return;
+        if (u.domain !== 'land' || u.isTransport || u.stats.speed <= 0) return;
+        if (u.state === 'waitingForTransport' || u.carried) return;
+        if (this.mesh.position.distanceTo(u.mesh.position) >= 60) return;
+        combat.push(u);
+      };
+      if (grid) {
+        const p = this.mesh.position;
+        grid.queryCircle(p.x, p.z, 60, considerCombat);
+      } else {
+        const allies = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        for (const u of allies) considerCombat(u);
+      }
       if (combat.length > 0) {
         // Follow the unit with least % HP remaining (12 units behind)
         const lowest = combat.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
-        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
         let closestEnemy = null, closestDist = Infinity;
-        for (const e of enemies) {
-          if (!e.alive) continue;
+        const considerEnemy = e => {
+          if (!e.alive || e.faction === this.faction) return;
           const d = lowest.mesh.position.distanceTo(e.mesh.position);
           if (d < closestDist) { closestDist = d; closestEnemy = e; }
+        };
+        if (grid) {
+          grid.queryCircle(lowest.mesh.position.x, lowest.mesh.position.z, HEAL_QUERY_RADIUS, considerEnemy);
+        } else {
+          const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+          for (const e of enemies) considerEnemy(e);
         }
         const followPos = lowest.mesh.position.clone();
         if (closestEnemy) {
@@ -799,9 +910,11 @@ export class Unit {
 
   /** Infantry unique: Capture enemy/neutral bases at 1 HP/s when adjacent */
   _tryCaptureBase(dt) {
-    const bases = this.faction === 'player' ? this.game.bases.filter(b => b.faction === 'enemy') : this.game.bases.filter(b => b.faction === 'player');
-    for (const base of bases) {
-      if (!base.alive) continue;
+    const enemyFaction = this.faction === 'player' ? 'enemy' : 'player';
+    const bases = this.game.bases;
+    for (let i = 0; i < bases.length; i++) {
+      const base = bases[i];
+      if (!base.alive || base.faction !== enemyFaction) continue;
       const d = this.mesh.position.distanceTo(base.mesh.position);
       if (d <= 15) { // adjacent to base
         base.hp = Math.max(0, base.hp - dt * 1); // 1 HP per second
@@ -909,6 +1022,7 @@ export class Unit {
     if (unit.faction !== this.faction) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} faction mismatch`); return false; }
     if (!unit.alive) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} dead`); return false; }
     if (unit.domain !== 'land') { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} domain ${unit.domain}`); return false; }
+    if (unit.stats?.speed === 0) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} stationary defenses cannot board`); return false; }
     if (this.carriedUnits.length >= this.transportCapacity) { _tlog(`[TRANS LOG] canLoadUnit false: ${unit._debugTag} capacity ${this.carriedUnits.length}/${this.transportCapacity}`); return false; }
     // Ships and troops have different Y levels; boarding is horizontal.
     const d = Math.hypot(
@@ -998,6 +1112,14 @@ export class Unit {
     if (this.carriedUnits.length === 0 && !this._disembarkPoint && !this._assignedEmbarkPoint) {
       // Task 7: respect explicit player orders — don't hijack a ship mid-journey
       if (this._manualOrder && this.state === 'moving') { _tlog(`[TRANS LOG] Ship ${this._debugTag} skipping — manual order in progress`); return; }
+      // With a transport coordinator active, ship assignment is owned by the
+      // coordinator's manifests. Skip the whole-faction scan while the
+      // coordinator manages this faction; otherwise fall back to the legacy
+      // nearest-waiting-troop scan (kept for direct-call tests and parity).
+      if (this.game.transportCoordinator?.hasPendingFor(this.faction)) {
+        if (this.state === 'idle' && !this._manualOrder) this._retreatToFriendlyBase();
+        return;
+      }
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       let bestDist = Infinity;
       let bestUnit = null;
@@ -1063,6 +1185,21 @@ export class Unit {
     if (this._assignedEmbarkPoint && this.path.length === 0) {
       this._boardingTimer += dt;
 
+      const coordinator = this.game.transportCoordinator;
+      if (coordinator) {
+        // Departure readiness is decided by the manifest owner.
+        if (coordinator.readyToDepart(this)) {
+          // Task 9: hold for sibling ships in the same AI wave
+          if (this.game.shouldHoldForAIWave(this)) {
+            _tlog(`[TRANS LOG] Ship ${this._debugTag}: AI WAVE HOLD — waiting for sibling ships`);
+            return;
+          }
+          _tlog(`[TRANS LOG] Ship ${this._debugTag} SAILING: manifest=${!!this._manifest} carried=${this.carriedUnits.length}`);
+          this._sailToDisembark();
+        }
+        return;
+      }
+
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
 
       // Check departure readiness based on manifest assignment
@@ -1112,6 +1249,12 @@ export class Unit {
       // Manually unload each unit
       const units = [...this.carriedUnits];
       this.carriedUnits = [];
+      // Role-shaped landing: vanguard and anti-air take the inner ring, ranged
+      // and healers the middle, reserve trails on the outer ring.
+      const ROLE_LEAD_ORDER = { vanguard: 0, antiAir: 1, ranged: 2, healer: 3, reserve: 4 };
+      units.sort((a, b) =>
+        (ROLE_LEAD_ORDER[a._aiRole] ?? 2) - (ROLE_LEAD_ORDER[b._aiRole] ?? 2)
+      );
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
         if (!u.alive) continue;
@@ -1145,6 +1288,8 @@ export class Unit {
       this._assignedEmbarkPoint = null;
       this._manifest = null;
       this._manifestKey = null;
+      // The manifest owner clears claims for completed voyages.
+      this.game.transportCoordinator?.complete(this);
       this._retreatToFriendlyBase();
       return;
     }
@@ -1175,9 +1320,13 @@ export class Unit {
     this._disembarkPoint = disembarkPt;
     this._assignedEmbarkPoint = null;
 
-    // Unclaim any troops that didn't make it
-    for (const u of allUnits) {
-      if (u._claimedByShip === this) u._claimedByShip = null;
+    // Unclaim any troops that didn't make it. With an active coordinator the
+    // manifest owns claims; its removeInvalidClaims() handles cleanup instead
+    // of this whole-faction scan.
+    if (!this.game.transportCoordinator && allUnits) {
+      for (const u of allUnits) {
+        if (u._claimedByShip === this) u._claimedByShip = null;
+      }
     }
   }
 
@@ -1195,6 +1344,22 @@ export class Unit {
     }
 
     const color = this.faction === 'player' ? 0x44ff88 : 0xff4444;
+
+    // Phase 1 gate: rebuild geometry only when the route actually changed.
+    // While the ship sails the same route we just move the line's start
+    // vertex in place — no allocation, no GPU buffer churn.
+    let key = '';
+    if (this.moveTarget) key += `${Math.round(this.moveTarget.x)},${Math.round(this.moveTarget.z)}`;
+    for (const wp of this.path) key += `:${Math.round(wp.x)},${Math.round(wp.z)}`;
+    if (key === this._pathLineKey && this._pathLine && this._pathLine.geometry) {
+      const attr = this._pathLine.geometry.attributes.position;
+      if (attr && attr.count > 0) {
+        attr.setXYZ(0, this.mesh.position.x, 0.5, this.mesh.position.z);
+        attr.needsUpdate = true;
+        return;
+      }
+    }
+
     const points = [];
     // Start from current position
     points.push(new THREE.Vector3(this.mesh.position.x, 0.5, this.mesh.position.z));
@@ -1215,6 +1380,7 @@ export class Unit {
     this._pathLine = new THREE.Line(geometry, material);
     this._pathLine.renderOrder = 890;
     this.game.scene.add(this._pathLine);
+    this._pathLineKey = key;
 
     // Arrow head at the end pointing forward
     const tip = points[points.length - 1];
@@ -1248,6 +1414,7 @@ export class Unit {
       this._pathArrowHead.material.dispose();
       this._pathArrowHead = null;
     }
+    this._pathLineKey = '';
   }
 
   _retreatToFriendlyBase() {
@@ -1301,13 +1468,32 @@ export class Unit {
     }
     // Hide if full HP and not selected
     const visible = this._displayHp < this.maxHp || this.selected;
-    updateHpBar(this._hpBar, this._displayHp, this._trailHp, this.maxHp, visible);
+    // Phase 1: gate — skip the mesh write when nothing the bar renders has
+    // changed. The trail converges asymptotically, so compare with epsilon.
+    if (Math.abs(this._trailHp - this._displayHp) < 0.001 &&
+        this._lastBarHp === this._displayHp &&
+        this._lastBarVisible === visible) {
+      return;
+    }
+    this._lastBarHp = this._displayHp;
+    this._lastBarTrail = this._trailHp;
+    this._lastBarVisible = visible;
+    if (this._instanced) {
+      this.game.unitLayer?.updateHpBar(this, this._displayHp, this._trailHp, this.maxHp, visible);
+    } else {
+      updateHpBar(this._hpBar, this._displayHp, this._trailHp, this.maxHp, visible);
+    }
   }
 
   _updateHitFlash(dt) {
     if (!this._hitFlash) return;
     this._hitFlashTimer -= dt;
     const white = this._hitFlashTimer > 0;
+    if (this._instanced) {
+      this.game.unitLayer?.setHitFlash(this, white);
+      if (!white) this._hitFlash = false;
+      return;
+    }
     this.mesh.traverse(c => {
       if (c.material?.color && c.userData.origColor !== undefined)
         c.material.color.setHex(white ? 0xffffff : c.userData.origColor);
@@ -1345,7 +1531,7 @@ export class Unit {
 
     // Hard clamp: if on invalid terrain, snap to nearest walkable and stop
     if (this.domain !== 'air') {
-      const curTerrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const curTerrain = this._terrainAt(pos.x, pos.z);
       if (!this.canEnter(curTerrain)) {
         this._pushToValidTerrain(this.domain);
         return;
@@ -1378,7 +1564,7 @@ export class Unit {
     const nextZ = pos.z + (dz / dist) * step * smoothFactor + (this._lastDz || 0) * 0.3;
     // Do not cross a shore for even one frame before the terrain safeguard
     // corrects it; that was the visible water/beach clipping regression.
-    if (this.domain !== 'air' && !this.canEnter(this.game.terrain.getTerrainAt(nextX, nextZ))) {
+    if (this.domain !== 'air' && !this.canEnter(this._terrainAt(nextX, nextZ))) {
       this._pushToValidTerrain(this.domain);
       return;
     }
@@ -1508,6 +1694,28 @@ export class Unit {
     } else {
       const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
       for (const e of enemies) considerEnemy(e);
+    }
+
+    // AI wave focus-fire: prefer the wave objective's focus shortlist so the
+    // whole group converges on one target instead of scattering onto unrelated
+    // picks. Priority 0 beats the regular unit(1)/base(2)/sea(3) priorities.
+    if (this._aiWaveId != null) {
+      const wave = this.game._aiWaves?.get(this._aiWaveId);
+      const focus = wave?.objective?.focus;
+      if (focus && focus.length) {
+        let focusBest = null, focusD = Infinity;
+        for (const e of focus) {
+          if (!e?.alive || e.faction === this.faction) continue;
+          if (airOnly && e.domain !== 'air') continue;
+          if (this.stats.seaOnly && e.domain !== 'sea') continue;
+          if (this.stats.groundOnly && e.domain === 'air') continue;
+          if (isLand && !airOnly && e.domain === 'air') continue;
+          const d = this._dist2d(e.mesh.position);
+          if (d > this.engageRange) continue;
+          if (d < focusD) { focusBest = e; focusD = d; }
+        }
+        if (focusBest) { best = focusBest; bestD = focusD; bestPriority = 0; }
+      }
     }
 
     // Tactics Tier 2: Focus fire — prefer enemies that allies are already attacking
@@ -1948,6 +2156,10 @@ export class Unit {
       // The cached transport is known to be invalid here; restart the search
       // with no candidate so the first eligible transport can be selected.
       targetTransport = null;
+      // With a transport coordinator active, the manifest owns the claim;
+      // the coordinator's removeInvalidClaims() reassigns us after a dead
+      // ship is cleaned up instead of scanning the whole faction here.
+      if (this.game.transportCoordinator) return;
       const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
       for (const t of allUnits) {
         if (!t.alive || !t.isTransport) continue;
@@ -2151,15 +2363,22 @@ export class Unit {
       // Crusher: knockback enemies near the impact point
       if (this.type === 'crusher') {
         const impact = targetPos;
-        const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-        for (const e of enemies) {
-          if (!e.alive || e === this) continue;
+        const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+        const dir = _deathLabelScratch;
+        const knock = e => {
+          if (!e.alive || e === this) return;
           const d = e.mesh.position.distanceTo(impact);
-          if (d > 100) continue;
-          const dir = new THREE.Vector3().subVectors(e.mesh.position, impact).normalize();
+          if (d > 100) return;
+          dir.subVectors(e.mesh.position, impact).normalize();
           const force = (1 - d / 100) * 20;
           e.mesh.position.x += dir.x * force;
           e.mesh.position.z += dir.z * force;
+        };
+        if (grid) {
+          grid.queryCircle(impact.x, impact.z, 100, knock);
+        } else {
+          const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+          for (const e of enemies) knock(e);
         }
       }
     }
@@ -2168,9 +2387,9 @@ export class Unit {
   /** Destroyer unique: Flak cloud vs enemy air units in radius */
   _fireFlak(muzzlePos) {
     const flakRadius = 25;
-    const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
-    for (const unit of enemies) {
-      if (!unit.alive || unit.domain !== 'air') continue;
+    const grid = this.game.spatialGrid?.cells.size ? this.game.spatialGrid : null;
+    const hit = unit => {
+      if (!unit.alive || unit.domain !== 'air') return;
       const d = unit.mesh.position.distanceTo(this.mesh.position);
       if (d <= flakRadius) {
         const flakDmg = this.stats.damage * 0.6; // 60% damage
@@ -2178,6 +2397,12 @@ export class Unit {
         // Visual flak puff
         this._spawnFlakPuff(unit.mesh.position);
       }
+    };
+    if (grid) {
+      grid.queryCircle(this.mesh.position.x, this.mesh.position.z, flakRadius, hit);
+    } else {
+      const enemies = this.faction === 'player' ? this.game.enemyUnits : this.game.playerUnits;
+      for (const unit of enemies) hit(unit);
     }
   }
 
@@ -2235,7 +2460,9 @@ export class Unit {
   cleanup() {
     if (this._cleaned) return;
     this._cleaned = true;
+    this.game.unitLayer?.removeUnit(this);
     this.game.scene.remove(this.mesh);
+    if (this.game.unregisterPickable) this.game.unregisterPickable(this);
     this._removePathLine();
     if (this._rangeRing) this.game.scene.remove(this._rangeRing);
     // Dispose per-instance visuals (ring/fill materials, cloned mats, range ring).

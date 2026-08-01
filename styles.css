@@ -1307,26 +1307,26 @@ html.mobile-ui #selectionPanel {
 }
 
 @media (pointer: coarse) {
-  .command-cursor-hint {
+  :root:not(.mobile-ui) .command-cursor-hint {
     padding: 6px 10px;
     font-size: 11px;
   }
 
-  .selection-tip {
+  :root:not(.mobile-ui) .selection-tip {
     font-size: 11px;
     line-height: 1.4;
   }
 
-  .formation-btn {
+  :root:not(.mobile-ui) .formation-btn {
     min-height: 52px;
   }
 
-  .formation-label {
+  :root:not(.mobile-ui) .formation-label {
     font-size: 10px;
   }
 
-  .formation-help-text,
-  .formation-onboarding-hint {
+  :root:not(.mobile-ui) .formation-help-text,
+  :root:not(.mobile-ui) .formation-onboarding-hint {
     font-size: 11px;
   }
 }
@@ -1349,85 +1349,88 @@ html.mobile-ui #selectionPanel {
   transform: translate(-50%, -100%);
 }
 
-/* ===== MOBILE RESPONSIVE ===== */
+/* ===== MOBILE RESPONSIVE =====
+   Legacy rules are neutralized for the mobile shell (html.mobile-ui):
+   the compact overhaul appended below owns mobile layout. These only apply
+   on desktop-size / non-mobile-ui viewports. */
 @media (max-width: 900px) {
-  #armoryPanel {
+  :root:not(.mobile-ui) #armoryPanel {
     width: 95vw;
     bottom: calc(5px + var(--safe-bottom));
     max-height: 160px;
   }
 
-  .unitBtn {
+  :root:not(.mobile-ui) .unitBtn {
     width: 70px;
     height: 120px;
   }
 
-  #selectionPanel {
+  :root:not(.mobile-ui) #selectionPanel {
     width: 240px;
     max-height: 180px;
   }
 
-  #topBar {
+  :root:not(.mobile-ui) #topBar {
     flex-wrap: wrap;
     gap: 8px;
     padding: 6px 12px;
     font-size: 10px;
   }
 
-  .help-panel {
+  :root:not(.mobile-ui) .help-panel {
     max-width: 95vw;
     max-height: 95vh;
   }
 
-  .help-nav {
+  :root:not(.mobile-ui) .help-nav {
     width: 120px;
   }
 
-  .tab-btn {
+  :root:not(.mobile-ui) .tab-btn {
     font-size: 9px;
     padding: 8px 8px;
   }
 
-  .unitBtn {
+  :root:not(.mobile-ui) .unitBtn {
     width: 65px;
     height: 110px;
     padding: 6px 4px;
   }
 
-  .unit-icon {
+  :root:not(.mobile-ui) .unit-icon {
     width: 36px;
     height: 36px;
   }
 
-  .unit-name {
+  :root:not(.mobile-ui) .unit-name {
     font-size: 8px;
   }
 
-  .unit-domain {
+  :root:not(.mobile-ui) .unit-domain {
     font-size: 7px;
   }
 
-  .unit-cost {
+  :root:not(.mobile-ui) .unit-cost {
     font-size: 11px;
   }
 
-  .unit-tooltip {
+  :root:not(.mobile-ui) .unit-tooltip {
     display: none;
   }
 }
 
 @media (max-width: 600px) and (orientation: portrait) {
-  #selectionPanel {
+  :root:not(.mobile-ui) #selectionPanel {
     width: 45vw;
     max-height: 35vh;
   }
 
-  #armoryPanel {
+  :root:not(.mobile-ui) #armoryPanel {
     width: 98vw;
     max-height: 140px;
   }
 
-  .panel h3 {
+  :root:not(.mobile-ui) .panel h3 {
     font-size: 12px;
   }
 }
@@ -1932,4 +1935,559 @@ html.mobile-ui #selectionPanel {
 
 .fps-btn-primary:hover {
   background: rgba(74, 158, 255, 0.35);
+}
+
+/*
+  Append after the existing base styles, then remove or neutralize the old
+  mobile media rules that permanently expose the full armory and selection UI.
+  This file intentionally contains no external image or SVG dependencies.
+*/
+
+#mobileShell,
+#mobileCommandBar,
+#mobileSelectionChip,
+#mobileBuildButton,
+#mobileMapButton,
+#mobileDrawerBackdrop,
+#mobileMoreMenu,
+#mobileRotateNotice {
+  display: none;
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  html.mobile-ui {
+    --mobile-top-height: 44px;
+    --mobile-bottom-height: 60px;
+    --mobile-gap: 6px;
+    --mobile-radius: 10px;
+  }
+
+  html.mobile-ui body {
+    overscroll-behavior: none;
+  }
+
+  html.mobile-ui .panel {
+    border-radius: var(--mobile-radius);
+    backdrop-filter: blur(8px) saturate(135%);
+    -webkit-backdrop-filter: blur(8px) saturate(135%);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.48);
+  }
+
+  /* Compact status strip. Existing stat elements are reused. */
+  html.mobile-ui #topBar {
+    top: calc(4px + var(--safe-top));
+    left: calc(6px + var(--safe-left));
+    right: calc(6px + var(--safe-right));
+    width: auto;
+    height: var(--mobile-top-height);
+    transform: none;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 4px 7px;
+    border-radius: var(--mobile-radius);
+    font-size: 10px;
+    overflow: hidden;
+    z-index: 120;
+  }
+
+  html.mobile-ui #topBar .top-stat {
+    min-width: 0;
+    gap: 3px;
+    white-space: nowrap;
+  }
+
+  html.mobile-ui #topBar .top-stat:nth-of-type(4) {
+    display: none;
+  }
+
+  html.mobile-ui #topBar .topBtn,
+  html.mobile-ui #topBar .top-dropdown {
+    display: none;
+  }
+
+  html.mobile-ui #topBar #menuToggleBtn,
+  html.mobile-ui #topBar .mobile-menu-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 38px;
+    height: 34px;
+    margin-left: auto;
+    padding: 0;
+    font-size: 0;
+  }
+
+  html.mobile-ui #topBar #menuToggleBtn::before,
+  html.mobile-ui #topBar .mobile-menu-button::before {
+    content: 'Menu';
+    font-size: 9px;
+  }
+
+  /* Bottom contextual actions. */
+  html.mobile-ui #mobileCommandBar {
+    position: fixed;
+    left: calc(6px + var(--safe-left));
+    right: calc(6px + var(--safe-right));
+    bottom: calc(5px + var(--safe-bottom));
+    z-index: 140;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--mobile-gap);
+    min-height: var(--mobile-bottom-height);
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--mobile-radius);
+    background: rgba(9, 14, 23, 0.94);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+    pointer-events: auto;
+  }
+
+  html.mobile-ui #mobileCommandBar button,
+  html.mobile-ui #mobileMoreMenu button,
+  html.mobile-ui #mobileSelectionChip,
+  html.mobile-ui #mobileBuildButton,
+  html.mobile-ui #mobileMapButton {
+    min-width: 0;
+    min-height: 46px;
+    padding: 5px 7px;
+    border: 1px solid rgba(74, 158, 255, 0.28);
+    border-radius: 8px;
+    background: rgba(31, 39, 53, 0.94);
+    color: var(--text);
+    font: 700 11px/1.1 'Courier New', monospace;
+    letter-spacing: 0.45px;
+    text-transform: uppercase;
+    touch-action: manipulation;
+  }
+
+  html.mobile-ui #mobileCommandBar button.active {
+    border-color: var(--primary);
+    background: rgba(74, 158, 255, 0.88);
+    color: #fff;
+    box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.28);
+  }
+
+  html.mobile-ui #mobileCommandBar button:disabled,
+  html.mobile-ui #mobileMoreMenu button:disabled {
+    opacity: 0.34;
+  }
+
+  /* Compact selection and utility buttons live above the command strip. */
+  html.mobile-ui #mobileSelectionChip,
+  html.mobile-ui #mobileBuildButton,
+  html.mobile-ui #mobileMapButton {
+    position: fixed;
+    bottom: calc(var(--mobile-bottom-height) + 14px + var(--safe-bottom));
+    z-index: 132;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 6px 10px;
+    background: rgba(9, 14, 23, 0.91);
+  }
+
+  html.mobile-ui #mobileSelectionChip {
+    left: calc(7px + var(--safe-left));
+    max-width: min(46vw, 260px);
+    justify-content: flex-start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  html.mobile-ui #mobileBuildButton {
+    right: calc(58px + var(--safe-right));
+  }
+
+  html.mobile-ui #mobileMapButton {
+    right: calc(7px + var(--safe-right));
+    width: 44px;
+    padding-inline: 4px;
+  }
+
+  /* Reuse the existing armory as a right drawer. */
+  html.mobile-ui #armoryPanel {
+    top: calc(var(--mobile-top-height) + 14px + var(--safe-top));
+    right: calc(6px + var(--safe-right));
+    bottom: calc(var(--mobile-bottom-height) + 12px + var(--safe-bottom));
+    left: auto;
+    width: min(380px, 72vw);
+    max-height: none;
+    height: auto;
+    transform: translateX(calc(100% + 18px));
+    opacity: 0;
+    visibility: hidden;
+    transition: transform 170ms ease, opacity 140ms ease, visibility 0s linear 170ms;
+    z-index: 151;
+  }
+
+  html.mobile-ui.mobile-armory-open #armoryPanel {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  html.mobile-ui #armoryContent {
+    overflow: auto;
+    align-items: flex-start;
+    padding: 7px;
+  }
+
+  html.mobile-ui .armory-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  html.mobile-ui .tab-btn {
+    min-height: 38px;
+    padding: 7px 5px;
+    font-size: 9px;
+  }
+
+  html.mobile-ui .armory-tab-panel.active {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(78px, 1fr));
+    gap: 7px;
+    width: 100%;
+  }
+
+  html.mobile-ui .unitBtn,
+  html.mobile-ui .upgrades-grid .upgradeBtn {
+    width: 100%;
+    height: 104px;
+    min-width: 0;
+    padding: 5px 4px;
+    border-width: 1px;
+  }
+
+  html.mobile-ui .unit-icon {
+    width: 34px;
+    height: 34px;
+    margin-bottom: 2px;
+  }
+
+  html.mobile-ui .unit-name {
+    font-size: 8px;
+  }
+
+  html.mobile-ui .unit-domain,
+  html.mobile-ui .unit-hotkey {
+    font-size: 7px;
+  }
+
+  html.mobile-ui .unit-cost {
+    font-size: 10px;
+  }
+
+  /* Reuse the existing selection panel as a left drawer. */
+  html.mobile-ui #selectionPanel {
+    top: calc(var(--mobile-top-height) + 14px + var(--safe-top));
+    bottom: calc(var(--mobile-bottom-height) + 12px + var(--safe-bottom));
+    left: calc(6px + var(--safe-left));
+    width: min(310px, 54vw);
+    max-height: none;
+    height: auto;
+    transform: translateX(calc(-100% - 18px));
+    opacity: 0;
+    visibility: hidden;
+    transition: transform 170ms ease, opacity 140ms ease, visibility 0s linear 170ms;
+    z-index: 151;
+    overflow: hidden;
+  }
+
+  html.mobile-ui.mobile-selection-open #selectionPanel {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  html.mobile-ui #selectionInfo {
+    min-height: 0;
+    overflow: auto;
+    padding: 6px;
+  }
+
+  html.mobile-ui .selection-summary {
+    margin-bottom: 5px;
+    padding: 6px 8px;
+  }
+
+  html.mobile-ui .selection-item {
+    gap: 7px;
+    padding: 6px 7px;
+    margin: 3px 0;
+  }
+
+  html.mobile-ui .selection-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  html.mobile-ui .selection-tip,
+  html.mobile-ui .formation-help-text,
+  html.mobile-ui .formation-onboarding-hint {
+    display: none !important;
+  }
+
+  html.mobile-ui .formation-options {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 4px;
+    padding: 6px;
+  }
+
+  html.mobile-ui .formation-btn {
+    min-height: 44px;
+  }
+
+  html.mobile-ui .formation-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  html.mobile-ui .formation-label {
+    font-size: 8px;
+  }
+
+  /* Exclusive-drawer backdrop. */
+  html.mobile-ui #mobileDrawerBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 145;
+    display: none;
+    background: rgba(0, 0, 0, 0.33);
+    pointer-events: auto;
+  }
+
+  html.mobile-ui.mobile-drawer-open #mobileDrawerBackdrop {
+    display: block;
+  }
+
+  /* More menu is a compact popover rather than a full panel. */
+  html.mobile-ui #mobileMoreMenu {
+    position: fixed;
+    right: calc(7px + var(--safe-right));
+    bottom: calc(var(--mobile-bottom-height) + 14px + var(--safe-bottom));
+    z-index: 160;
+    display: none;
+    grid-template-columns: repeat(2, minmax(92px, 1fr));
+    gap: 6px;
+    width: min(300px, 70vw);
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--mobile-radius);
+    background: rgba(9, 14, 23, 0.97);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.58);
+  }
+
+  html.mobile-ui.mobile-more-open #mobileMoreMenu {
+    display: grid;
+  }
+
+  /* Alerts remain under the top strip and never cover the command bar. */
+  html.mobile-ui #flashMsg,
+  html.mobile-ui .flash-msg {
+    top: calc(var(--mobile-top-height) + 14px + var(--safe-top));
+    right: calc(8px + var(--safe-right));
+    left: auto;
+    bottom: auto;
+    width: min(320px, 54vw);
+    max-height: 64px;
+    padding: 8px 10px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.25;
+    transform: translateY(-8px);
+    z-index: 138;
+  }
+
+  html.mobile-ui #flashMsg.visible,
+  html.mobile-ui .flash-msg.visible {
+    transform: translateY(0);
+  }
+
+  /* Production profiler is opt-in. */
+  html.mobile-ui:not(.debug-ui) #fpsDisplay,
+  html.mobile-ui:not(.debug-ui) #fpsPanel,
+  html.mobile-ui:not(.debug-ui) .fps-display,
+  html.mobile-ui:not(.debug-ui) .fps-panel {
+    display: none !important;
+  }
+
+  /* Common minimap containers become compact. */
+  html.mobile-ui #minimap,
+  html.mobile-ui #minimapCanvas,
+  html.mobile-ui .minimap,
+  html.mobile-ui .minimap-container {
+    max-width: 140px !important;
+    max-height: 140px !important;
+  }
+
+  html.mobile-ui.mobile-map-collapsed #minimap,
+  html.mobile-ui.mobile-map-collapsed #minimapCanvas,
+  html.mobile-ui.mobile-map-collapsed .minimap,
+  html.mobile-ui.mobile-map-collapsed .minimap-container {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Prevent UI gestures from reaching the camera. */
+  html.mobile-ui #topBar,
+  html.mobile-ui #armoryPanel,
+  html.mobile-ui #selectionPanel,
+  html.mobile-ui #mobileCommandBar,
+  html.mobile-ui #mobileSelectionChip,
+  html.mobile-ui #mobileBuildButton,
+  html.mobile-ui #mobileMapButton,
+  html.mobile-ui #mobileMoreMenu {
+    touch-action: manipulation;
+  }
+
+  html.mobile-ui #armoryContent,
+  html.mobile-ui #selectionInfo {
+    touch-action: pan-x pan-y;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait),
+       (max-width: 600px) and (orientation: portrait) {
+  html.mobile-ui #mobileRotateNotice {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 30px;
+    background: rgba(6, 10, 17, 0.96);
+    color: var(--text);
+    text-align: center;
+    pointer-events: auto;
+  }
+
+  html.mobile-ui #mobileRotateNotice strong {
+    color: var(--primary);
+    font-size: 20px;
+  }
+
+  html.mobile-ui #mobileRotateNotice span {
+    max-width: 320px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+/* ===== MOBILE OVERHAUL (safe-change package) — appended ===== */
+/* Panel drawer headers: stable desktop layout, close button shown only in
+   mobile drawer mode. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.panel-all-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+}
+
+.panel-close-btn {
+  display: none;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(31, 39, 53, 0.94);
+  color: var(--text);
+  font: bold 15px/1 'Courier New', monospace;
+  cursor: pointer;
+}
+
+html.mobile-ui .panel-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Transport summary shown above the action buttons. */
+.transport-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.transport-status span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* Notification queue replaces the single blocking flash message. */
+#notificationQueue {
+  position: fixed;
+  top: calc(60px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  max-width: min(520px, 92vw);
+}
+
+.notification {
+  max-width: 100%;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: rgba(170, 40, 40, 0.92);
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  animation: notificationIn 180ms ease;
+  pointer-events: none;
+}
+
+.notification-info {
+  background: rgba(24, 60, 110, 0.92);
+}
+
+.notification-success {
+  background: rgba(34, 110, 60, 0.92);
+}
+
+.notification-warn {
+  background: rgba(150, 110, 30, 0.92);
+}
+
+@keyframes notificationIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
