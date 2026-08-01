@@ -759,18 +759,22 @@ export class Game {
       }
     }
 
-    // Update projectiles
+    // Update projectiles — swap-and-pop: order is irrelevant for projectiles,
+    // and splice() in a loop is O(n) per removal.
     for (let i = this.projectiles.length-1; i>=0; i--) {
       const p = this.projectiles[i];
       p.update(dt);
-      if (!p.alive) this.projectiles.splice(i,1);
+      if (!p.alive) {
+        this.projectiles[i] = this.projectiles[this.projectiles.length - 1];
+        this.projectiles.pop();
+      }
     }
 
     // Update FX
     updateExplosions(this.scene, dt);
     updateAllTrails(this.scene, dt);
 
-    // Hit confirm rings
+    // Hit confirm rings — swap-and-pop (backwards iteration, order irrelevant)
     const hitConfirms = this.scene.userData.hitConfirms || [];
     for (let i = hitConfirms.length - 1; i >= 0; i--) {
       const h = hitConfirms[i];
@@ -780,7 +784,8 @@ export class Game {
       h.material.opacity = 0.9 * (1 - t);
       if (h.userData.life <= 0) {
         releaseToPool(h);
-        hitConfirms.splice(i, 1);
+        hitConfirms[i] = hitConfirms[hitConfirms.length - 1];
+        hitConfirms.pop();
       }
     }
 
@@ -789,7 +794,9 @@ export class Game {
       flashes[i].userData.life -= dt;
       flashes[i].scale.multiplyScalar(0.9);
       if (flashes[i].userData.life <= 0) {
-        releaseToPool(flashes[i]); flashes.splice(i,1);
+        releaseToPool(flashes[i]);
+        flashes[i] = flashes[flashes.length - 1];
+        flashes.pop();
       }
     }
 
@@ -800,11 +807,13 @@ export class Game {
       m.material.opacity = 0.8 * (m.userData.life / 2.0);
       m.scale.multiplyScalar(1.02);
       if (m.userData.life <= 0) {
-        releaseToPool(m); spawnMarkers.splice(i,1);
+        releaseToPool(m);
+        spawnMarkers[i] = spawnMarkers[spawnMarkers.length - 1];
+        spawnMarkers.pop();
       }
     }
 
-    // Flak puff cleanup
+    // Flak puff cleanup — swap-and-pop
     const flakPuffs = this.scene.userData.flakPuffs || [];
     for (let i=flakPuffs.length-1;i>=0;i--) {
       const p = flakPuffs[i];
@@ -812,7 +821,9 @@ export class Game {
       p.material.opacity = 0.6 * (p.userData.life / 0.5);
       p.scale.multiplyScalar(1.05);
       if (p.userData.life <= 0) {
-        releaseToPool(p); flakPuffs.splice(i,1);
+        releaseToPool(p);
+        flakPuffs[i] = flakPuffs[flakPuffs.length - 1];
+        flakPuffs.pop();
       }
     }
 
@@ -822,15 +833,30 @@ export class Game {
       for (let i=this.minimap.pings.length-1;i>=0;i--) {
         const p = this.minimap.pings[i];
         p.life -= dt;
-        if (p.life <= 0) this.minimap.pings.splice(i,1);
+        if (p.life <= 0) {
+          this.minimap.pings[i] = this.minimap.pings[this.minimap.pings.length - 1];
+          this.minimap.pings.pop();
+        }
       }
     }
 
-    // Cleanup dead units
-    const deadCount = this.deadUnits.length;
-    this.playerUnits = this.playerUnits.filter(u => !u._cleaned);
-    this.enemyUnits  = this.enemyUnits.filter(u => !u._cleaned);
-    this.selectedUnits = this.selectedUnits.filter(u => u.alive);
+    // Cleanup dead units — in-place compaction instead of .filter() so the
+    // army arrays are not reallocated (and re-GC'd) every frame.
+    let w = 0;
+    for (let i = 0; i < this.playerUnits.length; i++) {
+      if (!this.playerUnits[i]._cleaned) this.playerUnits[w++] = this.playerUnits[i];
+    }
+    this.playerUnits.length = w;
+    w = 0;
+    for (let i = 0; i < this.enemyUnits.length; i++) {
+      if (!this.enemyUnits[i]._cleaned) this.enemyUnits[w++] = this.enemyUnits[i];
+    }
+    this.enemyUnits.length = w;
+    w = 0;
+    for (let i = 0; i < this.selectedUnits.length; i++) {
+      if (this.selectedUnits[i].alive) this.selectedUnits[w++] = this.selectedUnits[i];
+    }
+    this.selectedUnits.length = w;
 
     // AI
     this.aiTimer += dt;

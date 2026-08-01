@@ -132,6 +132,26 @@ js/
 
 `window.__perf` exposes the live object once a game has started, so a match can be measured from the console. The overlay itself stays gated behind `?debug=1` (or dev mode).
 
+## Performance phases
+
+Performance work lands as one revertable commit per phase, with its README notes included in the same commit.
+
+### Phase 1 — free wins
+
+Rendering, timing, and allocation fixes with no gameplay change:
+
+- Renderer created with `antialias:false`, `alpha:false`, `stencil:false`, `powerPreference:'high-performance'`, `desynchronized:true`. AA is off unconditionally (the low-poly style tolerates it; it was the most expensive pixel-fill cost on mobile).
+- Simulation dt is capped at one 60 Hz step (`SIM_DT_CAP` in `main.js`): a stalled frame no longer produces a 50 ms physics jump, while the camera still runs at display rate.
+- Scratch vectors in hot loops (`_deathLabelScratch`) and a per-unit terrain cache (`Unit._terrainAt`) collapse up to 4 `getTerrainAt` lookups per unit per frame into one real call.
+- Per-unit work gates:
+  - HP bars are only rewritten when the rendered state actually changes (trail converged, same HP, same visibility).
+  - Path arrows rebuild only when the route changes; the start vertex is updated in place while a ship sails an unchanged route.
+  - Infantry base-capture scans run at `CAPTURE_SCAN_INTERVAL` (0.25 s) with the 1 HP/s drain rate preserved, and no per-scan `filter()` allocation.
+  - Carrier fighter-count scans run at `FIGHTER_COUNT_INTERVAL` (1 s) instead of every frame.
+- Dead-unit cleanup compacts the army arrays in place instead of `.filter()` reallocating them each frame.
+- Projectile/FX lists update backwards with swap-and-pop instead of O(n) `splice` per removal.
+- `applyHitscanDamage` splash damage iterates the two army arrays directly instead of building a temporary combined array per hit.
+
 ## AI waves
 
 Amphibious attack waves carry one shared wave id and objective. The objective keeps a small focus shortlist: wave members prefer shortlisted targets within engage range instead of each unit picking an unrelated target, and `_aiRole` (vanguard, ranged, anti-air, healer, reserve) shapes the landing formation — lead roles take the inner ring, reserve trails on the outer ring.

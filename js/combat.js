@@ -265,12 +265,17 @@ export function createProjectilePattern(scene, from, target, damage, hitChance, 
 
 function cleanupAirTrails(scene, dt) {
   const list = scene.userData.airTrails || [];
+  // Backwards iteration + swap-and-pop (order is irrelevant for FX lists)
   for (let i = list.length - 1; i >= 0; i--) {
     const p = list[i];
     p.userData.life -= dt;
     p.scale.multiplyScalar(0.9);
     p.material.opacity -= 0.3 * dt;
-    if (p.userData.life <= 0) { releaseToPool(p); list.splice(i,1); }
+    if (p.userData.life <= 0) {
+      releaseToPool(p);
+      list[i] = list[list.length - 1];
+      list.pop();
+    }
   }
 }
 
@@ -323,6 +328,7 @@ export function spawnExplosion(scene, pos, splashRadius = 0) {
 
 export function updateExplosions(scene, dt) {
   const list = scene.userData.explosions || [];
+  // Backwards iteration + swap-and-pop (order is irrelevant for FX lists)
   for (let i = list.length - 1; i >= 0; i--) {
     const p = list[i];
     p.userData.life -= dt;
@@ -331,7 +337,8 @@ export function updateExplosions(scene, dt) {
     p.scale.multiplyScalar(0.96);
     if (p.userData.life <= 0) {
       releaseToPool(p);
-      list.splice(i, 1);
+      list[i] = list[list.length - 1];
+      list.pop();
     }
   }
   const rings = scene.userData.splashRings || [];
@@ -342,7 +349,8 @@ export function updateExplosions(scene, dt) {
     r.scale.multiplyScalar(1.02);
     if (r.userData.life <= 0) {
       releaseToPool(r);
-      rings.splice(i, 1);
+      rings[i] = rings[rings.length - 1];
+      rings.pop();
     }
   }
 }
@@ -364,17 +372,21 @@ export function applyHitscanDamage(scene, attackerPos, target, damage, hitChance
 
   if (splashRadius > 0) {
     const attackerFaction = target?.faction;
-    const allUnits = [...scene.userData.game?.playerUnits || [], ...scene.userData.game?.enemyUnits || []];
-    for (const unit of allUnits) {
-      if (!unit.alive || unit === target) continue;
-      if (attackerFaction && unit.faction === attackerFaction) continue;
-      const d = Math.hypot(unit.mesh.position.x - impactPos.x, unit.mesh.position.z - impactPos.z);
-      if (d <= splashRadius) {
-        const falloff = THREE.MathUtils.lerp(1, splashFalloff, d / splashRadius);
-        unit.takeDamage(damage * falloff);
+    // Phase 1: no temp array — iterate both armies directly
+    const game = scene.userData.game;
+    const armies = game ? [game.playerUnits, game.enemyUnits] : [];
+    for (const army of armies) {
+      for (const unit of army) {
+        if (!unit.alive || unit === target) continue;
+        if (attackerFaction && unit.faction === attackerFaction) continue;
+        const d = Math.hypot(unit.mesh.position.x - impactPos.x, unit.mesh.position.z - impactPos.z);
+        if (d <= splashRadius) {
+          const falloff = THREE.MathUtils.lerp(1, splashFalloff, d / splashRadius);
+          unit.takeDamage(damage * falloff);
+        }
       }
     }
-    const bases = scene.userData.game?.bases || [];
+    const bases = game?.bases || [];
     for (const base of bases) {
       if (!base.alive) continue;
       if (attackerFaction && base.faction === attackerFaction) continue;

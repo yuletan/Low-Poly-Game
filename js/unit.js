@@ -1,6 +1,6 @@
 // unit.js — Unit class: movement, combat, transport, and unique unit mechanics.
 import * as THREE from 'three';
-import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, activePreset } from './config.js';
+import { UNIT_TYPES, ENGAGE_RANGE_MULT, CARRIER_FIGHTER_COOLDOWN, CARRIER_FIGHTER_COUNT, CARRIER_FIGHTER_INTERVAL, PROJECTILE_PATTERNS, TERRAIN, MAP_SIZE, BOARDING_RANGE, TRANSPORT_STANDOFF, STRANDED_TIMEOUT, FLEET_SAIL_DELAY, PROVOKE_INTERVAL, FIGHTER_SCAN_INTERVAL, PATH_LINE_THROTTLE, CAPTURE_SCAN_INTERVAL, FIGHTER_COUNT_INTERVAL, activePreset } from './config.js';
 import { LAND_HEIGHT } from './terrain.js';
 import { createUnitMesh } from './unitFactory.js';
 import { createProjectilePattern, applyHitscanDamage, applyTerrainBonus, acquireFromPool } from './combat.js';
@@ -9,6 +9,10 @@ import { tlog as _tlog, twarn as _twarn } from './debug.js';
 import { createHpBar, updateHpBar, createSelectionRing, buildRangeRing, disposeUnitVisuals } from './unitVisuals.js';
 
 let _nextUnitId = 1;
+
+// Phase 1: scratch vector reused by _updateDeathLabel (one dead unit per
+// frame would otherwise allocate a Vector3 every frame).
+const _deathLabelScratch = new THREE.Vector3();
 
 export class Unit {
   constructor(game, type, faction, position) {
@@ -44,12 +48,21 @@ export class Unit {
     this._fighterSpawnTimer = 0;
     this._deployedFighters = 0;
     this._allDeployed = false;
+    this._fighterCountTimer = 0;
     this.canFireWhileMoving = !!this.stats.canFireWhileMoving;
     this._targetScanTimer = 0;
 
     // Debug identifier for tracing units in log output
     this._debugId = _nextUnitId++;
     this._debugTag = `${this.type}#${this._debugId}`;
+
+    // Phase 1: last getTerrainAt result keyed by (x, z) — a unit queries its
+    // terrain up to 4x per frame (amphibious check, enforcement, move clamp,
+    // candidate check); a moving unit's position barely changes per frame so
+    // this collapses repeated lookups to one real call.
+    this._tcx = NaN;
+    this._tcz = NaN;
+    this._tc = TERRAIN.LAND;
 
     // Transport ship
     this.isTransport = this.type === 'transport';
@@ -75,6 +88,7 @@ export class Unit {
     // Path arrow line visualization
     this._pathLine = null;
     this._pathArrowHead = null;
+    this._pathLineKey = '';
 
     // Aura system
     this._dmgMult = 1;
@@ -154,6 +168,9 @@ export class Unit {
     this._hpBar = { fg: hpBar.fg, trail: hpBar.trail, barWidth };
     this._displayHp = this.maxHp;
     this._trailHp = this.maxHp;
+    this._lastBarHp = -1;
+    this._lastBarTrail = -1;
+    this._lastBarVisible = false;
 
     // Hit flash state
     this._hitFlash = false;
@@ -174,6 +191,9 @@ export class Unit {
     this._stuckPosition = null;
     this._lastDx = 0;
     this._lastDz = 0;
+
+    // Phase 1: capture-scan throttle (infantry)
+    this._captureTimer = 0;
 
     game.scene.add(this.mesh);
   }
@@ -413,7 +433,7 @@ export class Unit {
 
   _updateDeathLabel() {
     if (!this._deathLabel) return;
-    const vec = new THREE.Vector3();
+    const vec = _deathLabelScratch;
     vec.copy(this.mesh.position);
     vec.y += this._labelHeight || 3;
     vec.project(this.game.camera);
@@ -422,6 +442,15 @@ export class Unit {
     this._deathLabel.style.left = `${x}px`;
     this._deathLabel.style.top = `${y}px`;
     this._deathLabel.style.display = vec.z < 1 ? 'block' : 'none';
+  }
+
+  /** Phase 1: cached getTerrainAt — same (x, z) within a frame returns the stored value. */
+  _terrainAt(x, z) {
+    if (x === this._tcx && z === this._tcz) return this._tc;
+    this._tcx = x;
+    this._tcz = z;
+    this._tc = this.game.terrain.getTerrainAt(x, z);
+    return this._tc;
   }
 
   update(dt) {
@@ -475,17 +504,22 @@ export class Unit {
     // CARRIER: Spawn 1 fighter every 2s, max 12 deployed, then 30s cooldown
     if (this.type === 'carrier' && this.canLaunch) {
       this.launchCooldown -= dt; // already done above, but ensures tick-down
-      // Count alive fighters belonging to this carrier
-      const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
-      let aliveFighters = 0;
-      for (const u of allUnits) {
-        if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
-      }
-      // If all deployed fighters have returned (or died), reset deployment cycle
-      if (this._allDeployed && aliveFighters === 0) {
-        this._allDeployed = false;
-        this._deployedFighters = 0;
-        this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+      // Count alive fighters belonging to this carrier — gated so the
+      // O(army) scan runs once per second instead of every frame.
+      this._fighterCountTimer += dt;
+      if (this._fighterCountTimer >= FIGHTER_COUNT_INTERVAL) {
+        this._fighterCountTimer = 0;
+        const allUnits = this.faction === 'player' ? this.game.playerUnits : this.game.enemyUnits;
+        let aliveFighters = 0;
+        for (const u of allUnits) {
+          if (u.alive && u.type === 'fighter' && u.mesh.userData.launchedFrom === this) aliveFighters++;
+        }
+        // If all deployed fighters have returned (or died), reset deployment cycle
+        if (this._allDeployed && aliveFighters === 0) {
+          this._allDeployed = false;
+          this._deployedFighters = 0;
+          this.launchCooldown = CARRIER_FIGHTER_COOLDOWN;
+        }
       }
       // Spawn fighters one at a time every 2s
       if (!this._allDeployed && this.launchCooldown <= 0 && this._deployedFighters < CARRIER_FIGHTER_COUNT) {
@@ -532,9 +566,13 @@ export class Unit {
       }
     }
 
-    // INFANTRY: Capture adjacent enemy/neutral bases
+    // INFANTRY: Capture adjacent enemy/neutral bases — gated by preset interval
     if (this.type === 'infantry') {
-      this._tryCaptureBase(dt);
+      this._captureTimer += dt;
+      if (this._captureTimer >= CAPTURE_SCAN_INTERVAL) {
+        this._captureTimer = 0;
+        this._tryCaptureBase(CAPTURE_SCAN_INTERVAL);
+      }
     }
 
     // Periodic auto-target scan — throttled by preset
@@ -566,7 +604,7 @@ export class Unit {
     // MUST run before updateMove so the domain check in updateMove uses the correct domain
     if (this.domain !== 'air' && this.state !== 'dead') {
       const pos = this.mesh.position;
-      const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const terrain = this._terrainAt(pos.x, pos.z);
       if (this.domain === 'land' && terrain === TERRAIN.SEA) {
         this._amphibious = true;
         this.domain = 'sea';
@@ -628,7 +666,7 @@ export class Unit {
     // Terrain enforcement: push to valid terrain (skip amphibious boats)
     if (this.state !== 'dead' && !this._amphibious) {
       const pos = this.mesh.position;
-      const terrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const terrain = this._terrainAt(pos.x, pos.z);
       if (this.domain === 'sea' && terrain !== TERRAIN.SEA) {
         this._pushToValidTerrain('sea');
       } else if (this.domain === 'land' && terrain !== TERRAIN.LAND && terrain !== TERRAIN.COAST) {
@@ -843,9 +881,11 @@ export class Unit {
 
   /** Infantry unique: Capture enemy/neutral bases at 1 HP/s when adjacent */
   _tryCaptureBase(dt) {
-    const bases = this.faction === 'player' ? this.game.bases.filter(b => b.faction === 'enemy') : this.game.bases.filter(b => b.faction === 'player');
-    for (const base of bases) {
-      if (!base.alive) continue;
+    const enemyFaction = this.faction === 'player' ? 'enemy' : 'player';
+    const bases = this.game.bases;
+    for (let i = 0; i < bases.length; i++) {
+      const base = bases[i];
+      if (!base.alive || base.faction !== enemyFaction) continue;
       const d = this.mesh.position.distanceTo(base.mesh.position);
       if (d <= 15) { // adjacent to base
         base.hp = Math.max(0, base.hp - dt * 1); // 1 HP per second
@@ -1275,6 +1315,22 @@ export class Unit {
     }
 
     const color = this.faction === 'player' ? 0x44ff88 : 0xff4444;
+
+    // Phase 1 gate: rebuild geometry only when the route actually changed.
+    // While the ship sails the same route we just move the line's start
+    // vertex in place — no allocation, no GPU buffer churn.
+    let key = '';
+    if (this.moveTarget) key += `${Math.round(this.moveTarget.x)},${Math.round(this.moveTarget.z)}`;
+    for (const wp of this.path) key += `:${Math.round(wp.x)},${Math.round(wp.z)}`;
+    if (key === this._pathLineKey && this._pathLine && this._pathLine.geometry) {
+      const attr = this._pathLine.geometry.attributes.position;
+      if (attr && attr.count > 0) {
+        attr.setXYZ(0, this.mesh.position.x, 0.5, this.mesh.position.z);
+        attr.needsUpdate = true;
+        return;
+      }
+    }
+
     const points = [];
     // Start from current position
     points.push(new THREE.Vector3(this.mesh.position.x, 0.5, this.mesh.position.z));
@@ -1295,6 +1351,7 @@ export class Unit {
     this._pathLine = new THREE.Line(geometry, material);
     this._pathLine.renderOrder = 890;
     this.game.scene.add(this._pathLine);
+    this._pathLineKey = key;
 
     // Arrow head at the end pointing forward
     const tip = points[points.length - 1];
@@ -1328,6 +1385,7 @@ export class Unit {
       this._pathArrowHead.material.dispose();
       this._pathArrowHead = null;
     }
+    this._pathLineKey = '';
   }
 
   _retreatToFriendlyBase() {
@@ -1381,6 +1439,16 @@ export class Unit {
     }
     // Hide if full HP and not selected
     const visible = this._displayHp < this.maxHp || this.selected;
+    // Phase 1: gate — skip the mesh write when nothing the bar renders has
+    // changed. The trail converges asymptotically, so compare with epsilon.
+    if (Math.abs(this._trailHp - this._displayHp) < 0.001 &&
+        this._lastBarHp === this._displayHp &&
+        this._lastBarVisible === visible) {
+      return;
+    }
+    this._lastBarHp = this._displayHp;
+    this._lastBarTrail = this._trailHp;
+    this._lastBarVisible = visible;
     updateHpBar(this._hpBar, this._displayHp, this._trailHp, this.maxHp, visible);
   }
 
@@ -1425,7 +1493,7 @@ export class Unit {
 
     // Hard clamp: if on invalid terrain, snap to nearest walkable and stop
     if (this.domain !== 'air') {
-      const curTerrain = this.game.terrain.getTerrainAt(pos.x, pos.z);
+      const curTerrain = this._terrainAt(pos.x, pos.z);
       if (!this.canEnter(curTerrain)) {
         this._pushToValidTerrain(this.domain);
         return;
@@ -1458,7 +1526,7 @@ export class Unit {
     const nextZ = pos.z + (dz / dist) * step * smoothFactor + (this._lastDz || 0) * 0.3;
     // Do not cross a shore for even one frame before the terrain safeguard
     // corrects it; that was the visible water/beach clipping regression.
-    if (this.domain !== 'air' && !this.canEnter(this.game.terrain.getTerrainAt(nextX, nextZ))) {
+    if (this.domain !== 'air' && !this.canEnter(this._terrainAt(nextX, nextZ))) {
       this._pushToValidTerrain(this.domain);
       return;
     }

@@ -123,6 +123,8 @@ export const FLEET_SAIL_DELAY = 2;       // seconds to wait after first ship is 
 export const PROVOKE_INTERVAL = 0.5;     // seconds between _provokeEnemies scans (crusher/escortJet)
 export const FIGHTER_SCAN_INTERVAL = 0.25; // seconds between _fighterAutoReturn scans
 export const PATH_LINE_THROTTLE = 0.1;   // seconds between path-line geometry rebuilds for transports
+export const CAPTURE_SCAN_INTERVAL = 0.25; // seconds between infantry base-capture scans (1 HP/s drain preserved)
+export const FIGHTER_COUNT_INTERVAL = 1.0; // seconds between carrier fighter-count scans
 
 // ===== QUALITY PRESETS =====
 export const QUALITY_PRESETS = {

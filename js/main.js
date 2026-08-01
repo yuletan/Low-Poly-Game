@@ -40,8 +40,14 @@ setActivePreset(savedPresetKey);
 const preset = QUALITY_PRESETS[savedPresetKey];
 
 const renderer = new THREE.WebGLRenderer({
-  antialias: preset.antialias && !isMobile,
-  powerPreference: 'high-performance'
+  // Phase 1 (free wins): disable AA/alpha/stencil, prefer low-latency output.
+  // AA is the single most expensive pixel fill cost on mobile; the low-poly
+  // art style tolerates it. antialias:false is fixed (not preset-driven).
+  antialias: false,
+  alpha: false,
+  stencil: false,
+  powerPreference: 'high-performance',
+  desynchronized: true,
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -245,6 +251,10 @@ let _lastFrameTs = performance.now();
 let debugEnabled = false;
 let _perfSampleTimer = 0;
 const PERF_SAMPLE_INTERVAL = 1;
+// Phase 1: the simulation never steps more than one 60 Hz frame at a time.
+// Rendering may still run at display rate; a stall no longer makes the sim
+// leap ahead in one giant delta (which multiplies per-frame work).
+const SIM_DT_CAP = 1 / 60;
 
 // Pause expensive simulation while hidden. Rendering may continue at a very low rate
 // only if a platform requirement demands it.
@@ -255,20 +265,23 @@ document.addEventListener('visibilitychange', () => {
 
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  // dt is capped for the camera as before; the SIM is additionally capped at
+  // one 60 Hz step so a slow frame never spawns a 50 ms physics jump.
+  const rawDt = Math.min(clock.getDelta(), 0.05);
+  const simDt = Math.min(rawDt, SIM_DT_CAP);
   if (!documentVisible) return;
 
   const frameStart = performance.now();
 
-  updateCamera(dt);
+  updateCamera(rawDt);
 
-  if (game) game.update(dt);
+  if (game) game.update(simDt);
   renderer.render(scene, camera);
 
   if (game) {
     // Phase 0: always-on frame tracking, 1 Hz draw-call sample
     game.recordFrame(performance.now() - frameStart);
-    _perfSampleTimer += dt;
+    _perfSampleTimer += rawDt;
     if (_perfSampleTimer >= PERF_SAMPLE_INTERVAL) {
       _perfSampleTimer -= PERF_SAMPLE_INTERVAL;
       game.samplePerf(renderer.info.render.calls);
