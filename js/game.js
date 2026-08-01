@@ -20,6 +20,9 @@ import { createNotificationQueue } from './notificationQueue.js';
 // Re-export so existing imports from './game.js' (and the test suite) keep working.
 export { Unit, Base };
 
+// Phase 0: worst-frame window — 2 s at up to 120 Hz input.
+const PERF_WINDOW_FRAMES = 240;
+
 export class Game {
   constructor(scene, camera, difficulty, cameraTarget) {
     this.scene = scene;
@@ -66,6 +69,54 @@ export class Game {
     this._softCollisionTimer = 0;
     this._minimapTimer = 0;
     this._hudTimer = 0;
+
+    // Phase 0: always-on frame-time tracker (independent of the debug-gated
+    // FPS overlay). Rolling 60-frame average + worst frame in the last 2 s,
+    // plus a once-per-second draw-call readout. Exposed as window.__perf.
+    this.perf = {
+      fps: 0,
+      avgFrameMs: 0,
+      worstFrameMs: 0,
+      drawCalls: 0,
+      _ring: new Float32Array(60),
+      _ringIndex: 0,
+      _ringCount: 0,
+      _sum60: 0,
+      _ms: new Float32Array(PERF_WINDOW_FRAMES),
+      _winIndex: 0,
+      _winCount: 0,
+      _sampleTimer: 0,
+    };
+  }
+
+  /** Phase 0: feed one wall-clock frame time (ms) into the tracker. */
+  recordFrame(frameMs) {
+    const p = this.perf;
+    const slot = p._ringIndex;
+    p._sum60 += frameMs - p._ring[slot];
+    p._ring[slot] = frameMs;
+    p._ringIndex = (slot + 1) % 60;
+    if (p._ringCount < 60) p._ringCount++;
+    const avg = p._sum60 / p._ringCount;
+    p.avgFrameMs = avg;
+    p.fps = avg > 0 ? 1000 / avg : 0;
+
+    const w = p._winIndex;
+    p._ms[w] = frameMs;
+    p._winIndex = w === PERF_WINDOW_FRAMES - 1 ? 0 : w + 1;
+    if (p._winCount < PERF_WINDOW_FRAMES) p._winCount++;
+  }
+
+  /** Phase 0: called once per second — refresh worst frame + draw calls. */
+  samplePerf(drawCalls) {
+    const p = this.perf;
+    let worst = 0;
+    for (let i = 0; i < p._winCount; i++) {
+      const t = p._ms[i];
+      if (t > worst) worst = t;
+    }
+    p.worstFrameMs = worst;
+    p.drawCalls = drawCalls;
   }
 
   init() {

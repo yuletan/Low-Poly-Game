@@ -158,6 +158,9 @@ function startGame(difficulty, saveData) {
     game.init();
     console.log('[INIT] game.init() done, playerUnits:', game.playerUnits.length);
 
+    // Phase 0: always-on perf readout (independent of the debug FPS overlay)
+    window.__perf = game.perf;
+
     if (saveData) {
       applySave(game, saveData);
     }
@@ -240,6 +243,8 @@ function applySave(game, save) {
 const clock = new THREE.Clock();
 let _lastFrameTs = performance.now();
 let debugEnabled = false;
+let _perfSampleTimer = 0;
+const PERF_SAMPLE_INTERVAL = 1;
 
 // Pause expensive simulation while hidden. Rendering may continue at a very low rate
 // only if a platform requirement demands it.
@@ -253,10 +258,22 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (!documentVisible) return;
 
+  const frameStart = performance.now();
+
   updateCamera(dt);
 
   if (game) game.update(dt);
   renderer.render(scene, camera);
+
+  if (game) {
+    // Phase 0: always-on frame tracking, 1 Hz draw-call sample
+    game.recordFrame(performance.now() - frameStart);
+    _perfSampleTimer += dt;
+    if (_perfSampleTimer >= PERF_SAMPLE_INTERVAL) {
+      _perfSampleTimer -= PERF_SAMPLE_INTERVAL;
+      game.samplePerf(renderer.info.render.calls);
+    }
+  }
 
   if (debugEnabled) {
     // Frame profiling: wall-clock delta since previous frame

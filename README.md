@@ -120,6 +120,17 @@ js/
 7. Reuse icon, geometry, material, vector, projectile, and effect objects where practical.
 8. Disable production debug logging and profiler controls by default.
 9. Import `config.js` exactly once, always as `./config.js` with no query string. Quality presets are mutable module state (`setActivePreset`), so a second versioned import silently freezes gameplay systems at the default preset. A test scans `js/` for `?v=` imports to prevent this from coming back.
+10. Measure every performance change with `window.__perf` (see below) before and after; a phase is not done until its target is measurable on the machine that matters (mid-range Android for the mobile contract).
+
+## Performance instrumentation
+
+`game.perf` is an always-on frame-time tracker, independent of the debug FPS overlay:
+
+- `fps` / `avgFrameMs` — rolling 60-frame average of wall-clock frame time.
+- `worstFrameMs` — worst single frame within the trailing 2-second window.
+- `drawCalls` — once-per-second sample of `renderer.info.render.calls`.
+
+`window.__perf` exposes the live object once a game has started, so a match can be measured from the console. The overlay itself stays gated behind `?debug=1` (or dev mode).
 
 ## AI waves
 
