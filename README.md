@@ -162,6 +162,18 @@ Rendering, timing, and allocation fixes with no gameplay change:
 - Public API (`build` / `queryCircle` / `forEach`) is unchanged, so targeting, provoke, aura, and healing scans keep working verbatim.
 - Remaining full-army loops routed onto the grid: destroyer `_fireFlak` (radius 25) and the crusher's impact knockback (radius 100, with the per-candidate `Vector3` allocation replaced by a shared scratch vector).
 
+### Phase 3 — instanced rendering
+
+Unit bodies no longer render as per-unit meshes. A `UnitInstanceLayer` (`js/unitInstancing.js`) draws every supported type from per-type `InstancedMesh` pools; each unit keeps a logical transform `Group` as `unit.mesh`, so the ~150 gameplay call sites that touch unit meshes are unchanged.
+
+- Types that support batching (everything except `submarine`, which needs per-instance opacity for stealth) draw all their opaque/tinted parts through one tinted `InstancedMesh` (per-instance color = unit type color blended with its faction color) plus one per-class mesh for parts whose materials are shared exactly: fixed opaque parts, transparent parts, and emissive/glow parts each keep their original shared material. Turret-subtree parts are baked relative to the turret root and drawn from per-class turret pools that pick up the logical turret's aim rotation each frame.
+- One `InstancedMesh` per material class per unit type — a 120-unit army renders the whole unit layer in roughly `types × 6` draw calls regardless of army size (down from a per-mesh draw call per part per unit).
+- HP bars are two global instanced pools (fill + damage trail, per-instance color by faction) shared by every unit of every type; bars shrink from the left like the legacy meshes and are hidden by a 0.0001 scale.
+- Picking: the body `InstancedMesh`es are raycast alongside `game.pickableMeshes`; a hit's `instanceId` resolves back to the `Unit` through the per-type slot list — no custom shaders.
+- Hit flash swaps the tinted instance color to white and back; `instanceColor` is a plain GPU attribute, so no per-instance material clones are needed.
+- Slots are swap-popped on death, pools double in capacity on demand, and per-frame sync writes only matrices/colors with pre-allocated scratch objects; nothing allocates in the update loop.
+- Merged geometry is built once per class per type via `mergeGeometries` (with a `toNonIndexed` normalization because unit bodies use the non-indexed `RoundedBoxGeometry` while other primitives are indexed).
+
 ## AI waves
 
 Amphibious attack waves carry one shared wave id and objective. The objective keeps a small focus shortlist: wave members prefer shortlisted targets within engage range instead of each unit picking an unrelated target, and `_aiRole` (vanguard, ranged, anti-air, healer, reserve) shapes the landing formation — lead roles take the inner ring, reserve trails on the outer ring.

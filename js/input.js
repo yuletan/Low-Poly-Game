@@ -44,6 +44,8 @@ export function initInput(game, camera, renderer) {
    * One raycast per pointer event. Units and bases register their root mesh in
    * game.pickableMeshes with userData.entity set, so a single intersect call
    * resolves the unit or base under the cursor plus the ground point.
+   * Phase 3: instanced unit bodies are raycast through game.unitLayer's
+   * InstancedMeshes; an intersection's instanceId maps back to the Unit.
    */
   function pickScene(e) {
     setMouseNDC(e);
@@ -52,11 +54,17 @@ export function initInput(game, camera, renderer) {
     const groundPoint = new THREE.Vector3();
     raycaster.ray.intersectPlane(groundPlane, groundPoint);
 
-    const hits = raycaster.intersectObjects(game.pickableMeshes, true);
+    const layerTargets = game.unitLayer ? game.unitLayer.raycastTargets : [];
+    const targets = layerTargets.length > 0 ? game.pickableMeshes.concat(layerTargets) : game.pickableMeshes;
+    const hits = raycaster.intersectObjects(targets, true);
     let object = hits[0]?.object || null;
     while (object && !object.userData.entity) object = object.parent;
 
     let entity = object?.userData.entity || null;
+    // Instanced body hit: resolve the instanceId through the layer's unit list.
+    if (!entity && hits[0]?.instanceId !== undefined && hits[0]?.object?.userData?.unitLayerState) {
+      entity = hits[0].object.userData.unitLayerState.units[hits[0].instanceId] || null;
+    }
     // Dead units are unregistered at cleanup; guard the in-between frame.
     if (entity?.alive === false || entity?._cleaned) entity = null;
     return {

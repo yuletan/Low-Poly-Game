@@ -125,7 +125,28 @@ export class Unit {
     this._pursuePathKey = null;
     this._pursuePath = [];
 
-    this.mesh = createUnitMesh(type, baseStats.color, faction);
+    // Phase 3: instanced rendering. Supported types get a logical transform
+    // group (position/rotation/visible) whose body is drawn by
+    // game.unitLayer's per-type InstancedMesh pools; types with unique
+    // per-unit visuals (submarine stealth) keep the full per-unit mesh.
+    this._instanced = false;
+    const layer = this.game.unitLayer;
+    if (layer?.supports(type)) {
+      const tpl = layer.getTemplate(type);
+      this.mesh = new THREE.Group();
+      this.mesh.userData.muzzleOffset = tpl.muzzleOffset ? tpl.muzzleOffset.clone() : null;
+      this.mesh.userData.bobPhase = tpl.bobPhase ?? Math.random() * Math.PI * 2;
+      if (tpl.turretLocal) {
+        const turret = new THREE.Object3D();
+        turret.position.setFromMatrixPosition(tpl.turretLocal);
+        turret.quaternion.setFromRotationMatrix(tpl.turretLocal);
+        this.mesh.userData.turret = turret;
+        this.mesh.add(turret);
+      }
+      this._instanced = true;
+    } else {
+      this.mesh = createUnitMesh(type, baseStats.color, faction);
+    }
 
     // Per-instance materials cloned from the shared caches (stealth / hit-flash).
     // Tracked so cleanup() can dispose them (shared cache materials are left intact).
@@ -155,17 +176,23 @@ export class Unit {
     this.mesh.add(ring);
     this.mesh.add(fill);
 
-    // HP bar (shared geometry/materials, per-unit mesh transforms)
+    // HP bar. Instanced units draw the fill/trail from the shared instanced
+    // HP pools (game.unitLayer); legacy units keep per-unit bar meshes.
+    // Either way the rendered state is (barWidth, barY, hp, trail, visible).
     const barWidth = type === 'carrier' ? 7 : type === 'battleship' ? 6 : type === 'destroyer' ? 5
                    : (type === 'tank' || type === 'artillery') ? 4 : type === 'infantry' ? 3 : 2.5;
     const barHeight = 0.5; // taller bar for visibility
     const barY = this.domain === 'air' ? -3 : (this.domain === 'sea' ? 2.5 : 3.5);
     this._barWidth = barWidth;
+    this._barY = barY;
 
-    const hpBar = createHpBar(faction, barWidth, barHeight, barY);
-    this.mesh.add(hpBar.group);
-
-    this._hpBar = { fg: hpBar.fg, trail: hpBar.trail, barWidth };
+    if (this._instanced) {
+      this._hpBar = { barWidth, barY };
+    } else {
+      const hpBar = createHpBar(faction, barWidth, barHeight, barY);
+      this.mesh.add(hpBar.group);
+      this._hpBar = { fg: hpBar.fg, trail: hpBar.trail, barWidth };
+    }
     this._displayHp = this.maxHp;
     this._trailHp = this.maxHp;
     this._lastBarHp = -1;
@@ -196,6 +223,7 @@ export class Unit {
     this._captureTimer = 0;
 
     game.scene.add(this.mesh);
+    if (game.unitLayer) game.unitLayer.addUnit(this);
   }
 
   setSelected(sel) {
@@ -370,8 +398,9 @@ export class Unit {
     if (this.hp <= 0) this.hp = 0;
     this._displayHp = this.hp;
 
-    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE
-    if (!this._hitFlashOrig) {
+    // Hit flash — clone materials first to avoid corrupting shared MAT_CACHE.
+    // Instanced units flash via per-instance colors in the unit layer instead.
+    if (!this._instanced && !this._hitFlashOrig) {
       this.mesh.traverse(c => {
         if (c.material?.color && c.userData.origColor === undefined) {
           c.userData.origColor = c.material.color.getHex();
@@ -1449,13 +1478,22 @@ export class Unit {
     this._lastBarHp = this._displayHp;
     this._lastBarTrail = this._trailHp;
     this._lastBarVisible = visible;
-    updateHpBar(this._hpBar, this._displayHp, this._trailHp, this.maxHp, visible);
+    if (this._instanced) {
+      this.game.unitLayer?.updateHpBar(this, this._displayHp, this._trailHp, this.maxHp, visible);
+    } else {
+      updateHpBar(this._hpBar, this._displayHp, this._trailHp, this.maxHp, visible);
+    }
   }
 
   _updateHitFlash(dt) {
     if (!this._hitFlash) return;
     this._hitFlashTimer -= dt;
     const white = this._hitFlashTimer > 0;
+    if (this._instanced) {
+      this.game.unitLayer?.setHitFlash(this, white);
+      if (!white) this._hitFlash = false;
+      return;
+    }
     this.mesh.traverse(c => {
       if (c.material?.color && c.userData.origColor !== undefined)
         c.material.color.setHex(white ? 0xffffff : c.userData.origColor);
@@ -2422,6 +2460,7 @@ export class Unit {
   cleanup() {
     if (this._cleaned) return;
     this._cleaned = true;
+    this.game.unitLayer?.removeUnit(this);
     this.game.scene.remove(this.mesh);
     if (this.game.unregisterPickable) this.game.unregisterPickable(this);
     this._removePathLine();

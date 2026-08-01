@@ -13,6 +13,7 @@ import { tlog as _tlog } from './debug.js';
 import { Unit } from './unit.js';
 import { Base } from './base.js';
 import { SpatialGrid } from './spatialGrid.js';
+import { UnitInstanceLayer } from './unitInstancing.js';
 import { RuntimeScheduler } from './runtimeScheduler.js';
 import { TransportCoordinator } from './transportCoordinator.js';
 import { createNotificationQueue } from './notificationQueue.js';
@@ -55,6 +56,10 @@ export class Game {
     this.formation = 'line';
     this.attackMoveMode = false;
     this.pickableMeshes = [];
+
+    // Phase 3: instanced rendering layer for unit bodies (drawn from per-type
+    // InstancedMesh pools; unit.mesh stays the logical transform owner).
+    this.unitLayer = new UnitInstanceLayer(this.scene);
 
     this.aiTimer = 0;
     this.ended = false;
@@ -743,6 +748,10 @@ export class Game {
     for (const u of this.playerUnits) u.update(dt);
     for (const u of this.enemyUnits)  u.update(dt);
     for (const b of this.bases) b.update(dt);
+
+    // Phase 3: sync unit transforms into the instanced pools (after every
+    // unit moved and aimed this frame, before render).
+    this.unitLayer.update();
 
     // Auto-spawn transports for troops waiting on beach is owned by
     // this.transportCoordinator.update(dt) above. The old per-frame logistics
