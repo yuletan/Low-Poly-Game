@@ -1,10 +1,13 @@
 // terrain.js — Larger map with multiple landmasses, islands, and mountains.
 import * as THREE from 'three';
 import { TERRAIN, MAP_SIZE } from './config.js';
+import { getQuality } from './quality.js';
 
 export const LAND_HEIGHT = 8; // Exported so game.js knows where the ground is!
 
 export function buildTerrain(scene) {
+  const quality = getQuality();
+
   // === SEA ===
   const sea = new THREE.Mesh(
     new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE),
@@ -38,7 +41,7 @@ export function buildTerrain(scene) {
 
   // === MOUNTAINS (InstancedMesh) ===
   const mountains = [];
-  const MOUNTAIN_COUNT = 18;
+  const MOUNTAIN_COUNT = quality.mountainCount;
   const mtData = [];
   for (let i = 0; i < MOUNTAIN_COUNT; i++) {
     let attempts = 0, x, z;
@@ -54,7 +57,7 @@ export function buildTerrain(scene) {
     mtData.push({ x, z, r, h });
   }
 
-  const mtGeom = new THREE.ConeGeometry(1, 1, 5);
+  const mtGeom = new THREE.ConeGeometry(1, 1, quality.mountainSegments);
   mtGeom.computeVertexNormals();
   const mtMat = new THREE.MeshLambertMaterial({ color: 0x6b5b3a, flatShading: true });
   const mtInstanced = new THREE.InstancedMesh(mtGeom, mtMat, MOUNTAIN_COUNT);
@@ -119,7 +122,7 @@ export function buildTerrain(scene) {
   leafGeom.computeVertexNormals();
   const leafMat = new THREE.MeshLambertMaterial({ color: 0x2d5a1f, flatShading: true });
 
-  const TREE_COUNT = 80;
+  const TREE_COUNT = quality.treeCount;
   const trunkInstanced = new THREE.InstancedMesh(trunkGeom, trunkMat, TREE_COUNT);
   trunkInstanced.castShadow = true;
   trunkInstanced.receiveShadow = true;

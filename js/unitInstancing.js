@@ -23,6 +23,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createUnitMesh, mixColor } from './unitFactory.js';
+import { getQuality } from './quality.js';
 
 const TEAM_COLOR = { player: 0x3366cc, enemy: 0xcc3333 };
 const LEGACY_TYPES = new Set(['submarine']);
@@ -39,7 +40,29 @@ const LAYER_ENABLED =
 
 // Shared neutral material for the tinted class: the per-instance color holds
 // the unit's actual tint, so one material serves every type.
-const TINT_MAT = LAYER_ENABLED ? new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.88, metalness: 0.08 }) : null;
+function createTintMaterial() {
+  const q = getQuality();
+  const common = {
+    color: 0xffffff,
+    roughness: 0.66,
+    metalness: 0.22,
+    envMapIntensity: q.envIntensity,
+    vertexColors: q.weathering,
+  };
+  if (q.materialTier === 'lambert' && typeof THREE.MeshLambertMaterial === 'function') {
+    return new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: q.weathering });
+  }
+  if (q.clearcoat && typeof THREE.MeshPhysicalMaterial === 'function') {
+    return new THREE.MeshPhysicalMaterial({
+      ...common,
+      clearcoat: 0.4,
+      clearcoatRoughness: 0.55,
+    });
+  }
+  return new THREE.MeshStandardMaterial(common);
+}
+
+let TINT_MAT = LAYER_ENABLED ? createTintMaterial() : null;
 const HP_QUAD = LAYER_ENABLED ? new THREE.PlaneGeometry(1, 0.5) : null;
 const HP_FG_MAT = LAYER_ENABLED ? new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }) : null;
 const HP_TRAIL_MAT = LAYER_ENABLED ? new THREE.MeshBasicMaterial({ color: 0xffaa88, transparent: true, opacity: 0.6, depthTest: false }) : null;
@@ -147,6 +170,13 @@ function classMaterial(cls, parts) {
   return p ? p.material : null;
 }
 
+function refreshTintMaterial() {
+  if (!LAYER_ENABLED) return;
+  const old = TINT_MAT;
+  TINT_MAT = createTintMaterial();
+  old?.dispose?.();
+}
+
 export class UnitInstanceLayer {
   constructor(scene) {
     this.enabled = LAYER_ENABLED;
@@ -200,6 +230,7 @@ export class UnitInstanceLayer {
       im.userData.unitLayerState = st;
       im.userData.cls = cls;
       im.userData.isTurret = isTurret;
+      if (cls === 'tint') im.userData.keyCaster = true;
       this.scene.add(im);
       this.raycastTargets.push(im);
       meshes.push({ mesh: im, cls, isTurret });
@@ -208,6 +239,37 @@ export class UnitInstanceLayer {
     for (const cls of ['tint', 'fixed', 'trans', 'glow']) addClass(cls, turretByClass.get(cls), true);
     this.types.set(type, st);
     return st;
+  }
+
+  invalidate() {
+    if (!this.enabled) return;
+
+    for (const st of this.types.values()) {
+      for (const entry of st.meshes) {
+        this.scene.remove(entry.mesh);
+        entry.mesh.geometry.dispose();
+      }
+    }
+    this.types.clear();
+    this.raycastTargets.length = 0;
+    if (this._templates) this._templates.clear();
+
+    const units = this._all.slice();
+    this._all.length = 0;
+    this.hpFg.count = 0;
+    this.hpTl.count = 0;
+
+    refreshTintMaterial();
+
+    for (const unit of units) {
+      unit._instSlot = undefined;
+      unit._hpSlot = undefined;
+      unit._instanced = false;
+      this.addUnit(unit);
+      unit._lastBarHp = -1;
+      unit._lastBarVisible = false;
+      unit._updateHpBar?.(0);
+    }
   }
 
   addUnit(unit) {

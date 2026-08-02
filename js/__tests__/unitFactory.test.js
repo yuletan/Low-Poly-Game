@@ -65,17 +65,15 @@ describe('unitFactory.js - Unit Mesh Creation', () => {
 
   it('buildB2 body should be oriented correctly along Z (Issue 2)', () => {
     const group = createUnitMesh('b2', 0x333344, 'player');
-    // B2 uses BoxGeometry for body, should be oriented with Z dimension > X dimension
-    let bodyBox = null;
-    group.traverse(child => {
-      if (child.isMesh && child.geometry?.type === 'BoxGeometry' && child.position.y === 0) {
-        bodyBox = child;
-      }
-    });
+    // B2 uses a box-like body, rounded on Medium+; it should be oriented with Z dimension > X dimension.
+    const bodyBox = group.children.find(child => child.isMesh && child.position.y === 0);
     // The body should have its largest dimension along Z
     expect(bodyBox).not.toBeNull();
     // Body dimensions should be (2, 0.6, 4) — Z=4 is the longest axis
-    expect(bodyBox.geometry.parameters.d).toBeGreaterThan(bodyBox.geometry.parameters.w);
+    const params = bodyBox.geometry.parameters;
+    const width = params.w ?? params.width;
+    const depth = params.d ?? params.depth;
+    expect(depth).toBeGreaterThan(width);
   });
 
   it('buildB2 should have muzzleOffset forward (Issue 2)', () => {

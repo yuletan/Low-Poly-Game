@@ -1,7 +1,10 @@
+// unitFactory.js — tier-aware unit builds and shared visual resources.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { getQuality } from './quality.js';
 
-// --- Shared caches ---
+// Caches are scoped by quality tier so a rebuild never reuses geometry or
+// materials with incompatible vertex attributes or shading features.
 const MAT_CACHE = new Map();
 const GEO_CACHE = new Map();
 
@@ -10,95 +13,124 @@ function cached(map, key, create) {
   return map.get(key);
 }
 
-// --- Geometry Helpers ---
-function boxGeo(w, h, d, r = 0.06) {
-  const radius = Math.min(r, w * 0.2, h * 0.2, d * 0.2);
-  return cached(
-    GEO_CACHE,
-    `box:${w}:${h}:${d}:${radius}`,
-    () => new RoundedBoxGeometry(w, h, d, 2, radius)
+export function resetFactoryCaches() {
+  for (const geometry of GEO_CACHE.values()) geometry.dispose?.();
+  for (const material of MAT_CACHE.values()) material.dispose?.();
+  GEO_CACHE.clear();
+  MAT_CACHE.clear();
+  EDGE_GEO_CACHE.clear();
+  SOURCE_GEO_CACHE.clear();
+}
+
+const dl = () => getQuality().detailLevel;
+
+function seedWeather(geometry) {
+  if (!getQuality().weathering || !geometry?.attributes?.position) return geometry;
+  const count = geometry.attributes.position.count;
+  geometry.setAttribute(
+    'color',
+    new THREE.BufferAttribute(new Float32Array(count * 3).fill(1), 3)
+  );
+  return geometry;
+}
+
+function weather(geometry, strength = 0.32) {
+  if (!getQuality().weathering || !geometry?.attributes?.color || !geometry.attributes.position) return geometry;
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox;
+  const position = geometry.attributes.position;
+  const colors = geometry.attributes.color.array;
+  const span = Math.max(0.001, max.y - min.y);
+  for (let i = 0; i < position.count; i++) {
+    const t = (position.getY(i) - min.y) / span;
+    const value = 1 - strength * (1 - t) * (1 - t);
+    colors[i * 3] = value;
+    colors[i * 3 + 1] = value;
+    colors[i * 3 + 2] = value;
+  }
+  geometry.attributes.color.needsUpdate = true;
+  return geometry;
+}
+
+function markFactoryGeometry(geometry, key) {
+  geometry.userData ||= {};
+  geometry.userData.factoryKey = key;
+  return geometry;
+}
+
+function boxGeo(w, h, d, radius = 0.06) {
+  const q = getQuality();
+  if (!q.rounded) {
+    const key = `bx:${q.id}:${w}:${h}:${d}`;
+    return cached(GEO_CACHE, key, () => markFactoryGeometry(
+      seedWeather(new THREE.BoxGeometry(w, h, d)), key
+    ));
+  }
+  const r = Math.min(radius, w * 0.2, h * 0.2, d * 0.2);
+  const key = `rb:${q.id}:${w}:${h}:${d}:${r}`;
+  return cached(GEO_CACHE, key, () => markFactoryGeometry(
+    seedWeather(new RoundedBoxGeometry(w, h, d, 2, r)), key
+  ));
+}
+
+function cylGeo(r1, r2, h, segments = 12) {
+  const q = getQuality();
+  const s = Math.max(5, Math.round(segments * q.segScale));
+  return cached(GEO_CACHE, `cy:${q.id}:${r1}:${r2}:${h}:${s}`, () =>
+    seedWeather(new THREE.CylinderGeometry(r1, r2, h, s))
   );
 }
 
-function cylGeo(r1, r2, h, seg = 12) {
-  return cached(
-    GEO_CACHE,
-    `cyl:${r1}:${r2}:${h}:${seg}`,
-    () => new THREE.CylinderGeometry(r1, r2, h, seg)
+function sphereGeo(radius, widthSegments = 12, heightSegments = 12) {
+  const q = getQuality();
+  const sw = Math.max(4, Math.round(widthSegments * q.segScale));
+  const sh = Math.max(3, Math.round(heightSegments * q.segScale));
+  return cached(GEO_CACHE, `sp:${q.id}:${radius}:${sw}:${sh}`, () =>
+    seedWeather(new THREE.SphereGeometry(radius, sw, sh))
   );
 }
 
-function sphereGeo(r, w = 12, h = 12) {
-  return cached(
-    GEO_CACHE,
-    `sphere:${r}:${w}:${h}`,
-    () => new THREE.SphereGeometry(r, w, h)
+function domeGeo(radius, widthSegments = 12, heightSegments = 8) {
+  const q = getQuality();
+  const sw = Math.max(4, Math.round(widthSegments * q.segScale));
+  const sh = Math.max(3, Math.round(heightSegments * q.segScale));
+  return cached(GEO_CACHE, `dm:${q.id}:${radius}:${sw}:${sh}`, () =>
+    seedWeather(new THREE.SphereGeometry(radius, sw, sh, 0, Math.PI * 2, 0, Math.PI / 2))
   );
 }
 
-// --- Material Helpers ---
-function metalMat(color, roughness = 0.45, metalness = 0.75) {
-  return cached(
-    MAT_CACHE,
-    `metal:${color}:${roughness}:${metalness}`,
-    () => new THREE.MeshStandardMaterial({ color, roughness, metalness })
+function capsuleGeo(radius, length, radialSegments = 10) {
+  const q = getQuality();
+  const s = Math.max(6, Math.round(radialSegments * q.segScale));
+  return cached(GEO_CACHE, `cp:${q.id}:${radius}:${length}:${s}`, () =>
+    seedWeather(new THREE.CapsuleGeometry(radius, length, 4, s))
   );
 }
 
-function matteMat(color) {
-  return cached(
-    MAT_CACHE,
-    `matte:${color}`,
-    () => new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.88,
-      metalness: 0.08
-    })
+function coneGeo(radius, height, segments = 8) {
+  const q = getQuality();
+  const s = Math.max(4, Math.round(segments * q.segScale));
+  return cached(GEO_CACHE, `cn:${q.id}:${radius}:${height}:${s}`, () =>
+    seedWeather(new THREE.ConeGeometry(radius, height, s))
   );
 }
 
-function glassMat(color = 0x112233) {
-  return cached(
-    MAT_CACHE,
-    `glass:${color}`,
-    () => new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: 0.04,
-      metalness: 0,
-      transparent: true,
-      opacity: 0.65,
-      transmission: 0.15,
-      emissive: color,
-      emissiveIntensity: 0.25,
-      depthWrite: false
-    })
+function ringGeo(inner, outer, segments = 24) {
+  const q = getQuality();
+  const s = Math.max(8, Math.round(segments * q.segScale));
+  return cached(GEO_CACHE, `rg:${q.id}:${inner}:${outer}:${s}`, () =>
+    seedWeather(new THREE.RingGeometry(inner, outer, s))
   );
 }
 
-function glowMat(color, intensity = 1.5) {
-  return cached(
-    MAT_CACHE,
-    `glow:${color}:${intensity}`,
-    () => new THREE.MeshStandardMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: intensity,
-      roughness: 0.45,
-      metalness: 0.35
-    })
-  );
+function makeLambert(args) {
+  return typeof THREE.MeshLambertMaterial === 'function'
+    ? new THREE.MeshLambertMaterial(args)
+    : new THREE.MeshStandardMaterial(args);
 }
 
-function trackMat() {
-  return cached(
-    MAT_CACHE,
-    'track',
-    () => new THREE.MeshStandardMaterial({
-      color: 0x151515,
-      roughness: 0.95,
-      metalness: 0.25
-    })
-  );
+function mkMat(prefix, args, create) {
+  return cached(MAT_CACHE, `${getQuality().id}|${prefix}:${args.join(':')}`, create);
 }
 
 export function mixColor(a, b, t) {
@@ -107,97 +139,312 @@ export function mixColor(a, b, t) {
   return ca.lerp(cb, t).getHex();
 }
 
-function enableShadows(obj) {
-  obj.castShadow = true;
-  obj.receiveShadow = true;
-  return obj;
+function matteMat(color) {
+  const q = getQuality();
+  return mkMat('hull', [color], () => {
+    if (q.materialTier === 'lambert') return makeLambert({ color });
+    const base = {
+      color,
+      envMapIntensity: q.envIntensity,
+      ...(q.weathering ? { vertexColors: true } : {}),
+    };
+    if (q.clearcoat) {
+      return new THREE.MeshPhysicalMaterial({
+        ...base,
+        roughness: 0.58,
+        metalness: 0.3,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.55,
+      });
+    }
+    return new THREE.MeshStandardMaterial({ ...base, roughness: 0.66, metalness: 0.22 });
+  });
 }
 
-function mesh(geometry, material, position, rotation) {
-  const m = enableShadows(new THREE.Mesh(geometry, material));
-  if (position) m.position.set(position[0], position[1], position[2]);
-  if (rotation) m.rotation.set(rotation[0], rotation[1], rotation[2]);
-  return m;
+function metalMat(color, roughness = 0.45, metalness = 0.75) {
+  const q = getQuality();
+  return mkMat('metal', [color, roughness, metalness], () => {
+    if (q.materialTier === 'lambert') return makeLambert({ color });
+    return new THREE.MeshStandardMaterial({ color, roughness, metalness, envMapIntensity: q.envIntensity });
+  });
 }
 
+function rubberMat() {
+  const q = getQuality();
+  return mkMat('rubber', [], () => q.materialTier === 'lambert'
+    ? makeLambert({ color: 0x141414 })
+    : new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.96, metalness: 0.02 })
+  );
+}
+
+function gunmetalMat() {
+  return metalMat(0x2b3038, 0.34, 0.9);
+}
+
+function canvasMat(color = 0x49513f) {
+  const q = getQuality();
+  return mkMat('canvas', [color], () => q.materialTier === 'lambert'
+    ? makeLambert({ color })
+    : new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.94,
+      metalness: 0.02,
+      envMapIntensity: q.envIntensity * 0.4,
+    })
+  );
+}
+
+function trackMat() {
+  const q = getQuality();
+  return mkMat('track', [], () => q.materialTier === 'lambert'
+    ? makeLambert({ color: 0x1b1b19 })
+    : new THREE.MeshStandardMaterial({ color: 0x1b1b19, roughness: 0.9, metalness: 0.28 })
+  );
+}
+
+function glassMat(color = 0x112233) {
+  const q = getQuality();
+  return mkMat('glass', [color], () => {
+    if (q.glassTier === 'physical') {
+      return new THREE.MeshPhysicalMaterial({
+        color,
+        roughness: 0.06,
+        metalness: 0,
+        transparent: true,
+        opacity: 0.55,
+        transmission: 0.35,
+        thickness: 0.2,
+        emissive: color,
+        emissiveIntensity: q.emissives ? 0.2 : 0,
+        depthWrite: false,
+        envMapIntensity: q.envIntensity,
+      });
+    }
+    if (q.glassTier === 'standard') {
+      return new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.1,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.6,
+        emissive: color,
+        emissiveIntensity: q.emissives ? 0.25 : 0,
+        depthWrite: false,
+      });
+    }
+    return makeLambert({
+      color,
+      transparent: true,
+      opacity: 0.55,
+      emissive: color,
+      emissiveIntensity: q.emissives ? 0.2 : 0,
+      depthWrite: false,
+    });
+  });
+}
+
+function glowMat(color, intensity = 1.5) {
+  const q = getQuality();
+  return mkMat('glow', [color, intensity], () => {
+    if (!q.emissives) return new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2 });
+    if (q.materialTier === 'lambert') {
+      return makeLambert({ color, emissive: color, emissiveIntensity: intensity * 0.7 });
+    }
+    return new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: intensity,
+      roughness: 0.45,
+      metalness: 0.35,
+    });
+  });
+}
+
+function lightMat(color) {
+  const q = getQuality();
+  return mkMat('light', [color], () => q.emissives
+    ? new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.8, roughness: 0.3 })
+    : new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.4 })
+  );
+}
+
+function enableShadows(object, key = false) {
+  const q = getQuality();
+  if (key) object.userData.keyCaster = true;
+  object.castShadow = q.shadowCasters === 'all' || (q.shadowCasters === 'key' && key);
+  object.receiveShadow = q.shadows && q.shadowType !== 'off';
+  return object;
+}
+
+function mesh(geometry, material, position, rotation, key = false) {
+  const result = enableShadows(new THREE.Mesh(geometry, material), key);
+  if (position) result.position.set(position[0], position[1], position[2]);
+  if (rotation) result.rotation.set(rotation[0], rotation[1], rotation[2]);
+  return result;
+}
+
+// --- Detail kit ------------------------------------------------------------
+function roadWheel(group, x, y, z, radius = 0.45, width = 0.9) {
+  if (dl() === 0) {
+    const simple = new THREE.Mesh(cylGeo(radius, radius, width, 10), trackMat());
+    simple.rotation.z = Math.PI / 2;
+    simple.position.set(x, y, z);
+    group.add(simple);
+    return;
+  }
+  const tire = new THREE.Mesh(cylGeo(radius, radius, width * 0.8, 12), rubberMat());
+  const rim = new THREE.Mesh(cylGeo(radius * 0.62, radius * 0.62, width * 0.9, 10), metalMat(0x3a3f36, 0.55, 0.6));
+  const hub = new THREE.Mesh(cylGeo(radius * 0.22, radius * 0.22, width * 0.98, 6), gunmetalMat());
+  for (const wheel of [tire, rim, hub]) {
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, y, z);
+    group.add(wheel);
+  }
+}
+
+function hatch(parent, x, y, z, radius = 0.35) {
+  if (dl() < 1) return;
+  const lid = new THREE.Mesh(cylGeo(radius, radius, 0.08, 10), metalMat(0x2f332c, 0.6, 0.4));
+  lid.position.set(x, y, z);
+  const handle = new THREE.Mesh(boxGeo(radius * 0.9, 0.05, 0.05, 0.02), gunmetalMat());
+  handle.position.set(x, y + 0.07, z);
+  parent.add(lid, handle);
+}
+
+function antenna(parent, x, y, z, height = 2) {
+  if (dl() < 1) return;
+  const stem = new THREE.Mesh(cylGeo(0.02, 0.035, height, 4), metalMat(0x30342e, 0.6, 0.5));
+  stem.position.set(x, y + height / 2, z);
+  parent.add(stem);
+  if (dl() >= 2) {
+    const tip = new THREE.Mesh(sphereGeo(0.05, 6, 5), metalMat(0x1c1f1a, 0.5, 0.5));
+    tip.position.set(x, y + height, z);
+    parent.add(tip);
+  }
+}
+
+function headlights(group, y, z, xs = [-1.2, 1.2]) {
+  if (dl() < 1) return;
+  for (const x of xs) {
+    const housing = new THREE.Mesh(cylGeo(0.13, 0.15, 0.1, 8), metalMat(0x26291f, 0.6, 0.5));
+    housing.rotation.x = Math.PI / 2;
+    housing.position.set(x, y, z);
+    const lens = new THREE.Mesh(cylGeo(0.1, 0.1, 0.05, 8), lightMat(0xffeebb));
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(x, y, z + 0.06);
+    group.add(housing, lens);
+  }
+}
+
+function exhaustPipe(group, x, y, z, radius = 0.11, length = 0.5, vertical = true) {
+  if (dl() < 1) return;
+  const pipe = new THREE.Mesh(cylGeo(radius, radius * 1.15, length, 8), metalMat(0x3a3d40, 0.5, 0.8));
+  pipe.position.set(x, y, z);
+  if (!vertical) pipe.rotation.x = Math.PI / 2;
+  const soot = new THREE.Mesh(cylGeo(radius * 0.8, radius * 0.8, 0.06, 8), metalMat(0x15161a, 0.9, 0.2));
+  soot.position.copy(pipe.position);
+  if (vertical) soot.position.y += length / 2;
+  else soot.position.z -= length / 2;
+  if (!vertical) soot.rotation.x = Math.PI / 2;
+  group.add(pipe, soot);
+}
+
+function rivets(parent, points, radius = 0.05) {
+  if (dl() < 2) return;
+  const geometry = cylGeo(radius, radius, 0.05, 5);
+  const material = metalMat(0x20241f, 0.5, 0.7);
+  for (const point of points) {
+    const rivet = new THREE.Mesh(geometry, material);
+    rivet.position.set(point[0], point[1], point[2]);
+    if (point[3]) rivet.rotation.x = point[3];
+    if (point[4]) rivet.rotation.z = point[4];
+    parent.add(rivet);
+  }
+}
+
+function stowage(parent, x, y, z, w = 1.8, h = 0.6, d = 0.9) {
+  if (dl() < 1) return;
+  parent.add(mesh(boxGeo(w, h, d, 0.06), canvasMat(), [x, y, z]));
+}
+
+function fuelDrum(parent, x, y, z) {
+  if (dl() < 2) return;
+  const drum = new THREE.Mesh(cylGeo(0.35, 0.35, 0.9, 10), metalMat(0x3d4437, 0.7, 0.3));
+  drum.rotation.x = Math.PI / 2;
+  drum.position.set(x, y, z);
+  parent.add(drum);
+}
+
+function navLights(group, port, starboard, stern) {
+  if (dl() < 2 || !getQuality().emissives) return;
+  const add = (position, color) => {
+    const light = new THREE.Mesh(boxGeo(0.14, 0.14, 0.14, 0.02), lightMat(color));
+    light.position.set(position[0], position[1], position[2]);
+    light.userData.noShadow = true;
+    group.add(light);
+  };
+  add(port, 0xff2222);
+  add(starboard, 0x22ff44);
+  if (stern) add(stern, 0xeeeeff);
+}
+
+// --- Outlines --------------------------------------------------------------
 const EDGE_MAT = new THREE.LineBasicMaterial({
   color: 0x000000,
   transparent: true,
   opacity: 0.22,
-  depthTest: true
+  depthTest: true,
 });
-
-// Edge outlines share the same cached base geometries, so the derived
-// EdgesGeometry can be cached per source geometry too. Without this, every
-// spawned unit allocated a brand-new EdgesGeometry per sub-mesh, which leaked
-// GPU geometry (renderer.info.memory.geometries grew unbounded over a match).
-const EDGE_GEO_CACHE = new Map(); // source BufferGeometry -> EdgesGeometry
-const SOURCE_GEO_CACHE = new Map(); // geometry signature -> shared BufferGeometry
+const EDGE_GEO_CACHE = new Map();
+const SOURCE_GEO_CACHE = new Map();
 
 function sharedSourceGeometry(geometry) {
-  if (!geometry?.parameters) return geometry;
+  const factoryKey = geometry?.userData?.factoryKey;
+  if (!factoryKey && !geometry?.parameters) return geometry;
   let signature;
   try {
-    signature = `${geometry.type}:${JSON.stringify(geometry.parameters)}`;
+    signature = factoryKey || `${getQuality().id}:${geometry.type}:${JSON.stringify(geometry.parameters)}`;
   } catch {
     return geometry;
   }
-
-  const cachedGeometry = SOURCE_GEO_CACHE.get(signature);
-  if (cachedGeometry && cachedGeometry !== geometry) {
+  const existing = SOURCE_GEO_CACHE.get(signature);
+  if (existing && existing !== geometry) {
     geometry.dispose();
-    return cachedGeometry;
+    return existing;
   }
   SOURCE_GEO_CACHE.set(signature, geometry);
   return geometry;
 }
 
 function edgeGeoFor(geometry) {
-  let eg = EDGE_GEO_CACHE.get(geometry);
-  if (!eg) {
-    eg = new THREE.EdgesGeometry(geometry, 35);
-    EDGE_GEO_CACHE.set(geometry, eg);
+  let edges = EDGE_GEO_CACHE.get(geometry);
+  if (!edges) {
+    edges = new THREE.EdgesGeometry(geometry, 35);
+    EDGE_GEO_CACHE.set(geometry, edges);
   }
-  return eg;
+  return edges;
 }
 
 function finishModel(group, { outlines = true } = {}) {
-  const meshes = [];
-
-  group.traverse((obj) => {
-    if (!obj.isMesh) return;
-
-    enableShadows(obj);
-
-    if (obj.geometry) {
-      obj.geometry = sharedSourceGeometry(obj.geometry);
-      obj.geometry.computeVertexNormals();
-      obj.geometry.computeBoundingSphere();
+  const wantEdges = outlines && getQuality().outlines;
+  const outlineMeshes = [];
+  group.traverse(object => {
+    if (!object.isMesh) return;
+    enableShadows(object, object.userData.keyCaster === true);
+    if (object.geometry) {
+      object.geometry = sharedSourceGeometry(object.geometry);
+      if (!object.geometry.attributes?.normal) object.geometry.computeVertexNormals?.();
+      object.geometry.computeBoundingSphere?.();
     }
-
-    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-
-    for (const mat of mats) {
-      if (!mat) continue;
-      if ('envMapIntensity' in mat) mat.envMapIntensity = 0.7;
-    }
-
-    if (!obj.material?.transparent && outlines) {
-      meshes.push(obj);
-    }
+    if (!object.material?.transparent && wantEdges) outlineMeshes.push(object);
   });
-
-  for (const obj of meshes) {
-    const edges = new THREE.LineSegments(
-      edgeGeoFor(obj.geometry),
-      EDGE_MAT
-    );
-
+  for (const object of outlineMeshes) {
+    const edges = new THREE.LineSegments(edgeGeoFor(object.geometry), EDGE_MAT);
     edges.userData.noShadow = true;
+    edges.userData.isEdgeOutline = true;
     edges.renderOrder = 2;
-    obj.add(edges);
+    object.add(edges);
   }
-
   return group;
 }
 
@@ -225,1432 +472,995 @@ const UNIT_BUILDERS = {
   minigunnerVehicle: buildMinigunnerVehicle,
   megaMedic: buildMegaMedic,
   minigunner: buildMinigunner,
-
-  destroyer: (g, c) => buildShip(g, c, 1.0),
-  battleship: (g, c) => buildShip(g, c, 1.6),
-  fighter: (g, c) => buildJet(g, c, 1.0),
-  bomber: (g, c) => buildJet(g, c, 1.4)
+  destroyer: (group, color) => buildShip(group, color, 1.0),
+  battleship: (group, color) => buildShip(group, color, 1.6),
+  fighter: (group, color) => buildJet(group, color, 1.0),
+  bomber: (group, color) => buildJet(group, color, 1.4),
 };
 
 /** Returns a THREE.Group representing the unit. */
 export function createUnitMesh(type, color, faction) {
   const teamColor = faction === 'player' ? 0x3366cc : 0xcc3333;
   const tint = mixColor(color, teamColor, 0.5);
-
-  const g = new THREE.Group();
-  g.userData.turret = null;
-  g.userData.muzzleOffset = null;
-
+  const group = new THREE.Group();
+  group.userData.turret = null;
+  group.userData.muzzleOffset = null;
   const builder = UNIT_BUILDERS[type];
-  const unit = builder ? builder(g, tint) : g;
-
+  const unit = builder ? builder(group, tint) : group;
   return finishModel(unit);
 }
 
-// ---------- LAND ----------
-function buildInfantry(g, color) {
-  const bodyMat = matteMat(color);
-  const armorMat = metalMat(0x333333, 0.6, 0.4);
+// ---------- LAND -----------------------------------------------------------
+function buildInfantry(group, color) {
+  const uniform = matteMat(color);
+  const vest = matteMat(mixColor(color, 0x1a1d16, 0.55));
+  const kit = metalMat(0x2c2f26, 0.7, 0.3);
+  const skin = matteMat(0xc9a184);
+  const legGeometry = boxGeo(0.28, 0.9, 0.28, 0.05);
+  for (const sx of [-0.2, 0.2]) {
+    group.add(mesh(legGeometry, uniform, [sx, 0.55, 0]));
+    group.add(mesh(boxGeo(0.3, 0.28, 0.42, 0.04), rubberMat(), [sx, 0.14, 0.05]));
+    if (dl() >= 1) group.add(mesh(boxGeo(0.24, 0.22, 0.12, 0.04), kit, [sx, 0.62, 0.17]));
+  }
+  const torso = mesh(boxGeo(0.78, 1.05, 0.44, 0.06), uniform, [0, 1.52, 0], null, true);
+  const vestMesh = mesh(boxGeo(0.84, 0.78, 0.5, 0.05), vest, [0, 1.62, 0]);
+  const pack = mesh(boxGeo(0.6, 0.7, 0.28, 0.05), vest, [0, 1.6, -0.34]);
+  group.add(torso, vestMesh, pack);
+  if (dl() >= 1) {
+    group.add(mesh(boxGeo(0.2, 0.24, 0.1, 0.03), kit, [0.22, 1.42, 0.26]));
+    group.add(mesh(boxGeo(0.2, 0.24, 0.1, 0.03), kit, [-0.22, 1.42, 0.26]));
+  }
+  const armGeometry = boxGeo(0.22, 0.9, 0.22, 0.05);
+  group.add(mesh(armGeometry, uniform, [-0.53, 1.45, 0.05], [0.15, 0, 0.08]));
+  group.add(mesh(armGeometry, uniform, [0.53, 1.45, 0.18], [-0.55, 0, -0.08]));
+  group.add(mesh(boxGeo(0.18, 0.2, 0.18, 0.04), kit, [-0.55, 0.98, 0.12]));
+  group.add(mesh(boxGeo(0.18, 0.2, 0.18, 0.04), kit, [0.5, 1.02, 0.5]));
+  group.add(mesh(sphereGeo(0.24, 10, 8), skin, [0, 2.24, 0]));
+  group.add(mesh(domeGeo(0.3, 10, 6), vest, [0, 2.26, 0]));
+  if (dl() >= 1) group.add(mesh(cylGeo(0.31, 0.33, 0.06, 10), vest, [0, 2.26, 0]));
 
-  const torso = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.5), bodyMat));
-  torso.position.y = 1.4;
-
-  const legGeom = new THREE.BoxGeometry(0.3, 1, 0.3);
-  const legL = enableShadows(new THREE.Mesh(legGeom, bodyMat));
-  legL.position.set(-0.2, 0.5, 0);
-  const legR = enableShadows(new THREE.Mesh(legGeom, bodyMat));
-  legR.position.set(0.2, 0.5, 0);
-
-  const armGeom = new THREE.BoxGeometry(0.25, 1, 0.25);
-  const armL = enableShadows(new THREE.Mesh(armGeom, bodyMat));
-  armL.position.set(-0.55, 1.4, 0);
-  const armR = enableShadows(new THREE.Mesh(armGeom, bodyMat));
-  armR.position.set(0.55, 1.4, 0.2);
-  armR.rotation.x = -0.5;
-
-  const head = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), matteMat(0xddbb99)));
-  head.position.y = 2.2;
-  const helmet = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), armorMat));
-  helmet.position.y = 2.25;
-
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.1), glassMat(0x00ffff));
-  visor.position.set(0, 2.2, 0.25);
-
-  const rifle = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.2), armorMat));
-  rifle.position.set(0.55, 1.2, 0.6);
-  rifle.rotation.x = -0.2;
-
-  g.add(torso, legL, legR, armL, armR, head, helmet, visor, rifle);
-  return g;
+  const rifle = new THREE.Group();
+  rifle.add(mesh(boxGeo(0.09, 0.14, 0.7, 0.02), gunmetalMat(), [0, 0, 0]));
+  rifle.add(mesh(cylGeo(0.025, 0.025, 0.5, 6), gunmetalMat(), [0, 0.02, 0.55], [Math.PI / 2, 0, 0]));
+  rifle.add(mesh(boxGeo(0.07, 0.28, 0.12, 0.02), kit, [0, -0.18, 0.05], [0.35, 0, 0]));
+  rifle.add(mesh(boxGeo(0.08, 0.16, 0.3, 0.02), kit, [0, -0.03, -0.45]));
+  rifle.position.set(0.5, 1.28, 0.55);
+  rifle.rotation.x = -0.25;
+  group.add(rifle);
+  if (dl() >= 2) group.add(mesh(boxGeo(0.36, 0.09, 0.08, 0.02), glassMat(0x223322), [0, 2.22, 0.24]));
+  return group;
 }
 
-function buildTank(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x333333, 0.7, 0.5);
+function buildTank(group, color) {
+  const hull = matteMat(color);
+  const steel = metalMat(0x33383b, 0.55, 0.65);
+  const lower = mesh(boxGeo(4.5, 1, 7, 0.12), hull, [0, 0.8, 0], null, true);
+  const upper = mesh(boxGeo(4, 0.8, 5, 0.1), hull, [0, 1.7, -0.5], null, true);
+  const glacis = mesh(boxGeo(4, 1, 2, 0.1), hull, [0, 1.5, 3], [-0.4, 0, 0], true);
+  weather(lower.geometry);
+  weather(upper.geometry);
+  weather(glacis.geometry);
+  group.add(lower, upper, glacis);
+  headlights(group, 1.55, 3.55, [-1.3, 1.3]);
+  stowage(group, 0, 1.95, -3.1);
+  if (dl() >= 2) {
+    fuelDrum(group, -1.2, 1.85, -3.2);
+    fuelDrum(group, 1.2, 1.85, -3.2);
+  }
 
-  const lowerHull = mesh(boxGeo(4.5, 1, 7, 0.12), hullMat, [0, 0.8, 0]);
-
-  const upperHull = mesh(boxGeo(4, 0.8, 5, 0.1), hullMat, [0, 1.7, -0.5]);
-
-  const frontArmor = mesh(boxGeo(4, 1, 2, 0.1), hullMat, [0, 1.5, 3], [-0.4, 0, 0]);
-
-  // Stowage box on the rear deck
-  const stowage = mesh(boxGeo(1.8, 0.6, 0.9, 0.06), detailMat, [0, 1.9, -3.1]);
-
-  const trackGeom = boxGeo(0.8, 1.2, 7.5, 0.08);
-  const tL = mesh(trackGeom, trackMat(), [-2.4, 0.6, 0]);
-  const tR = mesh(trackGeom, trackMat(), [2.4, 0.6, 0]);
-
-  // Road wheels — sit outside the track slab so they read as wheels.
-  const wheelGeom = cylGeo(0.45, 0.45, 0.9, 18);
+  const trackGeometry = boxGeo(0.8, 1.2, 7.5, 0.08);
+  const leftTrack = mesh(trackGeometry, trackMat(), [-2.4, 0.6, 0]);
+  const rightTrack = mesh(trackGeometry, trackMat(), [2.4, 0.6, 0]);
+  weather(leftTrack.geometry, 0.45);
+  group.add(leftTrack, rightTrack);
+  const fenderGeometry = boxGeo(1, 0.08, 7.6, 0.03);
+  group.add(mesh(fenderGeometry, hull, [-2.4, 1.28, 0]), mesh(fenderGeometry, hull, [2.4, 1.28, 0]));
   for (let i = -3; i <= 3; i++) {
-    const wL = new THREE.Mesh(wheelGeom, detailMat);
-    wL.rotation.z = Math.PI / 2;
-    wL.position.set(-2.8, 0.45, i * 1.1);
-    g.add(wL);
-    const wR = wL.clone();
-    wR.position.x = 2.8;
-    g.add(wR);
+    roadWheel(group, -2.8, 0.45, i * 1.1);
+    roadWheel(group, 2.8, 0.45, i * 1.1);
   }
-
-  // Drive sprocket (rear) + idler (front)
-  const sprocketGeom = cylGeo(0.5, 0.5, 0.9, 18);
   for (const z of [-3.7, 3.7]) {
-    const sL = new THREE.Mesh(sprocketGeom, detailMat);
-    sL.rotation.z = Math.PI / 2;
-    sL.position.set(-2.8, 0.5, z);
-    g.add(sL);
-    const sR = sL.clone();
-    sR.position.x = 2.8;
-    g.add(sR);
+    roadWheel(group, -2.8, 0.5, z, 0.5, 0.9);
+    roadWheel(group, 2.8, 0.5, z, 0.5, 0.9);
   }
-
-  // Return rollers along the top run
-  const rollerGeom = cylGeo(0.18, 0.18, 0.8, 12);
-  for (const z of [-2.2, 0, 2.2]) {
-    const rL = new THREE.Mesh(rollerGeom, detailMat);
-    rL.rotation.z = Math.PI / 2;
-    rL.position.set(-2.7, 1.15, z);
-    g.add(rL);
-    const rR = rL.clone();
-    rR.position.x = 2.7;
-    g.add(rR);
+  if (dl() >= 1) {
+    for (const z of [-2.2, 0, 2.2]) {
+      roadWheel(group, -2.7, 1.15, z, 0.18, 0.7);
+      roadWheel(group, 2.7, 1.15, z, 0.18, 0.7);
+    }
   }
 
   const turret = new THREE.Group();
-  const turretBase = mesh(boxGeo(3, 1, 3.5, 0.1), hullMat, [0, 2.4, 0]);
-
-  const turretFront = mesh(boxGeo(3, 1, 1.5, 0.1), hullMat, [0, 2.4, 2], [-0.3, 0, 0]);
-
-  // Turret bustle (ammo rack at the rear)
-  const bustle = mesh(boxGeo(2.4, 0.7, 1.1, 0.08), hullMat, [0, 2.4, -2.3]);
-
-  const cupola = mesh(cylGeo(0.4, 0.4, 0.3, 16), detailMat, [-0.8, 3.0, -0.5]);
-
-  // Commander machine gun on the cupola
-  const mg = mesh(cylGeo(0.04, 0.04, 1.2, 6), detailMat, [-0.8, 3.35, -0.1], [Math.PI / 2, 0, 0]);
-
-  const barrel = mesh(cylGeo(0.2, 0.2, 5, 24), detailMat, [0, 2.5, 3.5], [Math.PI / 2, 0, 0]);
-
-  // Gun mantlet around the barrel base
-  const mantlet = mesh(boxGeo(1.3, 1.3, 0.5, 0.06), detailMat, [0, 2.5, 3.0]);
-
-  const fume = mesh(cylGeo(0.3, 0.3, 0.6, 16), detailMat, [0, 2.5, 4.5], [Math.PI / 2, 0, 0]);
-
-  const raGeom = boxGeo(0.4, 0.4, 0.1, 0.02);
-  for (let i = 0; i < 3; i++) {
-    const ra = new THREE.Mesh(raGeom, detailMat);
-    ra.position.set(-1 + i * 1, 2.4, 2.8);
-    ra.rotation.x = -0.3;
-    turret.add(ra);
+  const turretBase = mesh(boxGeo(3, 1, 3.5, 0.1), hull, [0, 2.4, 0], null, true);
+  const turretFront = mesh(boxGeo(3, 1, 1.5, 0.1), hull, [0, 2.4, 2], [-0.3, 0, 0], true);
+  const bustle = mesh(boxGeo(2.4, 0.7, 1.1, 0.08), hull, [0, 2.4, -2.3]);
+  turret.add(turretBase, turretFront, bustle);
+  hatch(turret, -0.8, 2.95, -0.5, 0.4);
+  if (dl() >= 1) {
+    turret.add(mesh(cylGeo(0.04, 0.04, 1.2, 6), gunmetalMat(), [-0.8, 3.3, 0.1], [Math.PI / 2, 0, 0]));
+    turret.add(mesh(boxGeo(0.16, 0.14, 0.3, 0.02), steel, [-0.8, 3.22, -0.35]));
   }
-
-  turret.add(turretBase, turretFront, bustle, cupola, mg, barrel, mantlet, fume);
-
-  const antenna = new THREE.Mesh(cylGeo(0.02, 0.02, 2, 4), detailMat);
-  antenna.position.set(1, 3.5, -1);
-  turret.add(antenna);
-
-  g.add(lowerHull, upperHull, frontArmor, stowage, tL, tR, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 6);
-  return g;
+  turret.add(mesh(cylGeo(0.2, 0.2, 5, 20), gunmetalMat(), [0, 2.5, 3.5], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(boxGeo(1.3, 1.3, 0.5, 0.06), canvasMat(mixColor(color, 0x2c2f28, 0.5)), [0, 2.5, 3.0]));
+  turret.add(mesh(cylGeo(0.3, 0.3, 0.6, 12), steel, [0, 2.5, 4.5], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(cylGeo(0.28, 0.28, 0.35, 12), gunmetalMat(), [0, 2.5, 5.9], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) {
+    for (let i = 0; i < 3; i++) {
+      turret.add(mesh(boxGeo(0.4, 0.4, 0.1, 0.02), steel, [-1 + i, 2.4, 2.8], [-0.3, 0, 0]));
+    }
+  }
+  antenna(turret, 1, 2.9, -1.4, 2);
+  rivets(turret, [[-1.4, 2.5, 2.1], [1.4, 2.5, 2.1], [-1.4, 2.5, -2.2], [1.4, 2.5, -2.2]]);
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 6);
+  return group;
 }
 
-function buildHeavyTank(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x333333, 0.7, 0.5);
-
-  // Lower hull — wider and taller
-  const lowerHull = mesh(boxGeo(6, 1.4, 9, 0.15), hullMat, [0, 1, 0]);
-
-  // Upper hull
-  const upperHull = mesh(boxGeo(5.5, 1, 7, 0.12), hullMat, [0, 2.2, -0.5]);
-
-  // Sloped front armor — extra thick
-  const frontArmor = mesh(boxGeo(5.5, 1.4, 2.5, 0.12), hullMat, [0, 2, 4], [-0.35, 0, 0]);
-
-  // Side skirts
-  const skirtMat = metalMat(0x444444, 0.6, 0.3);
-  const skirtL = mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMat, [-3.2, 1, 0]);
-  const skirtR = mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMat, [3.2, 1, 0]);
-
-  // Tracks — thicker
-  const trackGeom = boxGeo(1, 1.5, 9.5, 0.1);
-  const tL = mesh(trackGeom, trackMat(), [-2.8, 0.7, 0]);
-  const tR = mesh(trackGeom, trackMat(), [2.8, 0.7, 0]);
-
-  // Road wheels — outside the track slab
-  const wheelGeom = cylGeo(0.55, 0.55, 1.1, 18);
-  for (let i = -4; i <= 4; i++) {
-    const wL = new THREE.Mesh(wheelGeom, detailMat);
-    wL.rotation.z = Math.PI / 2;
-    wL.position.set(-3.15, 0.55, i * 1.1);
-    g.add(wL);
-    const wR = wL.clone();
-    wR.position.x = 3.15;
-    g.add(wR);
+function buildHeavyTank(group, color) {
+  const hull = matteMat(color);
+  const steel = metalMat(0x33383b, 0.55, 0.65);
+  const lower = mesh(boxGeo(6, 1.4, 9, 0.15), hull, [0, 1, 0], null, true);
+  const upper = mesh(boxGeo(5.5, 1, 7, 0.12), hull, [0, 2.2, -0.5], null, true);
+  const glacis = mesh(boxGeo(5.5, 1.4, 2.5, 0.12), hull, [0, 2, 4], [-0.35, 0, 0], true);
+  weather(lower.geometry);
+  weather(upper.geometry);
+  weather(glacis.geometry);
+  group.add(lower, upper, glacis);
+  headlights(group, 2.1, 4.6, [-1.8, 1.8]);
+  const skirtMaterial = metalMat(0x444444, 0.6, 0.3);
+  group.add(mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMaterial, [-3.2, 1, 0]));
+  group.add(mesh(boxGeo(0.3, 1.5, 8, 0.05), skirtMaterial, [3.2, 1, 0]));
+  if (dl() >= 2) {
+    for (const sx of [-3.2, 3.2]) {
+      for (const z of [-2.6, 0, 2.6]) group.add(mesh(boxGeo(0.32, 0.5, 1.4, 0.03), rubberMat(), [sx, 0.15, z]));
+    }
   }
-
-  // Drive sprocket + idler
-  const sprocketGeom = cylGeo(0.6, 0.6, 1.1, 18);
+  stowage(group, 0, 2.7, -3.8, 2.4, 0.7, 1.1);
+  const trackGeometry = boxGeo(1, 1.5, 9.5, 0.1);
+  const leftTrack = mesh(trackGeometry, trackMat(), [-2.8, 0.7, 0]);
+  weather(leftTrack.geometry, 0.45);
+  group.add(leftTrack, mesh(trackGeometry, trackMat(), [2.8, 0.7, 0]));
+  for (let i = -4; i <= 4; i++) {
+    roadWheel(group, -3.15, 0.55, i * 1.1, 0.55, 1.1);
+    roadWheel(group, 3.15, 0.55, i * 1.1, 0.55, 1.1);
+  }
   for (const z of [-4.4, 4.4]) {
-    const sL = new THREE.Mesh(sprocketGeom, detailMat);
-    sL.rotation.z = Math.PI / 2;
-    sL.position.set(-3.15, 0.6, z);
-    g.add(sL);
-    const sR = sL.clone();
-    sR.position.x = 3.15;
-    g.add(sR);
+    roadWheel(group, -3.15, 0.6, z, 0.6, 1.1);
+    roadWheel(group, 3.15, 0.6, z, 0.6, 1.1);
+  }
+  if (dl() >= 1) {
+    for (const z of [-3, 0, 3]) {
+      roadWheel(group, -3.05, 1.45, z, 0.2, 0.9);
+      roadWheel(group, 3.05, 1.45, z, 0.2, 0.9);
+    }
   }
 
-  // Return rollers
-  const rollerGeom = cylGeo(0.2, 0.2, 1, 12);
-  for (const z of [-3, 0, 3]) {
-    const rL = new THREE.Mesh(rollerGeom, detailMat);
-    rL.rotation.z = Math.PI / 2;
-    rL.position.set(-3.05, 1.45, z);
-    g.add(rL);
-    const rR = rL.clone();
-    rR.position.x = 3.05;
-    g.add(rR);
-  }
-
-  // Stowage on rear deck
-  const stowage = mesh(boxGeo(2.4, 0.7, 1.1, 0.06), detailMat, [0, 2.65, -3.8]);
-
-  // Turret — larger, boxy with sloped sides
   const turret = new THREE.Group();
-  const turretBase = mesh(boxGeo(4, 1.2, 4.5, 0.12), hullMat, [0, 3.1, 0]);
-
-  const turretFront = mesh(boxGeo(4, 1.2, 2, 0.1), hullMat, [0, 3.1, 2.5], [-0.25, 0, 0]);
-
-  // Turret bustle
-  const bustle = mesh(boxGeo(3.4, 1, 1.4, 0.1), hullMat, [0, 3.1, -2.9]);
-
-  // Commander cupola
-  const cupola = mesh(cylGeo(0.5, 0.5, 0.4, 16), detailMat, [-1, 3.9, -1]);
-
-  // Commander machine gun
-  const mg = mesh(cylGeo(0.05, 0.05, 1.4, 6), detailMat, [-1, 4.15, -0.2], [Math.PI / 2, 0, 0]);
-
-  // Loader hatch
-  const hatch = mesh(cylGeo(0.4, 0.4, 0.2, 16), detailMat, [1, 3.8, -0.5]);
-
-  // Main gun — massive barrel
-  const barrel = mesh(cylGeo(0.35, 0.35, 6, 24), detailMat, [0, 3.2, 5.5], [Math.PI / 2, 0, 0]);
-
-  // Gun mantlet
-  const mantlet = mesh(boxGeo(1.9, 1.7, 0.6, 0.08), detailMat, [0, 3.2, 4.3]);
-
-  // Muzzle brake
-  const muzzle = mesh(cylGeo(0.5, 0.5, 0.8, 16), detailMat, [0, 3.2, 8.5], [Math.PI / 2, 0, 0]);
-
-  // Reactive armor blocks on turret
-  const raGeom = boxGeo(0.5, 0.5, 0.15, 0.03);
-  for (let i = 0; i < 4; i++) {
-    const ra = new THREE.Mesh(raGeom, detailMat);
-    ra.position.set(-1.5 + i * 1, 3.1, 2.2);
-    ra.rotation.x = -0.25;
-    turret.add(ra);
+  turret.add(mesh(boxGeo(4, 1.2, 4.5, 0.12), hull, [0, 3.1, 0], null, true));
+  turret.add(mesh(boxGeo(4, 1.2, 2, 0.1), hull, [0, 3.1, 2.5], [-0.25, 0, 0], true));
+  turret.add(mesh(boxGeo(3.4, 1, 1.4, 0.1), hull, [0, 3.1, -2.9]));
+  hatch(turret, -1, 3.75, -1, 0.5);
+  hatch(turret, 1, 3.72, -0.5, 0.4);
+  if (dl() >= 1) turret.add(mesh(cylGeo(0.05, 0.05, 1.4, 6), gunmetalMat(), [-1, 4.1, 0], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(cylGeo(0.35, 0.35, 6, 20), gunmetalMat(), [0, 3.2, 5.5], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(boxGeo(1.9, 1.7, 0.6, 0.08), steel, [0, 3.2, 4.3]));
+  turret.add(mesh(cylGeo(0.5, 0.5, 0.8, 14), gunmetalMat(), [0, 3.2, 8.5], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) {
+    for (let i = 0; i < 4; i++) turret.add(mesh(boxGeo(0.5, 0.5, 0.15, 0.03), steel, [-1.5 + i, 3.1, 2.2], [-0.25, 0, 0]));
+    turret.add(mesh(cylGeo(0.25, 0.25, 0.3, 10), glassMat(0xff4400), [-1.8, 3.5, 2.5], [Math.PI / 2, 0, 0]));
   }
-
-  turret.add(turretBase, turretFront, bustle, cupola, mg, hatch, barrel, mantlet, muzzle);
-
-  // Antenna
-  const antenna = new THREE.Mesh(cylGeo(0.03, 0.03, 2.5, 4), detailMat);
-  antenna.position.set(1.5, 4.5, -1.5);
-  turret.add(antenna);
-
-  // IR searchlight
-  const light = new THREE.Mesh(cylGeo(0.25, 0.25, 0.3, 12), glassMat(0xff4400));
-  light.rotation.x = Math.PI / 2;
-  light.position.set(-1.8, 3.5, 2.5);
-  turret.add(light);
-
-  g.add(lowerHull, upperHull, frontArmor, skirtL, skirtR, tL, tR, stowage, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 9);
-  return g;
+  antenna(turret, 1.5, 3.7, -1.5, 2.5);
+  rivets(turret, [[-1.9, 3.3, 2.6], [1.9, 3.3, 2.6], [-1.9, 3.3, -2.8], [1.9, 3.3, -2.8], [0, 3.8, -2.9]]);
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 9);
+  return group;
 }
 
-function buildCrusher(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x444444, 0.6, 0.5);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(7, 1.8, 10), hullMat));
-  hull.position.y = 1.2;
-
-  const frontPlate = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(7, 2, 3), hullMat));
-  frontPlate.position.set(0, 2, 4.5);
-  frontPlate.rotation.x = -0.3;
-
-  const slabMat = metalMat(0x444444, 0.7, 0.6);
-  const slabL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 9), slabMat));
-  slabL.position.set(-3.7, 1.5, 0);
-  const slabR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 9), slabMat));
-  slabR.position.set(3.7, 1.5, 0);
-
-  const trackGeom = new THREE.BoxGeometry(1.2, 1.8, 10.5);
-  const tL = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tL.position.set(-3.2, 0.9, 0);
-  const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
-  tR.position.set(3.2, 0.9, 0);
-
-  // Road wheels — outside the track slab
-  const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 1.3, 16);
+function buildCrusher(group, color) {
+  const hull = matteMat(color);
+  const plate = metalMat(0x444444, 0.6, 0.5);
+  const body = mesh(boxGeo(7, 1.8, 10, 0.1), hull, [0, 1.2, 0], null, true);
+  const frontPlate = mesh(boxGeo(7, 2, 3, 0.1), hull, [0, 2, 4.5], [-0.3, 0, 0], true);
+  weather(body.geometry);
+  weather(frontPlate.geometry);
+  group.add(body, frontPlate);
+  if (dl() >= 1) {
+    for (let i = -2; i <= 2; i++) {
+      group.add(mesh(boxGeo(0.5, 1.6, 0.06, 0.01), i % 2 ? matteMat(0xd8b430) : matteMat(0x1c1c1c), [i * 1.2, 1.9, 5.95], [-0.3, 0, 0]));
+    }
+  }
+  group.add(mesh(boxGeo(0.5, 2, 9, 0.05), plate, [-3.7, 1.5, 0]));
+  group.add(mesh(boxGeo(0.5, 2, 9, 0.05), plate, [3.7, 1.5, 0]));
+  headlights(group, 2.6, 5.2, [-2.6, 2.6]);
+  const trackGeometry = boxGeo(1.2, 1.8, 10.5, 0.08);
+  const leftTrack = mesh(trackGeometry, trackMat(), [-3.2, 0.9, 0]);
+  weather(leftTrack.geometry, 0.5);
+  group.add(leftTrack, mesh(trackGeometry, trackMat(), [3.2, 0.9, 0]));
   for (let i = -4; i <= 4; i++) {
-    const wL = new THREE.Mesh(wheelGeom, detailMat);
-    wL.rotation.z = Math.PI / 2;
-    wL.position.set(-3.55, 0.6, i * 1.2);
-    g.add(wL);
-    const wR = wL.clone();
-    wR.position.x = 3.55;
-    g.add(wR);
+    roadWheel(group, -3.55, 0.6, i * 1.2, 0.6, 1.3);
+    roadWheel(group, 3.55, 0.6, i * 1.2, 0.6, 1.3);
   }
-
-  // Drive sprocket + idler
-  const sprocketGeom = new THREE.CylinderGeometry(0.7, 0.7, 1.3, 16);
   for (const z of [-5.2, 5.2]) {
-    const sL = new THREE.Mesh(sprocketGeom, detailMat);
-    sL.rotation.z = Math.PI / 2;
-    sL.position.set(-3.55, 0.65, z);
-    g.add(sL);
-    const sR = sL.clone();
-    sR.position.x = 3.55;
-    g.add(sR);
+    roadWheel(group, -3.55, 0.65, z, 0.7, 1.3);
+    roadWheel(group, 3.55, 0.65, z, 0.7, 1.3);
   }
-
-  // Return rollers
-  const rollerGeom = new THREE.CylinderGeometry(0.25, 0.25, 1.2, 12);
-  for (const z of [-3.3, 0, 3.3]) {
-    const rL = new THREE.Mesh(rollerGeom, detailMat);
-    rL.rotation.z = Math.PI / 2;
-    rL.position.set(-3.45, 1.8, z);
-    g.add(rL);
-    const rR = rL.clone();
-    rR.position.x = 3.45;
-    g.add(rR);
+  if (dl() >= 1) {
+    for (const z of [-3.3, 0, 3.3]) {
+      roadWheel(group, -3.45, 1.8, z, 0.25, 1.1);
+      roadWheel(group, 3.45, 1.8, z, 0.25, 1.1);
+    }
   }
-
-  // Stowage racks on rear deck
-  const stowageMat = metalMat(0x555555, 0.6, 0.5);
-  const stow1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 1.2), stowageMat));
-  stow1.position.set(-1.5, 2.15, -4.4);
-  const stow2 = stow1.clone();
-  stow2.position.x = 1.5;
-  g.add(stow1, stow2);
+  stowage(group, -1.5, 2.2, -4.4, 2, 0.7, 1.2);
+  stowage(group, 1.5, 2.2, -4.4, 2, 0.7, 1.2);
 
   const turret = new THREE.Group();
-  const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.5, 5), hullMat));
-  turretBase.position.y = 3;
-  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 16), detailMat));
-  cupola.position.set(-1, 3.9, -1);
-  const barrelGeom = new THREE.CylinderGeometry(0.25, 0.25, 5, 16);
-  const barrel1 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
-  barrel1.rotation.x = Math.PI / 2;
-  barrel1.position.set(-0.6, 3.2, 4);
-  const barrel2 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
-  barrel2.rotation.x = Math.PI / 2;
-  barrel2.position.set(0.6, 3.2, 4);
-  turret.add(turretBase, cupola, barrel1, barrel2);
-
+  turret.add(mesh(boxGeo(4.5, 1.5, 5, 0.1), hull, [0, 3, 0], null, true));
+  hatch(turret, -1, 3.8, -1, 0.5);
+  const barrelGeometry = cylGeo(0.25, 0.25, 5, 14);
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [-0.6, 3.2, 4], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [0.6, 3.2, 4], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) {
+    for (const sx of [-1.6, 1.6]) {
+      turret.add(mesh(cylGeo(0.12, 0.12, 1.4, 8), metalMat(0x888c90, 0.25, 0.95), [sx, 2.9, 1.8], [0.9, 0, 0]));
+    }
+  }
+  rivets(turret, [[-2.1, 3.2, 2.4], [2.1, 3.2, 2.4], [-2.1, 3.2, -2.4], [2.1, 3.2, -2.4]]);
+  group.add(turret);
   const shieldRing = new THREE.Mesh(
-    new THREE.RingGeometry(38, 42, 48),
+    ringGeo(38, 42, 48),
     new THREE.MeshBasicMaterial({ color: 0x4466ff, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthTest: false })
   );
   shieldRing.rotation.x = -Math.PI / 2;
   shieldRing.position.y = 0.3;
   shieldRing.renderOrder = 894;
-  g.add(shieldRing);
-  g.userData.shieldRing = shieldRing;
-
-  g.add(hull, frontPlate, slabL, slabR, tL, tR, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 6.5);
-  return g;
+  group.add(shieldRing);
+  group.userData.shieldRing = shieldRing;
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 6.5);
+  return group;
 }
 
-function buildArtillery(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-
-  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 5), hullMat));
-  chassis.position.y = 0.8;
-
-  const outGeom = new THREE.BoxGeometry(0.3, 0.5, 2);
-  const outL = enableShadows(new THREE.Mesh(outGeom, detailMat));
-  outL.position.set(-2.2, 0.4, 0);
-  const outR = enableShadows(new THREE.Mesh(outGeom, detailMat));
-  outR.position.set(2.2, 0.4, 0);
-
+function buildArtillery(group, color) {
+  const hull = matteMat(color);
+  const steel = metalMat(0x333333, 0.5, 0.7);
+  const chassis = mesh(boxGeo(3.5, 1, 5, 0.08), hull, [0, 0.8, 0], null, true);
+  weather(chassis.geometry);
+  group.add(chassis);
+  headlights(group, 1.1, 2.55, [-1.1, 1.1]);
+  const outriggerGeometry = boxGeo(0.3, 0.5, 2, 0.04);
+  for (const sx of [-2.2, 2.2]) {
+    group.add(mesh(outriggerGeometry, steel, [sx, 0.4, 0]));
+    if (dl() >= 1) group.add(mesh(boxGeo(0.5, 0.12, 0.5, 0.02), steel, [sx, 0.12, 0]));
+  }
   const turret = new THREE.Group();
-  const base = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.8, 8), hullMat));
-  base.position.y = 1.6;
-
-  const cradle = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 2), hullMat));
-  cradle.position.set(0, 2.2, 0);
-
-  const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 7, 8), detailMat));
-  barrel.rotation.x = Math.PI / 2.2;
-  barrel.position.set(0, 3.2, 3);
-
-  const muzzle = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.5, 8), detailMat));
-  muzzle.rotation.x = Math.PI / 2.2;
-  muzzle.position.set(0, 4.3, 5.8);
-
-  const pistonGeom = new THREE.CylinderGeometry(0.1, 0.1, 2, 6);
-  const pL = new THREE.Mesh(pistonGeom, metalMat(0x888888, 0.3, 0.9));
-  pL.rotation.x = Math.PI / 3;
-  pL.position.set(-0.8, 2.5, 1.5);
-  const pR = pL.clone();
-  pR.position.x = 0.8;
-
-  turret.add(base, cradle, barrel, muzzle, pL, pR);
-  g.add(chassis, outL, outR, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 4.5, 6);
-  return g;
+  turret.add(mesh(cylGeo(1.5, 1.8, 0.8, 8), hull, [0, 1.6, 0], null, true));
+  turret.add(mesh(boxGeo(1.2, 1.5, 2, 0.06), hull, [0, 2.2, 0]));
+  hatch(turret, 0, 2.9, -0.6, 0.35);
+  turret.add(mesh(cylGeo(0.25, 0.25, 7, 12), gunmetalMat(), [0, 3.2, 3], [Math.PI / 2.2, 0, 0]));
+  turret.add(mesh(cylGeo(0.4, 0.4, 0.5, 10), gunmetalMat(), [0, 4.3, 5.8], [Math.PI / 2.2, 0, 0]));
+  const pistonGeometry = cylGeo(0.1, 0.1, 2, 6);
+  const pistonMaterial = metalMat(0x888888, 0.3, 0.9);
+  turret.add(mesh(pistonGeometry, pistonMaterial, [-0.8, 2.5, 1.5], [Math.PI / 3, 0, 0]));
+  turret.add(mesh(pistonGeometry, pistonMaterial, [0.8, 2.5, 1.5], [Math.PI / 3, 0, 0]));
+  if (dl() >= 2) {
+    for (let i = 0; i < 3; i++) turret.add(mesh(boxGeo(0.5, 0.35, 0.7, 0.03), canvasMat(), [-0.9 + i * 0.9, 1.9, -1.5]));
+  }
+  antenna(turret, 1.2, 2.2, -1.2, 1.8);
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 4.5, 6);
+  return group;
 }
 
-function buildMissileDefense(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-
-  const base = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 4), hullMat));
-  base.position.y = 0.6;
-
-  const tower = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), detailMat));
-  tower.position.set(-1.2, 2.5, -1.2);
-  const radar = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 0.2), glassMat(0x44aaff)));
-  radar.position.set(-1.2, 4, -1.2);
-  radar.rotation.y = Math.PI / 4;
+function buildMissileDefense(group, color) {
+  const hull = matteMat(color);
+  const dark = metalMat(0x222222, 0.6, 0.5);
+  const base = mesh(boxGeo(4, 0.8, 4, 0.06), hull, [0, 0.6, 0], null, true);
+  weather(base.geometry);
+  group.add(base);
+  headlights(group, 0.85, 2.05, [-1.3, 1.3]);
+  group.add(mesh(boxGeo(1, 3, 1, 0.05), dark, [-1.2, 2.5, -1.2]));
+  group.add(mesh(boxGeo(2, 2, 0.2, 0.02), glassMat(0x44aaff), [-1.2, 4, -1.2], [0, Math.PI / 4, 0]));
+  if (dl() >= 1) group.add(mesh(boxGeo(2.2, 0.12, 0.3, 0.02), dark, [-1.2, 3.05, -1.2], [0, Math.PI / 4, 0]));
 
   const turret = new THREE.Group();
-  const platform = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 3), hullMat));
-  platform.position.y = 1.3;
-
-  const cellGeom = new THREE.BoxGeometry(0.6, 1.5, 0.6);
-  const cellMat = metalMat(0x444444);
-  const missileTipMat = glowMat(0xff3300, 1);
-
+  turret.add(mesh(boxGeo(3, 0.5, 3, 0.05), hull, [0, 1.3, 0], null, true));
+  const cellGeometry = boxGeo(0.6, 1.5, 0.6, 0.03);
+  const cellMaterial = metalMat(0x444444, 0.55, 0.5);
+  const tipMaterial = glowMat(0xff3300, 1);
   for (let x = -1; x <= 1; x++) {
     for (let z = -1; z <= 1; z++) {
-      const cell = enableShadows(new THREE.Mesh(cellGeom, cellMat));
-      cell.position.set(x * 0.8, 2.1, z * 0.8);
-      turret.add(cell);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 6), missileTipMat);
+      turret.add(mesh(cellGeometry, cellMaterial, [x * 0.8, 2.1, z * 0.8]));
+      const tip = new THREE.Mesh(coneGeo(0.2, 0.4, 6), tipMaterial);
       tip.position.set(x * 0.8, 2.9, z * 0.8);
       turret.add(tip);
     }
   }
-
-  g.add(base, tower, radar, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 3, 0);
-  return g;
+  if (dl() >= 2) turret.add(mesh(boxGeo(0.3, 0.3, 0.3, 0.02), lightMat(0xffaa00), [1.3, 1.7, 1.3]));
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 3, 0);
+  return group;
 }
 
-function buildMLRS(g, color) {
-  const cabMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-
-  const cab = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.5, 2), cabMat));
-  cab.position.set(0, 1.5, 2.5);
-  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.8, 0.1), glassMat(0x223344));
-  windshield.position.set(0, 2, 3.5);
-  g.add(windshield);
-
-  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.8, 1, 5), detailMat));
-  chassis.position.y = 0.8;
-
-  const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 0.4, 8);
-  const wheelPos = [[-1.4, 0.6, 2.5], [1.4, 0.6, 2.5], [-1.4, 0.6, -1.5], [1.4, 0.6, -1.5]];
-  for (const p of wheelPos) {
-    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]);
-    w.rotation.z = Math.PI / 2;
-    g.add(w);
+function buildMLRS(group, color) {
+  const cab = matteMat(color);
+  const dark = metalMat(0x222222, 0.6, 0.5);
+  const cabMesh = mesh(boxGeo(2.8, 1.5, 2, 0.08), cab, [0, 1.5, 2.5], null, true);
+  weather(cabMesh.geometry);
+  group.add(cabMesh);
+  group.add(mesh(boxGeo(2.6, 0.8, 0.1, 0.02), glassMat(0x223344), [0, 2, 3.5]));
+  const chassis = mesh(boxGeo(2.8, 1, 5, 0.06), dark, [0, 0.8, 0], null, true);
+  weather(chassis.geometry);
+  group.add(chassis);
+  headlights(group, 1.4, 3.55, [-0.9, 0.9]);
+  for (const p of [[-1.4, 0.6, 2.5], [1.4, 0.6, 2.5], [-1.4, 0.6, -1.5], [1.4, 0.6, -1.5]]) {
+    roadWheel(group, p[0], p[1], p[2], 0.6, 0.4);
   }
+  if (dl() >= 2) group.add(mesh(cylGeo(0.5, 0.5, 0.35, 10), rubberMat(), [0, 0.7, -2.6], [Math.PI / 2, 0, 0]));
 
   const turret = new THREE.Group();
-  const mount = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 2), cabMat));
-  mount.position.y = 1.8;
-
-  const pod = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.5, 3.5), metalMat(0x445544)));
-  pod.position.set(0, 3, -0.5);
-  pod.rotation.x = -0.4;
-
-  const tubeGeom = new THREE.CylinderGeometry(0.2, 0.2, 0.2, 6);
-  const tubeMat = metalMat(0x111111);
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 4; c++) {
-      const tube = new THREE.Mesh(tubeGeom, tubeMat);
+  const mount = mesh(boxGeo(2.4, 0.8, 2, 0.05), cab, [0, 1.8, 0]);
+  const pod = mesh(boxGeo(2.2, 1.5, 3.5, 0.06), metalMat(0x445544, 0.6, 0.4), [0, 3, -0.5], [-0.4, 0, 0], true);
+  turret.add(mount, pod);
+  const tubeGeometry = cylGeo(0.2, 0.2, 0.2, 6);
+  const tubeMaterial = metalMat(0x111111, 0.7, 0.4);
+  for (let row = 0; row < 3; row++) {
+    for (let column = 0; column < 4; column++) {
+      const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
       tube.rotation.x = Math.PI / 2;
-      tube.position.set(-0.75 + c * 0.5, 2.5 + r * 0.5, 1.2);
+      tube.position.set(-0.75 + column * 0.5, 2.5 + row * 0.5, 1.2);
       pod.add(tube);
     }
   }
-
-  turret.add(mount, pod);
-  g.add(cab, chassis, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 4, 2);
-  return g;
+  if (dl() >= 1) turret.add(mesh(boxGeo(2.24, 0.08, 3.54, 0.02), dark, [0, 3.78, -0.5], [-0.4, 0, 0]));
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 4, 2);
+  return group;
 }
 
-function buildCoastal(g, color) {
-  const concreteMat = matteMat(0x666666);
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-
-  const base = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 1.5, 6), concreteMat));
-  base.position.y = 0.75;
-  const wall = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 2, 1), concreteMat));
-  wall.position.set(0, 1.5, 2.5);
-
-  const turret = new THREE.Group();
-  const tBase = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(2, 2.2, 1.2, 8), hullMat));
-  tBase.position.y = 2.1;
-
-  const barrelGeom = new THREE.CylinderGeometry(0.3, 0.3, 5, 8);
-  const barrel1 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
-  barrel1.rotation.x = Math.PI / 2;
-  barrel1.position.set(-0.6, 2.4, 3);
-  const barrel2 = barrel1.clone();
-  barrel2.position.x = 0.6;
-
-  const muzzleGeom = new THREE.CylinderGeometry(0.5, 0.5, 0.6, 8);
-  const m1 = new THREE.Mesh(muzzleGeom, detailMat);
-  m1.rotation.x = Math.PI / 2;
-  m1.position.set(-0.6, 2.4, 5.5);
-  const m2 = m1.clone();
-  m2.position.x = 0.6;
-
-  turret.add(tBase, barrel1, barrel2, m1, m2);
-  g.add(base, wall, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.4, 6);
-  return g;
-}
-
-function buildHealer(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-  const glowGreen = glowMat(0x44ff44, 1.5);
-
-  // Truck cab
-  const cab = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2.5), bodyMat));
-  cab.position.set(0, 2, 2.5);
-  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1, 0.1), glassMat(0x224422));
-  windshield.position.set(0, 2.8, 3.8);
-  g.add(windshield);
-
-  // Truck chassis
-  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 1, 6), detailMat));
-  chassis.position.y = 0.8;
-
-  // Wheels
-  const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
-  const wheelPos = [[-1.5, 0.6, 2], [1.5, 0.6, 2], [-1.5, 0.6, -2], [1.5, 0.6, -2]];
-  for (const p of wheelPos) {
-    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]);
-    w.rotation.z = Math.PI / 2;
-    g.add(w);
+function buildCoastal(group, color) {
+  const concrete = matteMat(0x666666);
+  const hull = matteMat(color);
+  const steel = metalMat(0x333333, 0.55, 0.6);
+  const base = mesh(boxGeo(6, 1.5, 6, 0.05), concrete, [0, 0.75, 0], null, true);
+  const wall = mesh(boxGeo(6, 2, 1, 0.05), concrete, [0, 1.5, 2.5], null, true);
+  weather(base.geometry, 0.5);
+  weather(wall.geometry, 0.4);
+  group.add(base, wall);
+  if (dl() >= 1) {
+    const bagGeometry = boxGeo(0.7, 0.35, 0.45, 0.1);
+    const bagMaterial = canvasMat(0x8a7a58);
+    for (let i = 0; i < 6; i++) group.add(mesh(bagGeometry, bagMaterial, [-2.5 + i, 0.2, 3.3]));
+    for (let i = 0; i < 5; i++) group.add(mesh(bagGeometry, bagMaterial, [-2 + i, 0.55, 3.3]));
   }
+  const turret = new THREE.Group();
+  turret.add(mesh(cylGeo(2, 2.2, 1.2, 8), hull, [0, 2.1, 0], null, true));
+  hatch(turret, 0.8, 2.75, -0.8, 0.4);
+  const barrelGeometry = cylGeo(0.3, 0.3, 5, 10);
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [-0.6, 2.4, 3], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [0.6, 2.4, 3], [Math.PI / 2, 0, 0]));
+  const muzzleGeometry = cylGeo(0.5, 0.5, 0.6, 10);
+  turret.add(mesh(muzzleGeometry, steel, [-0.6, 2.4, 5.5], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(muzzleGeometry, steel, [0.6, 2.4, 5.5], [Math.PI / 2, 0, 0]));
+  antenna(turret, -1.4, 2.6, -1, 2);
+  group.add(turret);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.4, 6);
+  return group;
+}
 
-  // Medical module on back
-  const medBox = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.8, 2, 3.5), bodyMat));
-  medBox.position.set(0, 2.3, -1);
-
-  // Red cross / healing symbol (glowing)
-  const cross1 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.1), glowGreen);
-  cross1.position.set(0, 2.8, 0.76);
-  const cross2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 0.1), glowGreen);
-  cross2.position.set(0, 2.8, 0.76);
-
-  // Healing antenna
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2, 4), detailMat);
-  antenna.position.set(1, 4, -2);
-
-  // Emit dish
-  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.15, 8), glowGreen);
+function buildHealer(group, color) {
+  const body = matteMat(color);
+  const steel = metalMat(0x333333, 0.55, 0.6);
+  const cross = glowMat(0x44ff44, 1.5);
+  const cab = mesh(boxGeo(3, 2, 2.5, 0.08), body, [0, 2, 2.5], null, true);
+  weather(cab.geometry);
+  group.add(cab);
+  group.add(mesh(boxGeo(2.8, 1, 0.1, 0.02), glassMat(0x224422), [0, 2.8, 3.8]));
+  const chassis = mesh(boxGeo(3, 1, 6, 0.06), steel, [0, 0.8, 0], null, true);
+  weather(chassis.geometry);
+  group.add(chassis);
+  headlights(group, 1.9, 3.8, [-1, 1]);
+  for (const p of [[-1.5, 0.6, 2], [1.5, 0.6, 2], [-1.5, 0.6, -2], [1.5, 0.6, -2]]) roadWheel(group, p[0], p[1], p[2], 0.7, 0.4);
+  const medicalBox = mesh(boxGeo(2.8, 2, 3.5, 0.08), body, [0, 2.3, -1], null, true);
+  weather(medicalBox.geometry);
+  group.add(medicalBox);
+  group.add(mesh(boxGeo(1.2, 0.3, 0.1, 0.02), cross, [0, 2.8, 0.76]));
+  group.add(mesh(boxGeo(0.3, 1.2, 0.1, 0.02), cross, [0, 2.8, 0.76]));
+  group.add(mesh(boxGeo(0.3, 1.2, 0.1, 0.02), cross, [1.41, 2.8, -1], [0, Math.PI / 2, 0]));
+  antenna(group, 1, 3.3, -2, 2);
+  const dish = new THREE.Mesh(cylGeo(0.6, 0.6, 0.15, 8), cross);
   dish.position.set(0, 5, -2);
-
-  g.add(cab, chassis, medBox, cross1, cross2, antenna, dish);
-  g.userData.muzzleOffset = null;
-  return g;
+  group.add(dish);
+  if (dl() >= 2) {
+    group.add(mesh(boxGeo(0.08, 0.08, 2.2, 0.02), steel, [-1.2, 3.5, -1]));
+    group.add(mesh(boxGeo(0.08, 0.08, 2.2, 0.02), steel, [1.2, 3.5, -1]));
+  }
+  group.userData.muzzleOffset = null;
+  return group;
 }
 
-// ---------- SEA ----------
-function buildFrigate(g, color) {
-  const hullMat = matteMat(color);
-  const superMat = metalMat(0x888899, 0.6, 0.4);
-  const deckMat = matteMat(0x333333);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1.5, 10), hullMat));
-  hull.position.y = 0.75;
-
-  const bow = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1.5, 2), hullMat));
-  bow.position.set(0, 1, 5.5);
-  bow.rotation.x = 0.3;
-
-  const stern = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.2, 3), deckMat));
-  stern.position.set(0, 1.5, -4);
-
-  const bridge1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.5, 2, 3), superMat));
-  bridge1.position.set(0, 2.5, -1);
-  const bridge2 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 2), superMat));
-  bridge2.position.set(0, 4.2, -1);
-
-  const win = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.5, 0.1), glassMat(0x113355));
-  win.position.set(0, 3, 0.5);
-  g.add(win);
-
+// ---------- SEA ------------------------------------------------------------
+function buildFrigate(group, color) {
+  const hull = matteMat(color);
+  const superstructure = metalMat(0x888899, 0.6, 0.4);
+  const deck = matteMat(0x2e3133);
+  const hullMesh = mesh(boxGeo(3.5, 1.5, 10, 0.08), hull, [0, 0.75, 0], null, true);
+  weather(hullMesh.geometry, 0.42);
+  const bow = mesh(boxGeo(3.5, 1.5, 2, 0.08), hull, [0, 1, 5.5], [0.3, 0, 0], true);
+  const stern = mesh(boxGeo(3.5, 0.2, 3, 0.02), deck, [0, 1.5, -4]);
+  group.add(hullMesh, bow, stern);
+  group.add(mesh(boxGeo(2.5, 2, 3, 0.06), superstructure, [0, 2.5, -1], null, true));
+  group.add(mesh(boxGeo(2, 1.5, 2, 0.06), superstructure, [0, 4.2, -1]));
+  group.add(mesh(boxGeo(2.6, 0.5, 0.1, 0.02), glassMat(0x113355), [0, 3, 0.5]));
+  if (dl() >= 1) group.add(mesh(boxGeo(2.1, 0.4, 0.1, 0.02), glassMat(0x113355), [0, 4.6, 0]));
+  if (dl() >= 1) {
+    group.add(mesh(boxGeo(0.12, 0.04, 2.4, 0.01), glowMat(0xffffff, 0.5), [-0.9, 1.62, -4]));
+    group.add(mesh(boxGeo(0.12, 0.04, 2.4, 0.01), glowMat(0xffffff, 0.5), [0.9, 1.62, -4]));
+  }
   const turret = new THREE.Group();
-  const tBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 1.5), hullMat));
-  tBase.position.y = 1.9;
-  const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 2.5, 6), metalMat(0x222222)));
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.set(0, 2.1, 1.5);
-  turret.add(tBase, barrel);
+  turret.add(mesh(boxGeo(1.5, 0.8, 1.5, 0.06), hull, [0, 1.9, 0], null, true));
+  turret.add(mesh(cylGeo(0.15, 0.15, 2.5, 8), gunmetalMat(), [0, 2.1, 1.5], [Math.PI / 2, 0, 0]));
   turret.position.set(0, 0, 3);
-
-  const vls = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 1.5), metalMat(0x555555)));
-  vls.position.set(0, 1.6, -2.5);
-
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3, 4), metalMat(0x444444));
-  mast.position.set(0, 6.5, -1);
-  const radar = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 0.2), glassMat(0x88ccff)));
-  radar.position.set(0, 7, -1);
-
-  g.add(hull, bow, stern, bridge1, bridge2, turret, vls, mast, radar);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.1, 4.5);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  return g;
+  group.add(turret);
+  group.add(mesh(boxGeo(1.5, 0.3, 1.5, 0.03), metalMat(0x555555, 0.6, 0.5), [0, 1.6, -2.5]));
+  group.add(mesh(cylGeo(0.1, 0.14, 3, 4), superstructure, [0, 6.5, -1]));
+  if (dl() >= 1) group.add(mesh(boxGeo(1.2, 0.08, 0.08, 0.02), superstructure, [0, 7.3, -1]));
+  group.add(mesh(boxGeo(1.5, 1, 0.2, 0.02), glassMat(0x88ccff), [0, 7, -1]));
+  if (dl() >= 1) {
+    for (const z of [0.5, -0.5]) group.add(mesh(cylGeo(0.35, 0.35, 0.5, 8), matteMat(0xcccccc), [1.8, 1.8, z], [0, 0, Math.PI / 2]));
+    group.add(mesh(cylGeo(0.25, 0.25, 0.8, 8), metalMat(0x444444, 0.6, 0.6), [0, 1.7, 4.6], [0, 0, Math.PI / 2]));
+  }
+  navLights(group, [-1.8, 1.7, 1], [1.8, 1.7, 1], [0, 1.7, -5.4]);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.1, 4.5);
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  return group;
 }
 
-function buildCruiser(g, color) {
-  const hullMat = matteMat(color);
-  const superMat = metalMat(0x888899, 0.6, 0.4);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.8, 16), hullMat));
-  hull.position.y = 0.9;
-
-  const bow = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.8, 3), hullMat));
-  bow.position.set(0, 1.2, 7.5);
-  bow.rotation.x = 0.2;
-
-  const bridge1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 3, 5), superMat));
-  bridge1.position.set(0, 3.3, -3);
-  const bridge2 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2.5, 2, 3), superMat));
-  bridge2.position.set(0, 5.8, -3);
-
-  const radarMat = glassMat(0x44aaff);
-  const radar1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 1.5), radarMat);
-  radar1.position.set(1.8, 4, -1.5);
-  const radar2 = radar1.clone();
-  radar2.position.x = -1.8;
-  g.add(radar1, radar2);
-
+function buildCruiser(group, color) {
+  const hull = matteMat(color);
+  const superstructure = metalMat(0x888899, 0.6, 0.4);
+  const hullMesh = mesh(boxGeo(4.5, 1.8, 16, 0.08), hull, [0, 0.9, 0], null, true);
+  weather(hullMesh.geometry, 0.42);
+  group.add(hullMesh, mesh(boxGeo(4.5, 1.8, 3, 0.08), hull, [0, 1.2, 7.5], [0.2, 0, 0], true));
+  group.add(mesh(boxGeo(3.5, 3, 5, 0.06), superstructure, [0, 3.3, -3], null, true));
+  group.add(mesh(boxGeo(2.5, 2, 3, 0.06), superstructure, [0, 5.8, -3]));
+  group.add(mesh(boxGeo(3.6, 0.5, 0.1, 0.02), glassMat(0x113355), [0, 4.2, -0.5]));
+  const radarMaterial = glassMat(0x44aaff);
+  for (const sx of [-1.8, 1.8]) group.add(mesh(boxGeo(0.2, 1.5, 1.5, 0.02), radarMaterial, [sx, 4, -1.5]));
   const turret = new THREE.Group();
-  const tBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 1, 2), hullMat));
-  tBase.position.y = 2.3;
-  const barrel1 = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 4, 6), metalMat(0x222222)));
-  barrel1.rotation.x = Math.PI / 2;
-  barrel1.position.set(-0.5, 2.5, 2);
-  const barrel2 = barrel1.clone();
-  barrel2.position.x = 0.5;
-  turret.add(tBase, barrel1, barrel2);
+  turret.add(mesh(boxGeo(2, 1, 2, 0.06), hull, [0, 2.3, 0], null, true));
+  const barrelGeometry = cylGeo(0.2, 0.2, 4, 8);
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [-0.5, 2.5, 2], [Math.PI / 2, 0, 0]));
+  turret.add(mesh(barrelGeometry, gunmetalMat(), [0.5, 2.5, 2], [Math.PI / 2, 0, 0]));
   turret.position.set(0, 0, 5);
-
-  const vls = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 3), metalMat(0x555555)));
-  vls.position.set(0, 1.9, -6);
-  const deck = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 4), matteMat(0x333333)));
-  deck.position.set(0, 1.9, -8);
-
-  g.add(hull, bow, bridge1, bridge2, turret, vls, deck);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 7);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  return g;
+  group.add(turret);
+  group.add(mesh(boxGeo(2, 0.3, 3, 0.03), metalMat(0x555555, 0.6, 0.5), [0, 1.9, -6]));
+  group.add(mesh(boxGeo(4, 0.2, 4, 0.02), matteMat(0x333333), [0, 1.9, -8]));
+  if (dl() >= 1) {
+    group.add(mesh(cylGeo(0.08, 0.12, 2.5, 4), superstructure, [0, 7.8, -3]));
+    for (const sx of [-2.1, 2.1]) for (const z of [2, -2]) group.add(mesh(cylGeo(0.3, 0.3, 0.5, 8), matteMat(0xcccccc), [sx, 2, z], [0, 0, Math.PI / 2]));
+  }
+  antenna(group, 0, 6.8, -4.2, 2);
+  navLights(group, [-2.3, 2, 3], [2.3, 2, 3], [0, 2.1, -7.8]);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 7);
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  return group;
 }
 
-function buildSubmarine(g, color) {
-  const hullMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(1.2, 8, 8, 16), hullMat));
-  hull.rotation.z = Math.PI / 2;
-  hull.position.y = 0;
-
-  const sail = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 2.5), hullMat));
-  sail.position.set(0, 1.5, -1);
-
-  const planeGeom = new THREE.BoxGeometry(2, 0.1, 0.8);
-  const planeL = new THREE.Mesh(planeGeom, detailMat);
-  planeL.position.set(0, 1.5, -1);
-  g.add(planeL);
-
-  const mast1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.5, 4), detailMat);
-  mast1.position.set(-0.3, 2.8, -1);
-  const mast2 = mast1.clone();
-  mast2.position.x = 0.3;
-  g.add(mast1, mast2);
-
-  const sensor = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 1), glowMat(0x00ffaa, 1));
-  sensor.position.set(0, 2.3, -1);
-  g.add(sensor);
-
-  const prop = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1, 8), detailMat));
-  prop.rotation.z = Math.PI / 2;
-  prop.position.set(-5, 0, 0);
-
-  g.add(hull, sail, prop);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  return g;
+function buildSubmarine(group, color) {
+  const hull = matteMat(mixColor(color, 0x11151c, 0.35));
+  const dark = metalMat(0x222222, 0.6, 0.4);
+  const pressure = mesh(capsuleGeo(1.2, 8, 14), hull, [0, 0, 0], null, true);
+  pressure.rotation.z = Math.PI / 2;
+  weather(pressure.geometry, 0.35);
+  group.add(pressure);
+  group.add(mesh(boxGeo(1.2, 1.5, 2.5, 0.1), hull, [0, 1.5, -1], null, true));
+  if (dl() >= 1) group.add(mesh(boxGeo(1, 0.25, 0.08, 0.02), glassMat(0x0a1a22), [0, 1.9, 0.26]));
+  group.add(mesh(boxGeo(2, 0.1, 0.8, 0.03), dark, [0, 1.5, -1]));
+  if (dl() >= 1) {
+    group.add(mesh(cylGeo(0.05, 0.05, 1.5, 4), dark, [-0.3, 2.8, -1]));
+    group.add(mesh(cylGeo(0.05, 0.05, 1.5, 4), dark, [0.3, 2.8, -1]));
+  }
+  group.add(mesh(boxGeo(0.2, 0.2, 1, 0.02), glowMat(0x00ffaa, 1), [0, 2.3, -1]));
+  group.add(mesh(cylGeo(0.15, 0.15, 1.2, 8), dark, [-5, 0, 0], [0, 0, Math.PI / 2]));
+  if (dl() >= 2) {
+    const bladeGeometry = boxGeo(0.08, 0.9, 0.35, 0.03);
+    for (let i = 0; i < 5; i++) {
+      const blade = new THREE.Mesh(bladeGeometry, metalMat(0x8a6f3d, 0.35, 0.85));
+      blade.position.set(0, 0.55, 0);
+      const pivot = new THREE.Group();
+      pivot.position.set(-5.4, 0, 0);
+      pivot.rotation.x = (i / 5) * Math.PI * 2;
+      pivot.add(blade);
+      group.add(pivot);
+    }
+  } else {
+    group.add(mesh(cylGeo(0.8, 0.8, 1, 8), dark, [-5, 0, 0], [0, 0, Math.PI / 2]));
+  }
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  return group;
 }
 
-function buildShip(g, color, scale) {
-  const w = 5 * scale;
-  const l = 14 * scale;
-  const hullMat = matteMat(color);
-  const superMat = metalMat(0x888899, 0.6, 0.4);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(w, 1.5, l), hullMat));
-  hull.position.y = 0.75;
-
-  const bow = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(w, 1.5, 3 * scale), hullMat));
-  bow.position.set(0, 1, (l / 2) + 1);
-  bow.rotation.x = 0.2;
-
-  const bridge = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3 * scale, 3 * scale, 4 * scale), superMat));
-  bridge.position.set(0, 3 * scale, -1 * scale);
-
+function buildShip(group, color, scale) {
+  const width = 5 * scale;
+  const length = 14 * scale;
+  const hull = matteMat(color);
+  const superstructure = metalMat(0x888899, 0.6, 0.4);
+  const hullMesh = mesh(boxGeo(width, 1.5, length, 0.08), hull, [0, 0.75, 0], null, true);
+  weather(hullMesh.geometry, 0.42);
+  group.add(hullMesh, mesh(boxGeo(width, 1.5, 3 * scale, 0.08), hull, [0, 1, length / 2 + 1], [0.2, 0, 0], true));
+  group.add(mesh(boxGeo(3 * scale, 3 * scale, 4 * scale, 0.06), superstructure, [0, 3 * scale, -scale], null, true));
+  group.add(mesh(boxGeo(3.1 * scale, 0.5 * scale, 0.1, 0.02), glassMat(0x113355), [0, 3.8 * scale, scale]));
   const turret = new THREE.Group();
-  const tBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2 * scale, 1.2, 2 * scale), hullMat));
-  tBase.position.y = 2.1 * scale;
-
+  turret.add(mesh(boxGeo(2 * scale, 1.2, 2 * scale, 0.06), hull, [0, 2.1 * scale, 0], null, true));
   const barrelCount = scale > 1.2 ? 3 : 2;
-  const barrelSpacing = 0.6 * scale;
+  const spacing = 0.6 * scale;
   for (let i = 0; i < barrelCount; i++) {
-    const barrel = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.25 * scale, 0.25 * scale, 4 * scale, 8), metalMat(0x222222)));
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set((i - (barrelCount - 1) / 2) * barrelSpacing, 2.3 * scale, 2.5 * scale);
-    turret.add(barrel);
+    turret.add(mesh(cylGeo(0.25 * scale, 0.25 * scale, 4 * scale, 10), gunmetalMat(), [(i - (barrelCount - 1) / 2) * spacing, 2.3 * scale, 2.5 * scale], [Math.PI / 2, 0, 0]));
   }
-
-  turret.add(tBase);
+  if (dl() >= 1) turret.add(mesh(boxGeo(0.5 * scale, 0.3 * scale, 0.3 * scale, 0.03), superstructure, [0, 2.9 * scale, -0.5 * scale]));
   turret.position.z = 4 * scale;
-
-  g.add(hull, bow, bridge, turret);
-  g.userData.turret = turret;
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.3 * scale, 6 * scale);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  return g;
-}
-
-function buildCarrier(g, color) {
-  const hullMat = matteMat(color);
-  const deckMat = matteMat(0x222222);
-  const superMat = metalMat(0x888899, 0.6, 0.4);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(7, 1.5, 20), hullMat));
-  hull.position.y = 0.75;
-
-  const deck = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(9, 0.3, 22), deckMat));
-  deck.position.y = 1.6;
-
-  const lineMat = glowMat(0xffffff, 0.5);
-  const line1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 20), lineMat);
-  line1.position.set(0, 1.8, 0);
-  const line2 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.05, 0.1), lineMat);
-  line2.position.set(0, 1.8, -5);
-  g.add(line1, line2);
-
-  const angledDeck = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 10), deckMat));
-  angledDeck.position.set(3, 1.65, -3);
-  angledDeck.rotation.y = 0.2;
-
-  const island = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 4, 5), superMat));
-  island.position.set(4, 3.8, -5);
-
-  const radar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 1.5), glassMat(0x44aaff));
-  radar.position.set(4.8, 4.5, -4);
-  g.add(radar);
-
-  const jetMat = matteMat(0x556677);
-  for (let i = -1; i <= 1; i += 2) {
-    const jet = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 3), jetMat));
-    jet.position.set(i * 1.5, 1.9, 5);
-    g.add(jet);
+  group.add(turret);
+  if (dl() >= 1) {
+    group.add(mesh(cylGeo(0.08 * scale, 0.12 * scale, 3 * scale, 4), superstructure, [0, 5.5 * scale, -scale]));
+    for (const sx of [-width / 2 - 0.1, width / 2 + 0.1]) group.add(mesh(cylGeo(0.3 * scale, 0.3 * scale, 0.5 * scale, 8), matteMat(0xcccccc), [sx, 1.6, 0], [0, 0, Math.PI / 2]));
   }
-
-  g.add(hull, deck, angledDeck, island);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  return g;
+  navLights(group, [-width / 2, 1.8, 2], [width / 2, 1.8, 2], [0, 1.8, -length / 2]);
+  group.userData.turret = turret;
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.3 * scale, 6 * scale);
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  return group;
 }
 
-function buildTransport(g, color) {
-  const hullMat = matteMat(color);
-  const deckMat = matteMat(0x443322);
-  const detailMat = metalMat(0x333333);
-
-  const hull = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(6, 1.5, 14), hullMat));
-  hull.position.y = 0.75;
-
-  const deck = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 8), deckMat));
-  deck.position.set(0, 1.5, 1);
-
-  const ramp = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 4), detailMat));
-  ramp.position.set(0, 0.8, 6.5);
-  ramp.rotation.x = 0.4;
-
-  const cabin = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5.5, 3, 4), hullMat));
-  cabin.position.set(0, 3, -4.5);
-
-  const win = new THREE.Mesh(new THREE.BoxGeometry(5, 1, 0.1), glassMat(0x223344));
-  win.position.set(0, 3.5, -2.5);
-  g.add(win);
-
-  const containerMat = matteMat(0xaa4422);
-  const container = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 4), containerMat));
-  container.position.set(-1, 2.6, 1);
-  g.add(container);
-
-  g.add(hull, deck, ramp, cabin);
-  g.userData.bobPhase = Math.random() * Math.PI * 2;
-  g.userData.muzzleOffset = null;
-  return g;
+function buildCarrier(group, color) {
+  const hull = matteMat(color);
+  const deck = matteMat(0x222222);
+  const superstructure = metalMat(0x888899, 0.6, 0.4);
+  const hullMesh = mesh(boxGeo(7, 1.5, 20, 0.08), hull, [0, 0.75, 0], null, true);
+  weather(hullMesh.geometry, 0.45);
+  group.add(hullMesh, mesh(boxGeo(9, 0.3, 22, 0.04), deck, [0, 1.6, 0], null, true));
+  const lineMaterial = glowMat(0xffffff, 0.5);
+  group.add(mesh(boxGeo(0.1, 0.05, 20, 0.01), lineMaterial, [0, 1.8, 0]));
+  group.add(mesh(boxGeo(8, 0.05, 0.1, 0.01), lineMaterial, [0, 1.8, -5]));
+  if (dl() >= 1) {
+    const edgeMaterial = glowMat(0xffcc44, 0.8);
+    for (let z = -9; z <= 9; z += 3) {
+      group.add(mesh(boxGeo(0.12, 0.06, 0.12, 0.01), edgeMaterial, [-4.4, 1.78, z]));
+      group.add(mesh(boxGeo(0.12, 0.06, 0.12, 0.01), edgeMaterial, [4.4, 1.78, z]));
+    }
+  }
+  group.add(mesh(boxGeo(5, 0.3, 10, 0.04), deck, [3, 1.65, -3], [0, 0.2, 0]));
+  group.add(mesh(boxGeo(1.5, 4, 5, 0.05), superstructure, [4, 3.8, -5], null, true));
+  group.add(mesh(boxGeo(0.2, 1.5, 1.5, 0.02), glassMat(0x44aaff), [4.8, 4.5, -4]));
+  if (dl() >= 1) {
+    group.add(mesh(cylGeo(0.06, 0.1, 2, 4), superstructure, [4, 6.8, -5]));
+    group.add(mesh(boxGeo(1.6, 0.4, 0.15, 0.02), glassMat(0x44aaff), [4, 5.4, -2.6]));
+  }
+  const aircraftMaterial = matteMat(0x556677);
+  for (const sx of [-1.5, 1.5]) group.add(mesh(boxGeo(2, 0.3, 3, 0.05), aircraftMaterial, [sx, 1.9, 5]));
+  navLights(group, [-4.5, 1.9, 8], [4.5, 1.9, 8], [0, 1.9, -10.8]);
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  return group;
 }
 
-function buildEscortJet(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
+function buildTransport(group, color) {
+  const hull = matteMat(color);
+  const deck = matteMat(0x443322);
+  const steel = metalMat(0x333333, 0.55, 0.6);
+  const hullMesh = mesh(boxGeo(6, 1.5, 14, 0.08), hull, [0, 0.75, 0], null, true);
+  weather(hullMesh.geometry, 0.45);
+  const deckMesh = mesh(boxGeo(5, 0.3, 8, 0.03), deck, [0, 1.5, 1]);
+  const ramp = mesh(boxGeo(5, 0.3, 4, 0.03), steel, [0, 0.8, 6.5], [0.4, 0, 0]);
+  const cabin = mesh(boxGeo(5.5, 3, 4, 0.06), hull, [0, 3, -4.5], null, true);
+  weather(cabin.geometry);
+  group.add(hullMesh, deckMesh, ramp, cabin);
+  group.add(mesh(boxGeo(5, 1, 0.1, 0.02), glassMat(0x223344), [0, 3.5, -2.5]));
+  if (dl() >= 1) {
+    for (let i = 0; i < 4; i++) group.add(mesh(boxGeo(4.8, 0.06, 0.2, 0.01), steel, [0, 0.98 + i * 0.13, 5.2 + i * 0.85], [0.4, 0, 0]));
+    group.add(mesh(cylGeo(0.06, 0.1, 2.4, 4), steel, [0, 5.4, -4.5]));
+  }
+  group.add(mesh(boxGeo(2, 2, 4, 0.04), matteMat(0xaa4422), [-1, 2.6, 1]));
+  if (dl() >= 2) group.add(mesh(boxGeo(1.6, 1.6, 1.6, 0.04), canvasMat(0x5a6350), [1.4, 2.4, 2]));
+  navLights(group, [-3, 1.8, 3], [3, 1.8, 3], [0, 1.8, -6.8]);
+  group.userData.bobPhase = Math.random() * Math.PI * 2;
+  group.userData.muzzleOffset = null;
+  return group;
+}
 
-  // Fuselage along Z axis (forward = +Z)
-  const fuselage = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 5, 4, 8), bodyMat));
-  fuselage.rotation.x = Math.PI / 2;
+// ---------- AIR ------------------------------------------------------------
+function rotorAssembly(group, hubY = 1.1) {
+  const detail = metalMat(0x222222, 0.5, 0.6);
+  const bladeMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.5, transparent: true, opacity: 0.6 });
+  group.add(mesh(cylGeo(0.2, 0.2, 0.4, 6), detail, [0, hubY, 0]));
+  group.add(mesh(boxGeo(7, 0.05, 0.3, 0.02), bladeMaterial, [0, hubY + 0.2, 0]));
+  group.add(mesh(boxGeo(0.3, 0.05, 7, 0.02), bladeMaterial, [0, hubY + 0.2, 0]));
+  if (dl() >= 2) {
+    for (const sx of [-3.45, 3.45]) group.add(mesh(boxGeo(0.12, 0.06, 0.32, 0.02), matteMat(0xdddddd), [sx, hubY + 0.2, 0]));
+  }
+}
 
-  const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(0, 0.3, 2.5);
-  cockpit.rotation.x = -Math.PI / 3;
-
-  // Thick swept wings
-  const wingGeom = new THREE.BoxGeometry(2.5, 0.15, 5);
-  const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5, -0.1, 0);
-  wingL.rotation.y = -0.3;
-  const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(0.5, -0.1, 0);
-  wingR.rotation.y = 0.3;
-
-  // Dual exhausts
-  const exhaustGeom = new THREE.CylinderGeometry(0.3, 0.35, 0.6, 8);
-  const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.x = Math.PI / 2;
-  exhaustL.position.set(-0.5, 0, -2.5);
-  const exhaustR = exhaustL.clone();
-  exhaustR.position.x = 0.5;
-
-  // Tail fins (vertical stabilizers)
-  const tailGeom = new THREE.BoxGeometry(0.15, 1.5, 1.2);
-  const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-1, 0.8, -2);
-  tailL.rotation.z = -0.15;
-  const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(1, 0.8, -2);
-  tailR.rotation.z = 0.15;
-
-  // Missile pylons
-  const pylonGeom = new THREE.CylinderGeometry(0.08, 0.08, 1.5, 6);
-  const missileMat = metalMat(0x666666);
+function buildHeli(group, color) {
+  const body = matteMat(color);
+  const glass = glassMat(0x113322);
+  const dark = metalMat(0x222222, 0.55, 0.5);
+  const fuselage = mesh(capsuleGeo(0.7, 2.5, 10), body, [0, 0, 0], null, true);
+  fuselage.rotation.z = Math.PI / 2;
+  group.add(fuselage);
+  group.add(mesh(domeGeo(0.5, 8, 6), glass, [1.2, 0.2, 0], [0, 0, -Math.PI / 2]));
+  group.add(mesh(domeGeo(0.5, 8, 6), glass, [-0.2, 0.6, 0], [0, 0, -Math.PI / 2]));
+  group.add(mesh(cylGeo(0.15, 0.3, 3.5, 6), body, [-2.8, 0.2, 0], [0, 0, Math.PI / 2]));
+  group.add(mesh(boxGeo(0.8, 1.2, 0.1, 0.03), body, [-4.2, 0.8, 0]));
+  if (dl() >= 1) {
+    for (const sz of [-0.7, 0.7]) {
+      group.add(mesh(cylGeo(0.05, 0.05, 2.6, 6), dark, [0.2, -0.75, sz], [0, 0, Math.PI / 2]));
+      group.add(mesh(cylGeo(0.05, 0.05, 0.6, 6), dark, [0.8, -0.45, sz], [0, 0, 0.5]));
+      group.add(mesh(cylGeo(0.05, 0.05, 0.6, 6), dark, [-0.8, -0.45, sz], [0, 0, -0.5]));
+    }
+  }
+  const wingGeometry = boxGeo(0.5, 0.2, 2, 0.03);
+  group.add(mesh(wingGeometry, dark, [-0.5, -0.2, 1.2]));
+  group.add(mesh(wingGeometry, dark, [-0.5, -0.2, -1.2]));
+  const missileGeometry = cylGeo(0.1, 0.1, 1, 6);
   for (let i = 0; i < 2; i++) {
-    const m1 = new THREE.Mesh(pylonGeom, missileMat);
-    m1.rotation.x = Math.PI / 2;
-    m1.position.set(-0.3, -0.3, 1 + i * 0.8);
-    g.add(m1);
-    const m2 = m1.clone();
-    m2.position.x = 0.3;
-    g.add(m2);
+    group.add(mesh(missileGeometry, metalMat(0x555555, 0.5, 0.6), [-0.5, -0.4, 0.8 + i * 0.8], [Math.PI / 2, 0, 0]));
+    group.add(mesh(missileGeometry, metalMat(0x555555, 0.5, 0.6), [-0.5, -0.4, -(0.8 + i * 0.8)], [Math.PI / 2, 0, 0]));
   }
-
-  g.add(fuselage, cockpit, wingL, wingR, exhaustL, exhaustR, tailL, tailR);
-  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3);
-  return g;
+  group.add(mesh(sphereGeo(0.25, 8, 6), glowMat(0xff0000, 1), [1.6, -0.4, 0]));
+  rotorAssembly(group);
+  group.add(mesh(boxGeo(0.05, 1.5, 0.2, 0.02), bladeMaterialForRotor(), [-4.2, 0.8, 0.2]));
+  exhaustPipe(group, -1.2, 0.75, 0.4, 0.09, 0.4);
+  navLights(group, [-0.6, 0, 1.3], [-0.6, 0, -1.3], null);
+  group.userData.muzzleOffset = new THREE.Vector3(1.6, -0.4, 0);
+  return group;
 }
 
-function buildB2(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-
-  // Flying wing body along Z axis (forward = +Z)
-  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4), bodyMat));
-  body.position.y = 0;
-
-  // Wings — massive swept delta along X axis
-  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
-  wingL.position.set(-3.5, 0, 0);
-  wingL.rotation.y = 0.4;
-  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 3), bodyMat));
-  wingR.position.set(3.5, 0, 0);
-  wingR.rotation.y = -0.4;
-
-  // Cockpit (flush, stealthy)
-  const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 6, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x112222)));
-  cockpit.position.set(0, 0.4, 1.5);
-
-  // Engine intakes (buried in wing)
-  const intakeL = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.8), detailMat);
-  intakeL.position.set(-1, 0.2, -0.5);
-  const intakeR = intakeL.clone();
-  intakeR.position.x = 1;
-
-  // Exhausts (flat, stealthy) at rear (-Z)
-  const exhaustGeom = new THREE.BoxGeometry(0.8, 0.15, 1);
-  const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0xff5500, 1.5));
-  exhaustL.position.set(-1, 0, -2);
-  const exhaustR = exhaustL.clone();
-  exhaustR.position.x = 1;
-
-  // Weapons bay lines
-  const bay = new THREE.Mesh(new THREE.BoxGeometry(2, 0.05, 1.5), detailMat);
-  bay.position.set(0, -0.3, 0);
-
-  g.add(body, wingL, wingR, cockpit, intakeL, intakeR, exhaustL, exhaustR, bay);
-  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 2);
-  return g;
+function bladeMaterialForRotor() {
+  return new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.5, transparent: true, opacity: 0.6 });
 }
 
-function buildEscortBomber(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-
-  // Very large fuselage along Z axis (forward = +Z)
-  const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(1.8, 8, 4, 8), bodyMat));
-  body.rotation.x = Math.PI / 2;
-
-  // Cockpit at front (+Z)
-  const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)));
-  cockpit.position.set(0, 0.5, 4.5);
-  cockpit.rotation.x = -Math.PI / 3;
-
-  // Massive wings along X axis
-  const wingGeom = new THREE.BoxGeometry(2.5, 0.25, 10);
-  const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-1, 0.3, 0);
-  const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(1, 0.3, 0);
-
-  // 4 engines
-  const engGeom = new THREE.CylinderGeometry(0.5, 0.5, 2.5, 8);
-  const engPositions = [[-1, 0.3, 3], [-1, 0.3, -3], [1, 0.3, 3], [1, 0.3, -3]];
-  for (const p of engPositions) {
-    const eng = enableShadows(new THREE.Mesh(engGeom, detailMat));
-    eng.rotation.x = Math.PI / 2;
-    eng.position.set(p[0], p[1], p[2]);
-    g.add(eng);
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 8), glowMat(0xff4400, 1.5));
-    exhaust.rotation.x = Math.PI / 2;
-    exhaust.position.set(p[0], p[1], p[2] - 1.5);
-    g.add(exhaust);
+function buildMedHeli(group, color) {
+  const body = matteMat(color);
+  const dark = metalMat(0x222222, 0.55, 0.5);
+  const cross = glowMat(0x44ff44, 1.5);
+  const fuselage = mesh(capsuleGeo(0.7, 2.5, 10), body, [0, 0, 0], null, true);
+  fuselage.rotation.z = Math.PI / 2;
+  group.add(fuselage);
+  group.add(mesh(domeGeo(0.5, 8, 6), glassMat(0x113322), [1.2, 0.2, 0], [0, 0, -Math.PI / 2]));
+  group.add(mesh(cylGeo(0.15, 0.3, 3.5, 6), body, [-2.8, 0.2, 0], [0, 0, Math.PI / 2]));
+  group.add(mesh(boxGeo(0.8, 1.2, 0.1, 0.03), body, [-4.2, 0.8, 0]));
+  group.add(mesh(boxGeo(1.2, 0.3, 0.1, 0.02), cross, [0, 0.5, 0.75]));
+  group.add(mesh(boxGeo(0.3, 1.2, 0.1, 0.02), cross, [0, 0.5, 0.75]));
+  if (dl() >= 1) {
+    for (const sz of [-0.7, 0.7]) {
+      group.add(mesh(cylGeo(0.05, 0.05, 2.6, 6), dark, [0.2, -0.75, sz], [0, 0, Math.PI / 2]));
+      group.add(mesh(cylGeo(0.05, 0.05, 0.6, 6), dark, [0.8, -0.45, sz], [0, 0, 0.5]));
+      group.add(mesh(cylGeo(0.05, 0.05, 0.6, 6), dark, [-0.8, -0.45, sz], [0, 0, -0.5]));
+    }
   }
-
-  // Tail at rear (-Z)
-  const tailH = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 3), bodyMat));
-  tailH.position.set(0, 0.5, -5);
-  const tailV = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 2.5), bodyMat));
-  tailV.position.set(0, 2, -5);
-
-  // Defensive gun turrets (visual only, no damage)
-  const turretMat = metalMat(0x444444);
-  const turret1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 6), turretMat);
-  turret1.rotation.x = Math.PI / 2;
-  turret1.position.set(1, -1, -2);
-  g.add(turret1);
-
-  g.add(body, cockpit, wingL, wingR, tailH, tailV);
-  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 5);
-  return g;
+  group.add(mesh(boxGeo(0.5, 0.2, 1.5, 0.03), dark, [-0.5, -0.2, 1]));
+  group.add(mesh(boxGeo(0.5, 0.2, 1.5, 0.03), dark, [-0.5, -0.2, -1]));
+  group.add(mesh(cylGeo(0.4, 0.4, 0.1, 8), cross, [0, -0.5, 0]));
+  rotorAssembly(group);
+  group.add(mesh(boxGeo(0.05, 1.5, 0.2, 0.02), bladeMaterialForRotor(), [-4.2, 0.8, 0.2]));
+  group.userData.muzzleOffset = null;
+  return group;
 }
 
-// ---------- AIR ----------
-function buildHeli(g, color) {
-  const bodyMat = matteMat(color);
-  const glassMatInst = glassMat(0x113322);
-  const detailMat = metalMat(0x222222);
-
-  const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 2.5, 4, 8), bodyMat));
-  body.rotation.z = Math.PI / 2;
-
-  const cockpitFront = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMatInst));
-  cockpitFront.position.set(1.2, 0.2, 0);
-  cockpitFront.rotation.z = -Math.PI / 2;
-
-  const cockpitBack = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMatInst));
-  cockpitBack.position.set(-0.2, 0.6, 0);
-  cockpitBack.rotation.z = -Math.PI / 2;
-
-  const tail = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 3.5, 6), bodyMat));
-  tail.rotation.z = Math.PI / 2;
-  tail.position.set(-2.8, 0.2, 0);
-
-  const fin = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.1), bodyMat));
-  fin.position.set(-4.2, 0.8, 0);
-
-  const wingGeom = new THREE.BoxGeometry(0.5, 0.2, 2);
-  const wingL = enableShadows(new THREE.Mesh(wingGeom, detailMat));
-  wingL.position.set(-0.5, -0.2, 1.2);
-  const wingR = enableShadows(new THREE.Mesh(wingGeom, detailMat));
-  wingR.position.set(-0.5, -0.2, -1.2);
-
-  const missileGeom = new THREE.CylinderGeometry(0.1, 0.1, 1, 6);
-  for (let i = 0; i < 2; i++) {
-    const mL = new THREE.Mesh(missileGeom, metalMat(0x555555));
-    mL.rotation.x = Math.PI / 2;
-    mL.position.set(-0.5, -0.4, 0.8 + i * 0.8);
-    g.add(mL);
-    const mR = mL.clone();
-    mR.position.z = -(0.8 + i * 0.8);
-    g.add(mR);
-  }
-
-  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), glowMat(0xff0000, 1));
-  sensor.position.set(1.6, -0.4, 0);
-  g.add(sensor);
-
-  const rotorHub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4, 6), detailMat);
-  rotorHub.position.set(0, 1.1, 0);
-  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.5, transparent: true, opacity: 0.6 });
-  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(7, 0.05, 0.3), bladeMat);
-  blade1.position.set(0, 1.3, 0);
-  const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 7), bladeMat);
-  blade2.position.set(0, 1.3, 0);
-
-  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.5, 0.2), bladeMat);
-  tailRotor.position.set(-4.2, 0.8, 0.2);
-
-  g.add(body, cockpitFront, cockpitBack, tail, fin, wingL, wingR, sensor, rotorHub, blade1, blade2, tailRotor);
-  g.userData.muzzleOffset = new THREE.Vector3(1.6, -0.4, 0);
-  return g;
-}
-
-function buildMedHeli(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-  const glowGreen = glowMat(0x44ff44, 1.5);
-
-  const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(0.7, 2.5, 4, 8), bodyMat));
-  body.rotation.z = Math.PI / 2;
-
-  const cockpitFront = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113322)));
-  cockpitFront.position.set(1.2, 0.2, 0);
-  cockpitFront.rotation.z = -Math.PI / 2;
-
-  const tail = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 3.5, 6), bodyMat));
-  tail.rotation.z = Math.PI / 2;
-  tail.position.set(-2.8, 0.2, 0);
-
-  const fin = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.1), bodyMat));
-  fin.position.set(-4.2, 0.8, 0);
-
-  // Medical cross on side
-  const cross1 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.1), glowGreen);
-  cross1.position.set(0, 0.5, 0.75);
-  const cross2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 0.1), glowGreen);
-  cross2.position.set(0, 0.5, 0.75);
-
-  // Stub wings
-  const wingL = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.5), detailMat));
-  wingL.position.set(-0.5, -0.2, 1);
-  const wingR = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.5), detailMat));
-  wingR.position.set(-0.5, -0.2, -1);
-
-  // Sensor dish on bottom
-  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 8), glowGreen);
-  dish.position.set(0, -0.5, 0);
-
-  // Main rotor
-  const rotorHub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4, 6), detailMat);
-  rotorHub.position.set(0, 1.1, 0);
-  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.5, transparent: true, opacity: 0.6 });
-  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(7, 0.05, 0.3), bladeMat);
-  blade1.position.set(0, 1.3, 0);
-  const blade2 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 7), bladeMat);
-  blade2.position.set(0, 1.3, 0);
-
-  const tailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.5, 0.2), bladeMat);
-  tailRotor.position.set(-4.2, 0.8, 0.2);
-
-  g.add(body, cockpitFront, tail, fin, cross1, cross2, wingL, wingR, dish, rotorHub, blade1, blade2, tailRotor);
-  g.userData.muzzleOffset = null;
-  return g;
-}
-
-function buildGunship(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x222222);
-
-  const body = enableShadows(new THREE.Mesh(new THREE.CapsuleGeometry(1.5, 6, 4, 8), bodyMat));
-  body.rotation.z = Math.PI / 2;
-
-  const cockpit = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113322)));
-  cockpit.position.set(3.5, 0.5, 0);
-  cockpit.rotation.z = -Math.PI / 2;
-
-  const wings = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.3, 12), bodyMat));
-  wings.position.set(-0.5, 0.5, 0);
-
-  const engGeom = cylGeo(0.4, 0.4, 2, 12);
+function buildGunship(group, color) {
+  const body = matteMat(color);
+  const dark = metalMat(0x222222, 0.55, 0.5);
+  const fuselage = mesh(capsuleGeo(1.5, 6, 10), body, [0, 0, 0], null, true);
+  fuselage.rotation.z = Math.PI / 2;
+  weather(fuselage.geometry, 0.25);
+  group.add(fuselage);
+  group.add(mesh(domeGeo(1.2, 8, 6), glassMat(0x113322), [3.5, 0.5, 0], [0, 0, -Math.PI / 2]));
+  group.add(mesh(boxGeo(2, 0.3, 12, 0.06), body, [-0.5, 0.5, 0], null, true));
   for (let i = 0; i < 4; i++) {
-    const eng = enableShadows(new THREE.Mesh(engGeom, detailMat));
-    eng.rotation.x = Math.PI / 2;
-    eng.position.set(-0.5, 0, -4.5 + i * 3);
-
-    const exhaust = new THREE.Mesh(
-      cylGeo(0.3, 0.3, 0.2, 12),
-      glowMat(0xff5500, 2)
-    );
-    exhaust.rotation.x = Math.PI / 2;
-    exhaust.position.set(-0.5, 0, -5.5 + i * 3);
-
-    g.add(eng, exhaust);
+    group.add(mesh(cylGeo(0.4, 0.4, 2, 10), dark, [-0.5, 0, -4.5 + i * 3], [Math.PI / 2, 0, 0]));
+    group.add(mesh(cylGeo(0.3, 0.3, 0.2, 10), glowMat(0xff5500, 2), [-0.5, 0, -5.5 + i * 3], [Math.PI / 2, 0, 0]));
   }
-
-  const tailH = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 4), bodyMat));
-  tailH.position.set(-4, 0.5, 0);
-  const tailV = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 2), bodyMat));
-  tailV.position.set(-4, 1.5, 0);
-
-  const gunGeom = new THREE.CylinderGeometry(0.15, 0.15, 2.5, 6);
-  const gun1 = enableShadows(new THREE.Mesh(gunGeom, detailMat));
-  gun1.rotation.x = Math.PI / 2;
-  gun1.position.set(0, -1, 1.5);
-  const gun2 = gun1.clone();
-  gun2.position.z = -0.5;
-
-  const howitzer = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3, 8), detailMat));
-  howitzer.rotation.x = Math.PI / 2;
-  howitzer.position.set(0, -1, -2.5);
-
-  const blister = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 8), glassMat(0x2244aa));
-  blister.position.set(1, -1, 0);
-  g.add(blister);
-
-  g.add(body, cockpit, wings, tailH, tailV, gun1, gun2, howitzer);
-  g.userData.muzzleOffset = new THREE.Vector3(0, -1, 2.5);
-  return g;
+  group.add(mesh(boxGeo(1, 0.2, 4, 0.04), body, [-4, 0.5, 0]));
+  group.add(mesh(boxGeo(0.2, 2.5, 2, 0.04), body, [-4, 1.5, 0]));
+  const gunGeometry = cylGeo(0.15, 0.15, 2.5, 6);
+  group.add(mesh(gunGeometry, gunmetalMat(), [0, -1, 1.5], [Math.PI / 2, 0, 0]));
+  group.add(mesh(gunGeometry, gunmetalMat(), [0, -1, -0.5], [Math.PI / 2, 0, 0]));
+  group.add(mesh(cylGeo(0.3, 0.3, 3, 8), gunmetalMat(), [0, -1, -2.5], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) group.add(mesh(cylGeo(0.45, 0.45, 0.4, 10), dark, [0, -1, 0.4], [Math.PI / 2, 0, 0]));
+  group.add(mesh(sphereGeo(0.5, 8, 6), glassMat(0x2244aa), [1, -1, 0]));
+  navLights(group, [-0.5, 0.6, 6], [-0.5, 0.6, -6], [-4.8, 0.6, 0]);
+  group.userData.muzzleOffset = new THREE.Vector3(0, -1, 2.5);
+  return group;
 }
 
-function buildJet(g, color, scale) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-
-  // Fuselage along Z axis (forward = +Z) — use rotation.x instead of rotation.z
-  const fuselage = enableShadows(new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.4 * scale, 5 * scale, 4, 8), bodyMat
-  ));
+function buildEscortJet(group, color) {
+  const body = matteMat(color);
+  const dark = metalMat(0x333333, 0.55, 0.6);
+  const fuselage = mesh(capsuleGeo(0.5, 5, 8), body, [0, 0, 0], null, true);
   fuselage.rotation.x = Math.PI / 2;
-
-  const cockpit = enableShadows(new THREE.Mesh(
-    new THREE.SphereGeometry(0.4 * scale, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(0x113344)
-  ));
-  cockpit.position.set(0, 0.3 * scale, 2 * scale);
-  cockpit.rotation.x = -Math.PI / 3;
-
-  const wingGeom = new THREE.BoxGeometry(2 * scale, 0.1 * scale, 4 * scale);
-  const wingL = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingL.position.set(-0.5 * scale, -0.1 * scale, 0);
-  wingL.rotation.y = -0.4;
-
-  const wingR = enableShadows(new THREE.Mesh(wingGeom, bodyMat));
-  wingR.position.set(0.5 * scale, -0.1 * scale, 0);
-  wingR.rotation.y = 0.4;
-
-  const tailGeom = new THREE.BoxGeometry(1 * scale, 0.1 * scale, 1.5 * scale);
-  const tailL = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailL.position.set(-1 * scale, 0.5 * scale, -2 * scale);
-  tailL.rotation.z = -0.5;
-  const tailR = enableShadows(new THREE.Mesh(tailGeom, bodyMat));
-  tailR.position.set(1 * scale, 0.5 * scale, -2 * scale);
-  tailR.rotation.z = 0.5;
-
-  const exhaustGeom = new THREE.CylinderGeometry(0.25 * scale, 0.3 * scale, 0.5 * scale, 8);
-  const exhaustL = new THREE.Mesh(exhaustGeom, glowMat(0x44aaff, 2));
-  exhaustL.rotation.x = Math.PI / 2;
-  exhaustL.position.set(-0.4 * scale, 0, -2.5 * scale);
-  const exhaustR = exhaustL.clone();
-  exhaustR.position.x = 0.4 * scale;
-
-  const canardGeom = new THREE.BoxGeometry(0.8 * scale, 0.05 * scale, 1 * scale);
-  const canardL = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardL.position.set(-1 * scale, 0, 1.5 * scale);
-  const canardR = enableShadows(new THREE.Mesh(canardGeom, bodyMat));
-  canardR.position.set(1 * scale, 0, 1.5 * scale);
-
-  g.add(fuselage, cockpit, wingL, wingR, tailL, tailR, exhaustL, exhaustR, canardL, canardR);
-  g.userData.muzzleOffset = new THREE.Vector3(0, 0, 3 * scale);
-  return g;
+  group.add(fuselage);
+  group.add(mesh(domeGeo(0.45, 8, 6), glassMat(0x113344), [0, 0.3, 2.5], [-Math.PI / 3, 0, 0]));
+  const wingGeometry = boxGeo(2.5, 0.15, 5, 0.04);
+  group.add(mesh(wingGeometry, body, [-0.5, -0.1, 0], [0, -0.3, 0], true));
+  group.add(mesh(wingGeometry, body, [0.5, -0.1, 0], [0, 0.3, 0], true));
+  const exhaustGeometry = cylGeo(0.3, 0.35, 0.6, 8);
+  for (const sx of [-0.5, 0.5]) group.add(mesh(exhaustGeometry, glowMat(0x44aaff, 2), [sx, 0, -2.5], [Math.PI / 2, 0, 0]));
+  const tailGeometry = boxGeo(0.15, 1.5, 1.2, 0.03);
+  group.add(mesh(tailGeometry, body, [-1, 0.8, -2], [0, 0, -0.15]));
+  group.add(mesh(tailGeometry, body, [1, 0.8, -2], [0, 0, 0.15]));
+  const pylonGeometry = cylGeo(0.08, 0.08, 1.5, 6);
+  for (let i = 0; i < 2; i++) for (const sx of [-0.3, 0.3]) group.add(mesh(pylonGeometry, metalMat(0x666666, 0.5, 0.6), [sx, -0.3, 1 + i * 0.8], [Math.PI / 2, 0, 0]));
+  if (dl() >= 2) {
+    for (const sx of [-0.45, 0.45]) group.add(mesh(coneGeo(0.18, 0.5, 8), dark, [sx, 0, 1.8], [Math.PI / 2, 0, 0]));
+    for (const sx of [-1.7, 1.7]) group.add(mesh(cylGeo(0.09, 0.09, 1.6, 6), metalMat(0x777777, 0.4, 0.7), [sx, -0.05, 0.4], [Math.PI / 2, 0, 0]));
+  }
+  navLights(group, [-1.7, 0, 1], [1.7, 0, 1], [0, 0.4, -2.6]);
+  group.userData.muzzleOffset = new THREE.Vector3(0, 0, 3);
+  return group;
 }
 
-// ---------- BUILDINGS / BASES ----------
+function buildB2(group, color) {
+  const body = matteMat(mixColor(color, 0x14161c, 0.3));
+  const dark = metalMat(0x222222, 0.6, 0.4);
+  const center = mesh(seedWeather(new THREE.BoxGeometry(2, 0.6, 4)), body, [0, 0, 0], null, true);
+  weather(center.geometry, 0.2);
+  group.add(center);
+  const wingGeometry = boxGeo(5, 0.3, 3, 0.06);
+  group.add(mesh(wingGeometry, body, [-3.5, 0, 0], [0, 0.4, 0], true));
+  group.add(mesh(wingGeometry, body, [3.5, 0, 0], [0, -0.4, 0], true));
+  group.add(mesh(domeGeo(0.4, 6, 5), glassMat(0x112222), [0, 0.4, 1.5]));
+  for (const sx of [-1, 1]) group.add(mesh(boxGeo(1.5, 0.3, 0.8, 0.04), dark, [sx, 0.2, -0.5]));
+  for (const sx of [-1, 1]) group.add(mesh(boxGeo(0.8, 0.15, 1, 0.03), glowMat(0xff5500, 1.5), [sx, 0, -2]));
+  group.add(mesh(boxGeo(2, 0.05, 1.5, 0.01), dark, [0, -0.3, 0]));
+  if (dl() >= 2) for (const sx of [-2, 2]) group.add(mesh(boxGeo(0.06, 0.32, 2.8, 0.01), dark, [sx, 0, 0], [0, sx < 0 ? 0.4 : -0.4, 0]));
+  group.userData.muzzleOffset = new THREE.Vector3(0, 0, 2);
+  return group;
+}
+
+function buildEscortBomber(group, color) {
+  const body = matteMat(color);
+  const dark = metalMat(0x333333, 0.55, 0.6);
+  const fuselage = mesh(capsuleGeo(1.8, 8, 10), body, [0, 0, 0], null, true);
+  fuselage.rotation.x = Math.PI / 2;
+  weather(fuselage.geometry, 0.22);
+  group.add(fuselage);
+  group.add(mesh(domeGeo(0.8, 8, 6), glassMat(0x113344), [0, 0.5, 4.5], [-Math.PI / 3, 0, 0]));
+  const wingGeometry = boxGeo(2.5, 0.25, 10, 0.05);
+  group.add(mesh(wingGeometry, body, [-1, 0.3, 0], null, true));
+  group.add(mesh(wingGeometry, body, [1, 0.3, 0], null, true));
+  const engineGeometry = cylGeo(0.5, 0.5, 2.5, 10);
+  for (const p of [[-1, 0.3, 3], [-1, 0.3, -3], [1, 0.3, 3], [1, 0.3, -3]]) {
+    group.add(mesh(engineGeometry, dark, p, [Math.PI / 2, 0, 0]));
+    group.add(mesh(cylGeo(0.4, 0.4, 0.3, 8), glowMat(0xff4400, 1.5), [p[0], p[1], p[2] - 1.5], [Math.PI / 2, 0, 0]));
+    if (dl() >= 1) group.add(mesh(cylGeo(0.12, 0.12, 0.4, 6), dark, [p[0], p[1] + 0.5, p[2]], [Math.PI / 2, 0, 0]));
+  }
+  group.add(mesh(boxGeo(1.5, 0.2, 3, 0.04), body, [0, 0.5, -5]));
+  group.add(mesh(boxGeo(0.2, 3, 2.5, 0.04), body, [0, 2, -5]));
+  group.add(mesh(cylGeo(0.3, 0.3, 0.8, 6), metalMat(0x444444, 0.5, 0.6), [1, -1, -2], [Math.PI / 2, 0, 0]));
+  if (dl() >= 2) group.add(mesh(cylGeo(0.3, 0.3, 0.8, 6), metalMat(0x444444, 0.5, 0.6), [-1, -1, -2], [Math.PI / 2, 0, 0]));
+  navLights(group, [-2.2, 0.4, 0], [2.2, 0.4, 0], [0, 0.6, -6]);
+  group.userData.muzzleOffset = new THREE.Vector3(0, 0, 5);
+  return group;
+}
+
+function buildJet(group, color, scale) {
+  const body = matteMat(color);
+  const fuselage = mesh(capsuleGeo(0.4 * scale, 5 * scale, 8), body, [0, 0, 0], null, true);
+  fuselage.rotation.x = Math.PI / 2;
+  weather(fuselage.geometry, 0.2);
+  group.add(fuselage);
+  group.add(mesh(domeGeo(0.4 * scale, 8, 6), glassMat(0x113344), [0, 0.3 * scale, 2 * scale], [-Math.PI / 3, 0, 0]));
+  const wingGeometry = boxGeo(2 * scale, 0.1 * scale, 4 * scale, 0.03);
+  group.add(mesh(wingGeometry, body, [-0.5 * scale, -0.1 * scale, 0], [0, -0.4, 0], true));
+  group.add(mesh(wingGeometry, body, [0.5 * scale, -0.1 * scale, 0], [0, 0.4, 0], true));
+  const tailGeometry = boxGeo(1 * scale, 0.1 * scale, 1.5 * scale, 0.02);
+  group.add(mesh(tailGeometry, body, [-1 * scale, 0.5 * scale, -2 * scale], [0, 0, -0.5]));
+  group.add(mesh(tailGeometry, body, [1 * scale, 0.5 * scale, -2 * scale], [0, 0, 0.5]));
+  const exhaustGeometry = cylGeo(0.25 * scale, 0.3 * scale, 0.5 * scale, 8);
+  for (const sx of [-0.4, 0.4]) group.add(mesh(exhaustGeometry, glowMat(0x44aaff, 2), [sx * scale, 0, -2.5 * scale], [Math.PI / 2, 0, 0]));
+  const canardGeometry = boxGeo(0.8 * scale, 0.05 * scale, 1 * scale, 0.02);
+  group.add(mesh(canardGeometry, body, [-1 * scale, 0, 1.5 * scale]));
+  group.add(mesh(canardGeometry, body, [1 * scale, 0, 1.5 * scale]));
+  if (dl() >= 1) for (const sx of [-1.1, 1.1]) group.add(mesh(cylGeo(0.12 * scale, 0.12 * scale, 1.6 * scale, 6), metalMat(0x666666, 0.45, 0.65), [sx * scale, -0.2 * scale, 0.3 * scale], [Math.PI / 2, 0, 0]));
+  if (dl() >= 2) group.add(mesh(coneGeo(0.14 * scale, 0.5 * scale, 8), metalMat(0x333333, 0.5, 0.7), [0, 0.05 * scale, 2.9 * scale], [Math.PI / 2, 0, 0]));
+  navLights(group, [-1.4 * scale, 0, 0.5], [1.4 * scale, 0, 0.5], null);
+  group.userData.muzzleOffset = new THREE.Vector3(0, 0, 3 * scale);
+  return group;
+}
+
+// ---------- SMALL / SPECIAL -----------------------------------------------
+function buildMinigunnerVehicle(group, color) {
+  const body = matteMat(color);
+  const chassis = mesh(boxGeo(3.5, 1, 5, 0.06), metalMat(0x444444, 0.6, 0.5), [0, 0.8, 0], null, true);
+  const cab = mesh(boxGeo(3, 2, 3, 0.08), body, [0, 2, 0.5], null, true);
+  weather(chassis.geometry);
+  weather(cab.geometry);
+  group.add(chassis, cab);
+  headlights(group, 2.2, 2.05, [-1, 1]);
+  group.add(mesh(cylGeo(1.2, 1.5, 1, 8), metalMat(0x444444, 0.55, 0.55), [0, 2.8, 1.5], null, true));
+  const barrelGeometry = cylGeo(0.3, 0.3, 2.5, 6);
+  for (const x of [0, 0.6, -0.6]) group.add(mesh(barrelGeometry, gunmetalMat(), [x, 2.8, 3.5], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) group.add(mesh(cylGeo(0.75, 0.75, 0.5, 10), metalMat(0x333333, 0.5, 0.6), [0, 2.8, 2.6], [Math.PI / 2, 0, 0]));
+  if (dl() >= 2) group.add(mesh(boxGeo(0.7, 0.5, 0.9, 0.03), canvasMat(), [1.3, 2.6, 0]));
+  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) roadWheel(group, p[0], p[1], p[2], 0.7, 0.4);
+  group.userData.muzzleOffset = new THREE.Vector3(0, 2.8, 4.8);
+  return group;
+}
+
+function buildMegaMedic(group, color) {
+  const body = matteMat(color);
+  const steel = metalMat(0x333333, 0.55, 0.6);
+  const cross = glowMat(0x44ff44, 1.5);
+  const chassis = mesh(boxGeo(3.5, 1, 6, 0.06), steel, [0, 0.8, 0], null, true);
+  const cab = mesh(boxGeo(3, 2, 2.5, 0.08), body, [0, 2, 2.5], null, true);
+  const medicalModule = mesh(boxGeo(3.2, 2.5, 4, 0.08), body, [0, 2.5, -1], null, true);
+  weather(chassis.geometry);
+  weather(cab.geometry);
+  weather(medicalModule.geometry);
+  group.add(chassis, cab, medicalModule);
+  group.add(mesh(boxGeo(2.5, 0.4, 0.1, 0.02), cross, [0, 2.8, 1.01]));
+  group.add(mesh(boxGeo(0.4, 2.5, 0.1, 0.02), cross, [0, 2.8, 1.01]));
+  group.add(mesh(boxGeo(2.8, 1, 0.1, 0.02), glassMat(0x224422), [0, 2.8, 3.8]));
+  headlights(group, 1.9, 3.8, [-1, 1]);
+  if (dl() >= 1) group.add(mesh(cylGeo(0.5, 0.5, 0.12, 8), cross, [0, 4, -1.5]));
+  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) roadWheel(group, p[0], p[1], p[2], 0.7, 0.4);
+  return group;
+}
+
+function buildMinigunner(group, color) {
+  const body = matteMat(color);
+  const gunMaterial = gunmetalMat();
+  group.add(mesh(cylGeo(0.5, 0.6, 1.5, 6), body, [0, 1, 0], null, true));
+  group.add(mesh(sphereGeo(0.35, 8, 6), body, [0, 1.9, 0]));
+  group.add(mesh(cylGeo(0.08, 0.08, 1.5, 4), gunMaterial, [0.4, 1.3, 0.8], [Math.PI / 2, 0, 0]));
+  group.add(mesh(cylGeo(0.08, 0.08, 1.5, 4), gunMaterial, [0.6, 1.3, 0.8], [Math.PI / 2, 0, 0]));
+  if (dl() >= 1) {
+    group.add(mesh(cylGeo(0.16, 0.16, 0.35, 8), metalMat(0x333333, 0.5, 0.6), [0.5, 1.3, 0.2], [Math.PI / 2, 0, 0]));
+    group.add(mesh(boxGeo(0.5, 0.6, 0.25, 0.04), canvasMat(), [0, 1.1, -0.45]));
+  }
+  return group;
+}
+
+// ---------- BUILDINGS / BASES ---------------------------------------------
+function baseGeometry(geometry, strength) {
+  return weather(seedWeather(geometry), strength);
+}
+
 export function createBaseMesh(size = 1, isPlayer = false) {
-  const g = new THREE.Group();
+  const group = new THREE.Group();
   const baseColor = isPlayer ? 0x2266aa : 0xaa3333;
-  const wallMat = matteMat(0x555555);
-  const hqMat = matteMat(baseColor);
+  const wallMaterial = matteMat(0x555555);
+  const hqMaterial = matteMat(baseColor);
   const glowColor = isPlayer ? 0x44aaff : 0xff4444;
-
-  const wall = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(20 * size, 4, 20 * size), wallMat));
+  const wall = enableShadows(new THREE.Mesh(baseGeometry(new THREE.BoxGeometry(20 * size, 4, 20 * size), 0.4), wallMaterial), true);
   wall.position.y = 2;
-
   const trim = new THREE.Mesh(new THREE.BoxGeometry(20.2 * size, 0.2, 20.2 * size), glowMat(glowColor, 1));
   trim.position.y = 4.1;
-  g.add(trim);
-
-  const hq = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(8 * size, 8, 8 * size), hqMat));
+  group.add(trim);
+  const hq = enableShadows(new THREE.Mesh(baseGeometry(new THREE.BoxGeometry(8 * size, 8, 8 * size), 0.25), hqMaterial), true);
   hq.position.y = 8;
-
-  const winMat = glowMat(glowColor, 0.8);
+  const windowMaterial = glowMat(glowColor, 0.8);
   for (let i = 0; i < 3; i++) {
-    const win = new THREE.Mesh(new THREE.BoxGeometry(8.1 * size, 0.5, 0.5), winMat);
-    win.position.set(0, 5 + i * 2.5, 4 * size);
-    g.add(win);
-    const winBack = win.clone();
-    winBack.position.z = -4 * size;
-    g.add(winBack);
+    const window = new THREE.Mesh(new THREE.BoxGeometry(8.1 * size, 0.5, 0.5), windowMaterial);
+    window.position.set(0, 5 + i * 2.5, 4 * size);
+    const backWindow = window.clone();
+    backWindow.position.z = -4 * size;
+    group.add(window, backWindow);
   }
-
   const pad = new THREE.Mesh(new THREE.CylinderGeometry(3 * size, 3 * size, 0.1, 16), matteMat(0x333333));
   pad.position.y = 12.1;
   const padLine = new THREE.Mesh(new THREE.RingGeometry(2 * size, 2.2 * size, 16), glowMat(glowColor, 1));
   padLine.rotation.x = -Math.PI / 2;
   padLine.position.y = 12.2;
-  g.add(pad, padLine);
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 6), metalMat(0x888888));
+  group.add(pad, padLine);
+  if (dl() >= 1) {
+    for (const [px, pz] of [[-2.6, -2.6], [2.6, -2.6], [-2.6, 2.6], [2.6, 2.6]]) {
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * size, 0.12 * size, 0.5, 6), lightMat(0xffcc44));
+      beacon.position.set(px * size, 12.3, pz * size);
+      group.add(beacon);
+    }
+  }
+  if (dl() >= 2) {
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1 * size, 0.14 * size, 3 * size, 4), metalMat(0x777777, 0.5, 0.6));
+    mast.position.set(-3 * size, 13.5, -3 * size);
+    const dish = new THREE.Mesh(new THREE.BoxGeometry(1.6 * size, 1 * size, 0.15), glassMat(0x88ccff));
+    dish.position.set(-3 * size, 15 * size, -3 * size);
+    group.add(mast, dish);
+  }
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 6), metalMat(0x888888, 0.5, 0.6));
   pole.position.set(0, 15, 0);
   const flag = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 0.1), matteMat(baseColor));
   flag.position.set(1.5, 16, 0);
   flag.userData.isFlag = true;
-
-  g.add(wall, hq, pole, flag);
-  return g;
+  group.add(wall, hq, pole, flag);
+  return group;
 }
 
 export function createShipyardMesh(size = 1, isPlayer = false) {
-  const g = new THREE.Group();
+  const group = new THREE.Group();
   const baseColor = isPlayer ? 0x2266aa : 0xaa3333;
-  const concreteMat = matteMat(0x555555);
-  const metalMatInst = metalMat(0x777777, 0.6, 0.8);
+  const concreteMaterial = matteMat(0x555555);
+  const metal = metalMat(0x777777, 0.6, 0.8);
   const glowColor = isPlayer ? 0x44aaff : 0xff4444;
-
-  const dock = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(24 * size, 1.5, 20 * size), concreteMat));
+  const dock = enableShadows(new THREE.Mesh(baseGeometry(new THREE.BoxGeometry(24 * size, 1.5, 20 * size), 0.45), concreteMaterial), true);
   dock.position.y = 0.75;
-
-  const building = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(10 * size, 6, 8 * size), matteMat(baseColor)));
+  const building = enableShadows(new THREE.Mesh(baseGeometry(new THREE.BoxGeometry(10 * size, 6, 8 * size), 0.3), matteMat(baseColor)), true);
   building.position.set(-4 * size, 4.5, 0);
-
   const door = new THREE.Mesh(new THREE.BoxGeometry(4 * size, 4, 0.1), glowMat(glowColor, 0.5));
   door.position.set(-4 * size, 3.5, 4.1 * size);
-  g.add(door);
-
-  const craneLeg1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5 * size, 12, 0.5 * size), metalMatInst));
+  group.add(door);
+  const craneLeg1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(0.5 * size, 12, 0.5 * size), metal), true);
   craneLeg1.position.set(6 * size, 6, 4 * size);
   const craneLeg2 = craneLeg1.clone();
   craneLeg2.position.z = -4 * size;
-
-  const craneArm = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(12 * size, 1, 1 * size), metalMatInst));
+  const craneArm = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(12 * size, 1, 1 * size), metal));
   craneArm.position.set(8 * size, 12, 0);
-
-  const light1 = new THREE.Mesh(new THREE.SphereGeometry(0.3 * size, 8, 8), glowMat(0xffffaa, 2));
-  light1.position.set(12 * size, 11.5, 0);
-  g.add(light1);
-
-  const waterMat = new THREE.MeshStandardMaterial({ color: 0x113355, roughness: 0.1, metalness: 0.8, transparent: true, opacity: 0.8 });
-  for (let i = -1; i <= 1; i += 2) {
-    const slip = new THREE.Mesh(new THREE.BoxGeometry(4 * size, 0.5, 10 * size), waterMat);
-    slip.position.set(i * 4 * size, 0.1, 0);
-    g.add(slip);
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.3 * size, 8, 8), glowMat(0xffffaa, 2));
+  light.position.set(12 * size, 11.5, 0);
+  group.add(light);
+  const waterMaterial = new THREE.MeshStandardMaterial({ color: 0x113355, roughness: 0.1, metalness: 0.8, transparent: true, opacity: 0.8 });
+  for (const sx of [-1, 1]) {
+    const slip = new THREE.Mesh(new THREE.BoxGeometry(4 * size, 0.5, 10 * size), waterMaterial);
+    slip.position.set(sx * 4 * size, 0.1, 0);
+    group.add(slip);
   }
-
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 6), metalMat(0x888888));
+  if (dl() >= 1) {
+    for (let i = 0; i < 3; i++) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.4 * size, 1.4 * size, 1.4 * size), canvasMat(0x6a5a44));
+      crate.position.set((2 + i * 2) * size, 2.2, 6 * size);
+      group.add(crate);
+    }
+  }
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 6), metalMat(0x888888, 0.5, 0.6));
   pole.position.set(0, 15, 0);
   const flag = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 0.1), matteMat(baseColor));
   flag.position.set(1.5, 16, 0);
   flag.userData.isFlag = true;
-
-  g.add(dock, building, craneLeg1, craneLeg2, craneArm, pole, flag);
-  return g;
+  group.add(dock, building, craneLeg1, craneLeg2, craneArm, pole, flag);
+  return group;
 }
 
-// ---------- PROJECTILE ----------
+// ---------- PROJECTILES ----------------------------------------------------
 export function createProjectileMesh(domain) {
   if (domain === 'land') {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.1, 0.1, 0.8, 6),
-      glowMat(0xffaa00, 2)
-    );
-    body.rotation.x = Math.PI / 2;
-    g.add(body);
-    const trail = new THREE.Mesh(
-      new THREE.ConeGeometry(0.15, 1.5, 6),
-      new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.6 })
-    );
+    const group = new THREE.Group();
+    group.add(mesh(cylGeo(0.1, 0.1, 0.8, 6), glowMat(0xffaa00, 2), [0, 0, 0], [Math.PI / 2, 0, 0]));
+    const trail = new THREE.Mesh(coneGeo(0.15, 1.5, 6), new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.6 }));
     trail.rotation.x = -Math.PI / 2;
     trail.position.z = -1;
-    g.add(trail);
-    return g;
+    group.add(trail);
+    return group;
   }
   if (domain === 'sea') {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8),
-      metalMat(0x555566, 0.4, 0.8)
-    );
-    body.rotation.x = Math.PI / 2;
-    g.add(body);
-    const tip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.3, 0.5, 8),
-      metalMat(0x888899, 0.3, 0.9)
-    );
+    const group = new THREE.Group();
+    group.add(mesh(cylGeo(0.3, 0.3, 1.5, 8), metalMat(0x555566, 0.4, 0.8), [0, 0, 0], [Math.PI / 2, 0, 0]));
+    const tip = new THREE.Mesh(coneGeo(0.3, 0.5, 8), metalMat(0x888899, 0.3, 0.9));
     tip.rotation.x = Math.PI / 2;
     tip.position.z = 1;
-    g.add(tip);
-    return g;
+    group.add(tip);
+    return group;
   }
   if (domain === 'air') {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.15, 1.2, 8),
-      metalMat(0xcccccc, 0.5, 0.5)
-    );
-    body.rotation.x = Math.PI / 2;
-    g.add(body);
-
-    const finGeom = new THREE.BoxGeometry(0.4, 0.05, 0.2);
-    for (let i = 0; i < 4; i++) {
-      const fin = new THREE.Mesh(finGeom, metalMat(0x555555));
-      fin.position.z = -0.5;
-      fin.rotation.z = (Math.PI / 2) * i;
-      g.add(fin);
-    }
-
-    const exhaust = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.1, 0.15, 0.3, 6),
-      glowMat(0xff4400, 3)
-    );
-    exhaust.rotation.x = Math.PI / 2;
-    exhaust.position.z = -0.7;
-    g.add(exhaust);
-
-    return g;
+    const group = new THREE.Group();
+    group.add(mesh(cylGeo(0.15, 0.15, 1.2, 8), metalMat(0xcccccc, 0.5, 0.5), [0, 0, 0], [Math.PI / 2, 0, 0]));
+    const finGeometry = boxGeo(0.4, 0.05, 0.2, 0.02);
+    for (let i = 0; i < 4; i++) group.add(mesh(finGeometry, metalMat(0x555555, 0.5, 0.6), [0, 0, -0.5], [0, 0, (Math.PI / 2) * i]));
+    group.add(mesh(cylGeo(0.1, 0.15, 0.3, 6), glowMat(0xff4400, 3), [0, 0, -0.7], [Math.PI / 2, 0, 0]));
+    return group;
   }
-  return new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), glowMat(0xffaa00, 2));
-}
-
-function buildMinigunnerVehicle(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x444444);
-  const gunMat = metalMat(0x666666);
-  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 5), detailMat));
-  chassis.position.y = 0.8;
-  const body = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 2, 3), bodyMat));
-  body.position.set(0, 2, 0.5);
-  const turret = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 1, 8), detailMat));
-  turret.position.set(0, 2.8, 1.5);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.set(0, 2.8, 3.5);
-  const barrel2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
-  barrel2.rotation.x = Math.PI / 2;
-  barrel2.position.set(0.6, 2.8, 3.5);
-  const barrel3 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.5, 6), gunMat);
-  barrel3.rotation.x = Math.PI / 2;
-  barrel3.position.set(-0.6, 2.8, 3.5);
-  const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
-  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
-    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]);
-    w.rotation.z = Math.PI / 2;
-    g.add(w);
-  }
-  g.userData.muzzleOffset = new THREE.Vector3(0, 2.8, 4.8);
-  g.add(chassis, body, turret, barrel, barrel2, barrel3);
-  return g;
-}
-
-function buildMegaMedic(g, color) {
-  const bodyMat = matteMat(color);
-  const detailMat = metalMat(0x333333);
-  const crossMat = glowMat(0x44ff44, 1.5);
-  const chassis = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 6), detailMat));
-  chassis.position.y = 0.8;
-  const cab = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2.5), bodyMat));
-  cab.position.set(0, 2, 2.5);
-  const medModule = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.5, 4), bodyMat));
-  medModule.position.set(0, 2.5, -1);
-  const crossH = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.4, 0.1), crossMat);
-  crossH.position.set(0, 2.8, -1);
-  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.5, 0.1), crossMat);
-  crossV.position.set(0, 2.8, -1);
-  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1, 0.1), glassMat(0x224422));
-  windshield.position.set(0, 2.8, 3.8);
-  const wheelGeom = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 8);
-  for (const p of [[-1.7, 0.6, 2], [1.7, 0.6, 2], [-1.7, 0.6, -2], [1.7, 0.6, -2]]) {
-    const w = enableShadows(new THREE.Mesh(wheelGeom, trackMat()));
-    w.position.set(p[0], p[1], p[2]);
-    w.rotation.z = Math.PI / 2;
-    g.add(w);
-  }
-  g.add(chassis, cab, medModule, crossH, crossV, windshield);
-  return g;
-}
-
-function buildMinigunner(g, color) {
-  const bodyMat = matteMat(color);
-  const gunMat = metalMat(0x666666);
-  const body = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 1.5, 6), bodyMat));
-  body.position.y = 1;
-  const head = enableShadows(new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 6), bodyMat));
-  head.position.y = 1.9;
-  const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 4), gunMat);
-  gun.rotation.x = Math.PI / 2;
-  gun.position.set(0.4, 1.3, 0.8);
-  const gun2 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 4), gunMat);
-  gun2.rotation.x = Math.PI / 2;
-  gun2.position.set(0.6, 1.3, 0.8);
-  g.add(body, head, gun, gun2);
-  return g;
+  return new THREE.Mesh(sphereGeo(0.3, 8, 8), glowMat(0xffaa00, 2));
 }
 
 /** Marks newly-launched carrier fighters visually with a small green ring. */
 export function tagAsLaunchedFighter(group) {
   const marker = new THREE.Mesh(
-    new THREE.RingGeometry(0.5, 0.7, 16),
+    ringGeo(0.5, 0.7, 16),
     new THREE.MeshBasicMaterial({ color: 0x44ff44, side: THREE.DoubleSide })
   );
   marker.rotation.x = -Math.PI / 2;

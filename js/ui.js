@@ -1,6 +1,7 @@
 // ui.js — Modern UI with bottom dock layout and glassmorphism
 import * as THREE from 'three';
 import { UNIT_TYPES, UPGRADES, QUALITY_PRESETS, setActivePreset } from './config.js';
+import { rebuildForQuality } from './quality.js';
 import { Sound } from './sound.js';
 import { saveGame, loadSaveData, deleteSave, hasSave } from './saveLoad.js';
 import { getUnitIconDataUrl } from './unitIconRenderer.js';
@@ -896,8 +897,11 @@ export function initUI(game) {
     Object.assign(settingsState, savedSettings);
   }
 
+  let appliedQualityPreset = settingsState.qualityPreset;
+
   function applySettings() {
     const preset = QUALITY_PRESETS[settingsState.qualityPreset] || QUALITY_PRESETS.medium;
+    const qualityChanged = appliedQualityPreset !== settingsState.qualityPreset;
 
     // Apply quality preset to renderer
     if (game && game.scene && game.scene.userData && game.scene.userData.renderer) {
@@ -929,6 +933,14 @@ export function initUI(game) {
 
     // Update the active preset globally so all systems can read it
     setActivePreset(settingsState.qualityPreset);
+
+    if (qualityChanged && game) {
+      rebuildForQuality(game, settingsState.qualityPreset);
+      // Preserve the separate user shadow toggle after the tier retune.
+      const renderer = game.scene?.userData?.renderer;
+      if (renderer) renderer.shadowMap.enabled = preset.shadows && settingsState.shadows;
+    }
+    appliedQualityPreset = settingsState.qualityPreset;
 
     saveSettings();
   }

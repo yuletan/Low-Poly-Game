@@ -10,6 +10,7 @@ import { createCommandController } from './commandController.js';
 import { Sound }     from './sound.js';
 import { loadSaveData, hasSave } from './saveLoad.js';
 import { MAP_SIZE, QUALITY_PRESETS, setActivePreset, activePreset }  from './config.js';
+import { configureRenderer, configureKeyLight } from './quality.js';
 import { initFPSDisplay, recordFrameTiming } from './fpsDisplay.js';
 
 const scene = new THREE.Scene();
@@ -37,7 +38,6 @@ try {
   }
 } catch(e) {}
 setActivePreset(savedPresetKey);
-const preset = QUALITY_PRESETS[savedPresetKey];
 
 const renderer = new THREE.WebGLRenderer({
   // Phase 1 (free wins): disable AA/alpha/stencil, prefer low-latency output.
@@ -49,10 +49,8 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: 'high-performance',
   desynchronized: true,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+configureRenderer(renderer);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
-renderer.shadowMap.enabled = preset.shadows;
-renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('gameCanvas').appendChild(renderer.domElement);
 scene.userData.renderer = renderer;
 
@@ -60,10 +58,7 @@ const ambient = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffffff, 0.9);
 sun.position.set(300, 400, 200);
-sun.castShadow = preset.shadows;
-sun.shadow.mapSize.set(preset.shadowSize, preset.shadowSize);
-sun.shadow.camera.left = -600; sun.shadow.camera.right = 600;
-sun.shadow.camera.top  =  600; sun.shadow.camera.bottom = -600;
+configureKeyLight(sun);
 scene.add(sun);
 scene.userData.sun = sun;
 
