@@ -1,6 +1,6 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, AI_FIRST_ATTACK_TIME, AI_FIRST_ATTACK_FORCE, activePreset } from './config.js';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, AI_FIRST_ATTACK_TIME, AI_MIN_ATTACK_INTERVAL, AI_FIRST_ATTACK_FORCE, activePreset } from './config.js';
 import { LAND_HEIGHT } from './terrain.js';
 
 export function initAI(game) {
@@ -481,6 +481,9 @@ export function initAI(game) {
   let gameTime = 0;
   let firstAttackLaunched = false;
 
+  // Allow a second attack without ever crossing groupTarget once the min interval has passed.
+  const minAttackInterval = AI_MIN_ATTACK_INTERVAL[game.difficulty] || 15;
+
   function launchFirstAttack() {
     // Grant a free starter force near the front line so the opening assault is a real threat
     const target = pickPlayerTarget();
@@ -604,7 +607,7 @@ export function initAI(game) {
     ).length;
 
     if (attackPhase === 'building') {
-      if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= 10)) {
+      if (totalCombat >= groupTarget || (totalCombat >= AI_MIN_ATTACK_SIZE && attackCooldown >= minAttackInterval)) {
         attackPhase = 'staging';
         stagingTimer = 0;
         // Gather idle units to staging area (near strongest base)
@@ -646,7 +649,7 @@ export function initAI(game) {
         launchStagedAttack();
       }
     } else if (attackPhase === 'attacking') {
-      if (attackCooldown >= 15) {
+      if (attackCooldown >= minAttackInterval) {
         attackPhase = 'building';
         attackCooldown = 0;
         stagingUnits = [];

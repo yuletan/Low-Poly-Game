@@ -116,6 +116,8 @@ export const AI_WAVE_MAX_HOLD = 10;      // Task 9: max seconds a boarding-compl
 // ===== AI FIRST ATTACK =====
 // Guaranteed opening assault, timed per difficulty (seconds into the game).
 export const AI_FIRST_ATTACK_TIME = { easy: 30, normal: 20, hard: 10 };
+// Minimum seconds the AI waits between the start of one attack wave and the next.
+export const AI_MIN_ATTACK_INTERVAL = { easy: 20, normal: 15, hard: 10 };
 // Free starter units granted to the AI so the opening assault is a real threat.
 export const AI_FIRST_ATTACK_FORCE = {
   easy:   ['infantry', 'infantry', 'infantry', 'infantry'],

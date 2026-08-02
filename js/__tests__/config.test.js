@@ -150,4 +150,10 @@ describe('config.js - Balance & Behavior Constants', () => {
     expect(mod.AI_MAX_STAGING_UNITS).toBe(30);
   });
 
+  it('exports per-difficulty AI first-attack delay and min attack interval', async () => {
+    const mod = await import('../config.js');
+    expect(mod.AI_FIRST_ATTACK_TIME).toEqual({ easy: 30, normal: 20, hard: 10 });
+    expect(mod.AI_MIN_ATTACK_INTERVAL).toEqual({ easy: 20, normal: 15, hard: 10 });
+  });
+
 });
