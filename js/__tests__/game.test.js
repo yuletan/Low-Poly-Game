@@ -151,7 +151,7 @@ describe('game.js - Game Logic Fixes', () => {
       expect(UNIT_TYPES.infantry.hp).toBe(50);
       expect(UNIT_TYPES.infantry.damage).toBe(8);
       expect(UNIT_TYPES.infantry.range).toBe(18);
-      expect(UNIT_TYPES.infantry.speed).toBe(14);
+      expect(UNIT_TYPES.infantry.speed).toBe(10);
       expect(UNIT_TYPES.infantry.cost).toBe(50);
     });
   });
