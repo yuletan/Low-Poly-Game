@@ -294,19 +294,47 @@ function buildTank(g, color) {
 
   const frontArmor = mesh(boxGeo(4, 1, 2, 0.1), hullMat, [0, 1.5, 3], [-0.4, 0, 0]);
 
+  // Stowage box on the rear deck
+  const stowage = mesh(boxGeo(1.8, 0.6, 0.9, 0.06), detailMat, [0, 1.9, -3.1]);
+
   const trackGeom = boxGeo(0.8, 1.2, 7.5, 0.08);
   const tL = mesh(trackGeom, trackMat(), [-2.4, 0.6, 0]);
   const tR = mesh(trackGeom, trackMat(), [2.4, 0.6, 0]);
 
-  const wheelGeom = cylGeo(0.4, 0.4, 0.9, 12);
+  // Road wheels — sit outside the track slab so they read as wheels.
+  const wheelGeom = cylGeo(0.45, 0.45, 0.9, 18);
   for (let i = -3; i <= 3; i++) {
     const wL = new THREE.Mesh(wheelGeom, detailMat);
     wL.rotation.z = Math.PI / 2;
-    wL.position.set(-2.4, 0.6, i * 1.1);
+    wL.position.set(-2.8, 0.45, i * 1.1);
     g.add(wL);
     const wR = wL.clone();
-    wR.position.x = 2.4;
+    wR.position.x = 2.8;
     g.add(wR);
+  }
+
+  // Drive sprocket (rear) + idler (front)
+  const sprocketGeom = cylGeo(0.5, 0.5, 0.9, 18);
+  for (const z of [-3.7, 3.7]) {
+    const sL = new THREE.Mesh(sprocketGeom, detailMat);
+    sL.rotation.z = Math.PI / 2;
+    sL.position.set(-2.8, 0.5, z);
+    g.add(sL);
+    const sR = sL.clone();
+    sR.position.x = 2.8;
+    g.add(sR);
+  }
+
+  // Return rollers along the top run
+  const rollerGeom = cylGeo(0.18, 0.18, 0.8, 12);
+  for (const z of [-2.2, 0, 2.2]) {
+    const rL = new THREE.Mesh(rollerGeom, detailMat);
+    rL.rotation.z = Math.PI / 2;
+    rL.position.set(-2.7, 1.15, z);
+    g.add(rL);
+    const rR = rL.clone();
+    rR.position.x = 2.7;
+    g.add(rR);
   }
 
   const turret = new THREE.Group();
@@ -314,11 +342,20 @@ function buildTank(g, color) {
 
   const turretFront = mesh(boxGeo(3, 1, 1.5, 0.1), hullMat, [0, 2.4, 2], [-0.3, 0, 0]);
 
-  const cupola = mesh(cylGeo(0.4, 0.4, 0.3, 12), detailMat, [-0.8, 3.0, -0.5]);
+  // Turret bustle (ammo rack at the rear)
+  const bustle = mesh(boxGeo(2.4, 0.7, 1.1, 0.08), hullMat, [0, 2.4, -2.3]);
 
-  const barrel = mesh(cylGeo(0.2, 0.2, 5, 16), detailMat, [0, 2.5, 3.5], [Math.PI / 2, 0, 0]);
+  const cupola = mesh(cylGeo(0.4, 0.4, 0.3, 16), detailMat, [-0.8, 3.0, -0.5]);
 
-  const fume = mesh(cylGeo(0.3, 0.3, 0.6, 12), detailMat, [0, 2.5, 4.5], [Math.PI / 2, 0, 0]);
+  // Commander machine gun on the cupola
+  const mg = mesh(cylGeo(0.04, 0.04, 1.2, 6), detailMat, [-0.8, 3.35, -0.1], [Math.PI / 2, 0, 0]);
+
+  const barrel = mesh(cylGeo(0.2, 0.2, 5, 24), detailMat, [0, 2.5, 3.5], [Math.PI / 2, 0, 0]);
+
+  // Gun mantlet around the barrel base
+  const mantlet = mesh(boxGeo(1.3, 1.3, 0.5, 0.06), detailMat, [0, 2.5, 3.0]);
+
+  const fume = mesh(cylGeo(0.3, 0.3, 0.6, 16), detailMat, [0, 2.5, 4.5], [Math.PI / 2, 0, 0]);
 
   const raGeom = boxGeo(0.4, 0.4, 0.1, 0.02);
   for (let i = 0; i < 3; i++) {
@@ -328,13 +365,13 @@ function buildTank(g, color) {
     turret.add(ra);
   }
 
-  turret.add(turretBase, turretFront, cupola, barrel, fume);
+  turret.add(turretBase, turretFront, bustle, cupola, mg, barrel, mantlet, fume);
 
   const antenna = new THREE.Mesh(cylGeo(0.02, 0.02, 2, 4), detailMat);
   antenna.position.set(1, 3.5, -1);
   turret.add(antenna);
 
-  g.add(lowerHull, upperHull, frontArmor, tL, tR, turret);
+  g.add(lowerHull, upperHull, frontArmor, stowage, tL, tR, turret);
   g.userData.turret = turret;
   g.userData.muzzleOffset = new THREE.Vector3(0, 2.5, 6);
   return g;
@@ -363,17 +400,44 @@ function buildHeavyTank(g, color) {
   const tL = mesh(trackGeom, trackMat(), [-2.8, 0.7, 0]);
   const tR = mesh(trackGeom, trackMat(), [2.8, 0.7, 0]);
 
-  // Road wheels
-  const wheelGeom = cylGeo(0.5, 0.5, 1.1, 12);
+  // Road wheels — outside the track slab
+  const wheelGeom = cylGeo(0.55, 0.55, 1.1, 18);
   for (let i = -4; i <= 4; i++) {
     const wL = new THREE.Mesh(wheelGeom, detailMat);
     wL.rotation.z = Math.PI / 2;
-    wL.position.set(-2.8, 0.7, i * 1.1);
+    wL.position.set(-3.15, 0.55, i * 1.1);
     g.add(wL);
     const wR = wL.clone();
-    wR.position.x = 2.8;
+    wR.position.x = 3.15;
     g.add(wR);
   }
+
+  // Drive sprocket + idler
+  const sprocketGeom = cylGeo(0.6, 0.6, 1.1, 18);
+  for (const z of [-4.4, 4.4]) {
+    const sL = new THREE.Mesh(sprocketGeom, detailMat);
+    sL.rotation.z = Math.PI / 2;
+    sL.position.set(-3.15, 0.6, z);
+    g.add(sL);
+    const sR = sL.clone();
+    sR.position.x = 3.15;
+    g.add(sR);
+  }
+
+  // Return rollers
+  const rollerGeom = cylGeo(0.2, 0.2, 1, 12);
+  for (const z of [-3, 0, 3]) {
+    const rL = new THREE.Mesh(rollerGeom, detailMat);
+    rL.rotation.z = Math.PI / 2;
+    rL.position.set(-3.05, 1.45, z);
+    g.add(rL);
+    const rR = rL.clone();
+    rR.position.x = 3.05;
+    g.add(rR);
+  }
+
+  // Stowage on rear deck
+  const stowage = mesh(boxGeo(2.4, 0.7, 1.1, 0.06), detailMat, [0, 2.65, -3.8]);
 
   // Turret — larger, boxy with sloped sides
   const turret = new THREE.Group();
@@ -381,17 +445,26 @@ function buildHeavyTank(g, color) {
 
   const turretFront = mesh(boxGeo(4, 1.2, 2, 0.1), hullMat, [0, 3.1, 2.5], [-0.25, 0, 0]);
 
+  // Turret bustle
+  const bustle = mesh(boxGeo(3.4, 1, 1.4, 0.1), hullMat, [0, 3.1, -2.9]);
+
   // Commander cupola
-  const cupola = mesh(cylGeo(0.5, 0.5, 0.4, 12), detailMat, [-1, 3.9, -1]);
+  const cupola = mesh(cylGeo(0.5, 0.5, 0.4, 16), detailMat, [-1, 3.9, -1]);
+
+  // Commander machine gun
+  const mg = mesh(cylGeo(0.05, 0.05, 1.4, 6), detailMat, [-1, 4.15, -0.2], [Math.PI / 2, 0, 0]);
 
   // Loader hatch
-  const hatch = mesh(cylGeo(0.4, 0.4, 0.2, 12), detailMat, [1, 3.8, -0.5]);
+  const hatch = mesh(cylGeo(0.4, 0.4, 0.2, 16), detailMat, [1, 3.8, -0.5]);
 
   // Main gun — massive barrel
-  const barrel = mesh(cylGeo(0.35, 0.35, 6, 16), detailMat, [0, 3.2, 5.5], [Math.PI / 2, 0, 0]);
+  const barrel = mesh(cylGeo(0.35, 0.35, 6, 24), detailMat, [0, 3.2, 5.5], [Math.PI / 2, 0, 0]);
+
+  // Gun mantlet
+  const mantlet = mesh(boxGeo(1.9, 1.7, 0.6, 0.08), detailMat, [0, 3.2, 4.3]);
 
   // Muzzle brake
-  const muzzle = mesh(cylGeo(0.5, 0.5, 0.8, 12), detailMat, [0, 3.2, 8.5], [Math.PI / 2, 0, 0]);
+  const muzzle = mesh(cylGeo(0.5, 0.5, 0.8, 16), detailMat, [0, 3.2, 8.5], [Math.PI / 2, 0, 0]);
 
   // Reactive armor blocks on turret
   const raGeom = boxGeo(0.5, 0.5, 0.15, 0.03);
@@ -402,7 +475,7 @@ function buildHeavyTank(g, color) {
     turret.add(ra);
   }
 
-  turret.add(turretBase, turretFront, cupola, hatch, barrel, muzzle);
+  turret.add(turretBase, turretFront, bustle, cupola, mg, hatch, barrel, mantlet, muzzle);
 
   // Antenna
   const antenna = new THREE.Mesh(cylGeo(0.03, 0.03, 2.5, 4), detailMat);
@@ -415,7 +488,7 @@ function buildHeavyTank(g, color) {
   light.position.set(-1.8, 3.5, 2.5);
   turret.add(light);
 
-  g.add(lowerHull, upperHull, frontArmor, skirtL, skirtR, tL, tR, turret);
+  g.add(lowerHull, upperHull, frontArmor, skirtL, skirtR, tL, tR, stowage, turret);
   g.userData.turret = turret;
   g.userData.muzzleOffset = new THREE.Vector3(0, 3.2, 9);
   return g;
@@ -444,23 +517,56 @@ function buildCrusher(g, color) {
   const tR = enableShadows(new THREE.Mesh(trackGeom, trackMat()));
   tR.position.set(3.2, 0.9, 0);
 
-  const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 1.3, 8);
+  // Road wheels — outside the track slab
+  const wheelGeom = new THREE.CylinderGeometry(0.6, 0.6, 1.3, 16);
   for (let i = -4; i <= 4; i++) {
     const wL = new THREE.Mesh(wheelGeom, detailMat);
     wL.rotation.z = Math.PI / 2;
-    wL.position.set(-3.2, 0.9, i * 1.2);
+    wL.position.set(-3.55, 0.6, i * 1.2);
     g.add(wL);
     const wR = wL.clone();
-    wR.position.x = 3.2;
+    wR.position.x = 3.55;
     g.add(wR);
   }
+
+  // Drive sprocket + idler
+  const sprocketGeom = new THREE.CylinderGeometry(0.7, 0.7, 1.3, 16);
+  for (const z of [-5.2, 5.2]) {
+    const sL = new THREE.Mesh(sprocketGeom, detailMat);
+    sL.rotation.z = Math.PI / 2;
+    sL.position.set(-3.55, 0.65, z);
+    g.add(sL);
+    const sR = sL.clone();
+    sR.position.x = 3.55;
+    g.add(sR);
+  }
+
+  // Return rollers
+  const rollerGeom = new THREE.CylinderGeometry(0.25, 0.25, 1.2, 12);
+  for (const z of [-3.3, 0, 3.3]) {
+    const rL = new THREE.Mesh(rollerGeom, detailMat);
+    rL.rotation.z = Math.PI / 2;
+    rL.position.set(-3.45, 1.8, z);
+    g.add(rL);
+    const rR = rL.clone();
+    rR.position.x = 3.45;
+    g.add(rR);
+  }
+
+  // Stowage racks on rear deck
+  const stowageMat = metalMat(0x555555, 0.6, 0.5);
+  const stow1 = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 1.2), stowageMat));
+  stow1.position.set(-1.5, 2.15, -4.4);
+  const stow2 = stow1.clone();
+  stow2.position.x = 1.5;
+  g.add(stow1, stow2);
 
   const turret = new THREE.Group();
   const turretBase = enableShadows(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.5, 5), hullMat));
   turretBase.position.y = 3;
-  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8), detailMat));
+  const cupola = enableShadows(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 16), detailMat));
   cupola.position.set(-1, 3.9, -1);
-  const barrelGeom = new THREE.CylinderGeometry(0.25, 0.25, 5, 8);
+  const barrelGeom = new THREE.CylinderGeometry(0.25, 0.25, 5, 16);
   const barrel1 = enableShadows(new THREE.Mesh(barrelGeom, detailMat));
   barrel1.rotation.x = Math.PI / 2;
   barrel1.position.set(-0.6, 3.2, 4);
