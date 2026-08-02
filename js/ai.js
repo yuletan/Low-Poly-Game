@@ -1,6 +1,6 @@
 // ai.js — Enemy AI controller with Easy / Normal / Hard behavior.
 import * as THREE from 'three';
-import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, activePreset } from './config.js';
+import { UNIT_TYPES, DIFFICULTY, TERRAIN, AI_STAGING_TIME, AI_MIN_ATTACK_SIZE, AI_MAX_STAGING_UNITS, AI_WAVE_MAX_HOLD, TRANSPORT_STANDOFF, AI_FIRST_ATTACK_TIME, AI_FIRST_ATTACK_FORCE, activePreset } from './config.js';
 import { LAND_HEIGHT } from './terrain.js';
 
 export function initAI(game) {
@@ -476,6 +476,35 @@ export function initAI(game) {
   const groupTarget = ATTACK_GROUP_TARGET[game.difficulty] || 10;
   let attackCooldown = 0;
 
+  // NEW: Guaranteed opening assault, timed per difficulty (easy 30s / normal 20s / hard 10s)
+  const firstAttackTime = AI_FIRST_ATTACK_TIME[game.difficulty] || 30;
+  let gameTime = 0;
+  let firstAttackLaunched = false;
+
+  function launchFirstAttack() {
+    // Grant a free starter force near the front line so the opening assault is a real threat
+    const target = pickPlayerTarget();
+    const base = pickSpawnBase(target);
+    if (base) {
+      const starter = AI_FIRST_ATTACK_FORCE[game.difficulty] || ['infantry', 'infantry', 'infantry'];
+      for (const type of starter) {
+        const stats = UNIT_TYPES[type];
+        const pos = findNonOverlappingSpawn(base, stats.domain);
+        if (!pos) continue;
+        recordSpawn(pos);
+        const u = game.spawn(type, 'enemy', pos);
+        if (cfg.hpMultiplier > 1) {
+          u.maxHp = Math.round(u.maxHp * cfg.hpMultiplier);
+          u.hp = u.maxHp;
+          u._displayHp = u.hp;
+        }
+      }
+    }
+    launchAttack();
+    firstAttackLaunched = true;
+    game.flashMessage('⚠️ Enemy opening assault!');
+  }
+
   // NEW: Staging system with rally position tracking
   let stagingUnits = [];
   let stagingTimer = 0;
@@ -487,6 +516,12 @@ export function initAI(game) {
 
   game.onAITick = function (dt) {
     if (game.ended) return;
+
+    // --- Guaranteed first attack: easy 30s / normal 20s / hard 10s ---
+    gameTime += dt;
+    if (!firstAttackLaunched && gameTime >= firstAttackTime) {
+      launchFirstAttack();
+    }
 
     // --- Cheap per-frame work: income + spawn (always runs) ---
     economyTimer += dt;
