@@ -473,6 +473,37 @@ export class Unit {
     this._deathLabel.style.display = vec.z < 1 ? 'block' : 'none';
   }
 
+  /** Live troop-count label above a transport, shown while it carries units. */
+  _createCargoLabel() {
+    if (this._cargoLabel) return;
+    const label = document.createElement('div');
+    label.className = 'cargo-label';
+    document.body.appendChild(label);
+    this._cargoLabel = label;
+  }
+
+  _updateCargoLabel() {
+    const label = this._cargoLabel;
+    if (!label) return;
+    const renderer = this.game?.renderer;
+    if (!renderer?.domElement || !this.game?.camera) return;
+    const carried = this.carriedUnits?.length || 0;
+    if (carried === 0) { label.style.display = 'none'; this._lastCargoShown = false; return; }
+    const capacity = this.transportCapacity || 10;
+    label.textContent = `● ${carried}/${capacity} boarded`;
+    const vec = _deathLabelScratch;
+    vec.copy(this.mesh.position);
+    vec.y += (this._labelHeight || 4) + 1.2;
+    vec.project(this.game.camera);
+    const x = (vec.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
+    const y = (-vec.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+    label.style.left = `${x}px`;
+    label.style.top = `${y}px`;
+    label.style.display = vec.z < 1 ? 'block' : 'none';
+    this._lastCargoCount = carried;
+    this._lastCargoVisible = true;
+  }
+
   /** Phase 1: cached getTerrainAt — same (x, z) within a frame returns the stored value. */
   _terrainAt(x, z) {
     if (x === this._tcx && z === this._tcz) return this._tc;
@@ -509,6 +540,9 @@ export class Unit {
 
     // HP bar update
     this._updateHpBar(dt);
+
+    // Transport cargo counter — live label above the ship while troops are aboard
+    if (this.isTransport) this._updateCargoLabel(dt);
 
     // Hit flash — disabled on ultra low
     if (activePreset.hitFlashEnabled) this._updateHitFlash(dt);
@@ -1039,6 +1073,8 @@ export class Unit {
     unit.mesh.visible = false;
     unit.carried = true;
     unit.state = 'idle';
+    this._createCargoLabel();
+    this._updateCargoLabel();
     return true;
   }
 
@@ -2471,6 +2507,10 @@ export class Unit {
     if (this._deathLabel) {
       this._deathLabel.remove();
       this._deathLabel = null;
+    }
+    if (this._cargoLabel) {
+      this._cargoLabel.remove();
+      this._cargoLabel = null;
     }
   }
 }

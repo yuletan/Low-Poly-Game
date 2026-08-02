@@ -1331,6 +1331,24 @@ html.mobile-ui #selectionPanel {
   }
 }
 
+/* Transport cargo counter — floats above ships while troops are aboard */
+.cargo-label {
+  position: fixed;
+  pointer-events: none;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffe9a8;
+  text-shadow: 0 0 6px #e8a020, 0 0 12px #333, 1px 1px 2px #000;
+  background: rgba(20,24,20,0.6);
+  padding: 2px 8px;
+  border: 1px solid #d8b45a;
+  border-radius: 10px;
+  white-space: nowrap;
+  z-index: 95;
+  transform: translate(-50%, -100%);
+}
+
 /* Death label */
 .death-label {
   position: fixed;
